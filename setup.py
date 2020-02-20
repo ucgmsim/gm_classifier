@@ -7,5 +7,6 @@ setup(
     url="",
     description="Ground motion record classifier",
     install_requires=["numpy", "pandas"],
-    scripts=["gm_classifier/scripts/extract_features.py"],
+    scripts=["gm_classifier/scripts/extract_features.py",
+             "gm_classifier/scripts/gen_konno_matrices.py"],
 )

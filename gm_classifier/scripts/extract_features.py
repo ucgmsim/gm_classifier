@@ -83,7 +83,8 @@ def process_rf(record_ffp: str, konno_matrices: Dict[str, np.ndarray]):
     event_start_ix = math.floor(gf.comp_1st.time_delay / gf.comp_1st.delta_t)
     if gf.comp_1st.acc.size - event_start_ix < 10:
         print(
-            f"Record {record_ffp} - less than 10 elements between earthquake rupture origin time and end of record"
+            f"Record {record_ffp} - less than 10 elements between earthquake "
+            f"rupture origin time and end of record"
         )
         return None
 
@@ -103,7 +104,7 @@ def process_rf(record_ffp: str, konno_matrices: Dict[str, np.ndarray]):
         record_id,
         80,
         400,
-        None,
+        konno_matrices,
         True,
     )
 
