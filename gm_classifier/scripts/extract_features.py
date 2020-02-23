@@ -3,7 +3,7 @@ import copy
 import os
 import glob
 import argparse
-from typing import Dict
+from typing import Dict, Union
 
 import scipy.signal as signal
 import numpy as np
@@ -57,7 +57,7 @@ def adjust_gf_for_time_delay(gf):
     return gf
 
 
-def process_rf(record_ffp: str, konno_matrices: Dict[str, np.ndarray]):
+def process_rf(record_ffp: str, konno_matrices: Union[str, Dict[int, np.ndarray]]):
     """Process a single record file"""
 
     # Get the record ID
@@ -97,15 +97,15 @@ def process_rf(record_ffp: str, konno_matrices: Dict[str, np.ndarray]):
     gf.comp_2nd.acc = signal.detrend(gf.comp_2nd.acc, type="linear")
     gf.comp_up.acc = signal.detrend(gf.comp_up.acc, type="linear")
 
-    p_pick, s_pick, snr_min, snr_max, snr_average, signal_ratio_max, signal_pe_ratio_max, tail_ratio, mtail_ratio, tailnoise_ratio, mtailnoise_ratio, head_ratio, fmin, snr_a1, snr_a2, snr_a3, snr_a4, snr_a5, ft_a1, ft_a2, ft_a1_a2, ft_s1, ft_s2, ft_s1_s2, PGA, PN, PNPGA, Arias, bracketedPGA_10_20, Ds575, Ds595, zeroc = gm.features.get_features(
+    _ = gm.features.get_features(
         os.path.join("./plots/" + record_id + ".png"),
         os.path.join(record_id + ".fas"),
         gf,
         record_id,
         80,
         400,
-        konno_matrices,
-        True,
+        ko_matrices=konno_matrices,
+        plot_active=True,
     )
 
 

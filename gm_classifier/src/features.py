@@ -4,7 +4,7 @@ from Xavier Bellagamba (https://github.com/xavierbellagamba/GroundMotionRecordCl
 """
 import os
 import math
-from typing import Tuple, Dict, Union
+from typing import Tuple, Dict, Union, Any
 from collections import namedtuple
 from functools import partial
 
@@ -220,7 +220,7 @@ def get_features(
     lta_sample,
     ko_matrices: Dict[int, np.ndarray] = None,
     plot_active: bool = False,
-):
+) -> Tuple[Dict[str, float], Dict[str, float ]]:
     # Create the time vector
     t = np.arange(gf.comp_1st.acc.size) * gf.comp_1st.delta_t
 
@@ -251,7 +251,7 @@ def get_features(
     husidv, AIv, Ariasv, husid_indexv_5, husid_indexv_75, husid_indexv_95 = compute_husid(
         accv, t
     )
-    Arias = np.sqrt(Arias1 * Arias2)
+    arias = np.sqrt(Arias1 * Arias2)
 
     # Set up some modified time series for p- and s-wave picking.
     # These are multiplied by an additional 10 because it seems to make the P-wave picking better
@@ -307,14 +307,14 @@ def get_features(
     amp2_pe = np.max(np.abs(acc2[0:index]))
 
     # Compute PGA and Peak Noise (PN)
-    PGA = np.sqrt(PGA1 * PGA2)
-    PN = np.sqrt(amp1_pe * amp2_pe)
+    pga = np.sqrt(PGA1 * PGA2)
+    pn = np.sqrt(amp1_pe * amp2_pe)
     PN_average = np.sqrt(
         np.average(np.abs(acc1[0:index])) * np.average(np.abs(acc2[0:index]))
     )
 
     # Compute Peak Noise to Peak Ground Acceleration Ratio
-    pn_pga_ratio = PN / PGA
+    pn_pga_ratio = pn / pga
 
     # Compute Average Tail Ratio and Average Tail Noise Ratio
     tail_duration = min(5.0, 0.1 * t[-1])
@@ -345,7 +345,7 @@ def get_features(
         max_tail_ratio2 = tail_max2 / PGA2
         max_tail_ratiov = tail_maxv / PGAv
         max_tail_ratio = np.sqrt(max_tail_ratio1 * max_tail_ratio2)
-        max_tail_noise_ratio = max_tail_ratio / PN
+        max_tail_noise_ratio = max_tail_ratio / pn
     else:
         max_tail_ratio1 = 1.0
         max_tail_ratio2 = 1.0
@@ -559,36 +559,22 @@ def get_features(
         "snr_average_5.0_10.0": snr_values[4]
     }
 
-    return (
-        p_pick,
-        s_pick,
-        snr_min,
-        snr_max,
-        snr_average,
-        signal_ratio_max,
-        signal_pe_ratio_max,
-        average_tail_ratio,
-        max_tail_ratio,
-        average_tail_noise_ratio,
-        max_tail_noise_ratio,
-        max_head_ratio,
-        fmin,
-        snr_values,
-        fas_0p1_0p5,
-        fas_0p5_1p0,
-        fas_ratio,
-        ft_s1,
-        ft_s2,
-        ft_s1_s2,
-        PGA,
-        PN,
-        pn_pga_ratio,
-        Arias,
-        bracketed_pga_10_20,
-        ds_575,
-        ds_595,
-        zeroc,
-    )
+    additional_data = {
+        "p_pick": p_pick,
+        "s_pick": s_pick,
+        "fmin": fmin,
+        "fas_0p1_0p5": fas_0p1_0p5,
+        "fas_0p5_1p0": fas_0p5_1p0,
+        "ft_s1": ft_s1,
+        "ft_s2": ft_s2,
+        "ft_s1_s2": ft_s1_s2,
+        "pga": pga,
+        "pn": pn,
+        "arias": arias,
+        "zeroc": zeroc
+    }
+
+    return features_dict, additional_data
 
 def generate_plots():
     plt.figure(figsize=(21, 14), dpi=75)
