@@ -97,16 +97,9 @@ def process_rf(record_ffp: str, konno_matrices: Union[str, Dict[int, np.ndarray]
     gf.comp_2nd.acc = signal.detrend(gf.comp_2nd.acc, type="linear")
     gf.comp_up.acc = signal.detrend(gf.comp_up.acc, type="linear")
 
-    _ = gm.features.get_features(
-        os.path.join("./plots/" + record_id + ".png"),
-        os.path.join(record_id + ".fas"),
-        gf,
-        record_id,
-        80,
-        400,
-        ko_matrices=konno_matrices,
-        plot_active=True,
-    )
+    features, add_data = gm.features.get_features(gf, ko_matrices=konno_matrices)
+
+    return features, add_data
 
 
 def main(
@@ -193,7 +186,7 @@ if __name__ == "__main__":
         action="store_true",
         help="If specified will prioritise low memory usage over performance. "
         "Requires --ko_matrices_dir to be specified. ",
-        default=False
+        default=False,
     )
 
     args = parser.parse_args()

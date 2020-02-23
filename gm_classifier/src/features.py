@@ -212,15 +212,10 @@ def comp_fourier_data(
 
 
 def get_features(
-    loc_plot,
-    loc_fas,
     gf,
-    stat_code,
-    sta_sample,
-    lta_sample,
     ko_matrices: Dict[int, np.ndarray] = None,
-    plot_active: bool = False,
 ) -> Tuple[Dict[str, float], Dict[str, float ]]:
+
     # Create the time vector
     t = np.arange(gf.comp_1st.acc.size) * gf.comp_1st.delta_t
 
