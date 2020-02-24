@@ -8,12 +8,35 @@ from typing import Tuple, Dict, Union, Any
 from collections import namedtuple
 from functools import partial
 
-import copy
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import cumtrapz
 from obspy.signal.trigger import ar_pick, pk_baer
 from obspy.signal.konnoohmachismoothing import calculate_smoothing_matrix
+
+# Note: the order of these is important!
+FEATURE_NAMES = [
+    "signal_pe_ratio_max",
+    "signal_ratio_max",
+    "snr_min",
+    "snr_max",
+    "snr_average",
+    "average_tail_ratio",
+    "max_tail_ratio",
+    "max_tail_noise_ratio",
+    "average_tail_noise_ratio",
+    "max_head_ratio",
+    "snr_average_0.1_0.5",
+    "snr_average_0.5_1.0",
+    "snr_average_1.0_2.0",
+    "snr_average_2.0_5.0",
+    "snr_average_5.0_10.0",
+    "fas_ratio",
+    "pn_pga_ratio",
+    "bracketed_pga_10_20",
+    "ds_575",
+    "ds_595",
+]
 
 KONNO_MATRIX_FILENAME_TEMPLATE = "konno_{}.npy"
 
@@ -212,31 +235,29 @@ def comp_fourier_data(
 
 
 def get_features(
-    gf,
-    ko_matrices: Dict[int, np.ndarray] = None,
-) -> Tuple[Dict[str, float], Dict[str, float ]]:
+    gf, ko_matrices: Dict[int, np.ndarray] = None
+) -> Tuple[Dict[str, float], Dict[str, float]]:
 
     # Create the time vector
     t = np.arange(gf.comp_1st.acc.size) * gf.comp_1st.delta_t
 
-    # Set up a copy of accelerations for plotting later (they get changed by window/taper in the ft step)
-    acc1 = copy.deepcopy(gf.comp_1st.acc)
-    acc2 = copy.deepcopy(gf.comp_2nd.acc)
-    accv = copy.deepcopy(gf.comp_up.acc)
+    # Get acceleration time series
+    acc1, acc2 = gf.comp_1st.acc, gf.comp_2nd.acc
+    accv = gf.comp_up.acc
 
-    # check number of zero crossings by
-    zarray1 = np.multiply(acc1[0:-2], acc1[1:-1])
-    zindices1 = [i for (i, z) in enumerate(zarray1) if z < 0]
-    zeroc1 = len(zindices1)
+    # Check number of zero crossings by
+    z_array1 = np.multiply(acc1[0:-2], acc1[1:-1])
+    zeroc1 = np.count_nonzero(z_array1 < 0)
+
     zarray2 = np.multiply(acc2[0:-2], acc2[1:-1])
-    zindices2 = [i for (i, z) in enumerate(zarray2) if z < 0]
-    zeroc2 = len(zindices2)
+    zeroc2 = np.count_nonzero(zarray2 < 1)
+
     zarray3 = np.multiply(accv[0:-2], accv[1:-1])
-    zindices3 = [i for (i, z) in enumerate(zarray3) if z < 0]
-    zeroc3 = len(zindices3)
+    zeroc3 = np.count_nonzero(zarray3 < 0)
+
     zeroc = 10 * np.min([zeroc1, zeroc2, zeroc3]) / t[-1]
 
-    # calculate husid and Arias intensities
+    # Compute husid and Arias intensities
     husid1, AI1, Arias1, husid_index1_5, husid_index1_75, husid_index1_95 = compute_husid(
         acc1, t
     )
@@ -402,13 +423,13 @@ def get_features(
     )
 
     ft_data_1, smooth_matrix = comp_fourier_data(
-        gf.comp_1st.acc, t, gf.comp_1st.delta_t, index, ko_matrices
+        np.copy(acc1), t, gf.comp_1st.delta_t, index, ko_matrices
     )
     ft_data_2, smooth_matrix = comp_fourier_data(
-        gf.comp_2nd.acc, t, gf.comp_2nd.delta_t, index, ko_matrices
+        np.copy(acc2), t, gf.comp_2nd.delta_t, index, ko_matrices
     )
     ft_data_v, smooth_matrix = comp_fourier_data(
-        gf.comp_up.acc, t, gf.comp_up.delta_t, index, ko_matrices
+        np.copy(accv), t, gf.comp_up.delta_t, index, ko_matrices
     )
 
     # Compute geomean of fourier spectra
@@ -473,13 +494,7 @@ def get_features(
     ft_s1_s2 = ft_s1 / ft_s2
 
     # Computing SNR for the different frequency ranges
-    snr_freq_ranges = [
-        (0.1, 0.5),
-        (0.5, 1.0),
-        (1.0, 2.0),
-        (2.0, 5.0),
-        (5.0, 10.0),
-    ]
+    snr_freq_ranges = [(0.1, 0.5), (0.5, 1.0), (1.0, 2.0), (2.0, 5.0), (5.0, 10.0)]
     snr_values = []
     for freq_min, freq_max in snr_freq_ranges:
         cur_lower_index, cur_upper_index = get_freq_ix(ft_freq, freq_min, freq_max)
@@ -541,6 +556,8 @@ def get_features(
         "max_tail_noise_ratio": max_tail_noise_ratio,
         "max_head_ratio": max_head_ratio,
         "bracketed_pga_10_20": bracketed_pga_10_20,
+        "ds_575": ds_575,
+        "ds_595": ds_595,
         "signal_pe_ratio_max": signal_pe_ratio_max,
         "signal_ratio_max": signal_ratio_max,
         "fas_ratio": fas_ratio,
@@ -551,7 +568,7 @@ def get_features(
         "snr_average_0.5_1.0": snr_values[1],
         "snr_average_1.0_2.0": snr_values[2],
         "snr_average_2.0_5.0": snr_values[3],
-        "snr_average_5.0_10.0": snr_values[4]
+        "snr_average_5.0_10.0": snr_values[4],
     }
 
     additional_data = {
@@ -566,10 +583,11 @@ def get_features(
         "pga": pga,
         "pn": pn,
         "arias": arias,
-        "zeroc": zeroc
+        "zeroc": zeroc,
     }
 
     return features_dict, additional_data
+
 
 def generate_plots():
     plt.figure(figsize=(21, 14), dpi=75)
@@ -759,9 +777,7 @@ def generate_plots():
     ax = plt.subplot(437)
     plt.loglog(ft1_freq, np.abs(ft1), label="Full motion", color="blue")
     plt.loglog(ft1_freq_pe, np.abs(ft1_pe), label="Pre-event trace", color="red")
-    plt.loglog(
-        ft1_freq, smooth_ft1, label="Smoothed fm", color="green", linewidth=1.5
-    )
+    plt.loglog(ft1_freq, smooth_ft1, label="Smoothed fm", color="green", linewidth=1.5)
     plt.loglog(
         ft1_freq, smooth_ft1_pe, label="Smoothed pe", color="grey", linewidth=1.5
     )
@@ -791,9 +807,7 @@ def generate_plots():
     ax = plt.subplot(438)
     plt.loglog(ft2_freq, np.abs(ft2), label="Full motion", color="blue")
     plt.loglog(ft2_freq_pe, np.abs(ft2_pe), label="Pre-event trace", color="red")
-    plt.loglog(
-        ft2_freq, smooth_ft2, label="Smoothed fm", color="green", linewidth=1.5
-    )
+    plt.loglog(ft2_freq, smooth_ft2, label="Smoothed fm", color="green", linewidth=1.5)
     plt.loglog(
         ft2_freq, smooth_ft2_pe, label="Smoothed pe", color="grey", linewidth=1.5
     )
@@ -823,9 +837,7 @@ def generate_plots():
     ax = plt.subplot(439)
     plt.loglog(ftv_freq, np.abs(ftv), label="Full motion", color="blue")
     plt.loglog(ftv_freq_pe, np.abs(ftv_pe), label="Pre-event trace", color="red")
-    plt.loglog(
-        ftv_freq, smooth_ftv, label="Smoothed fm", color="green", linewidth=1.5
-    )
+    plt.loglog(ftv_freq, smooth_ftv, label="Smoothed fm", color="green", linewidth=1.5)
     plt.loglog(
         ftv_freq, smooth_ftv_pe, label="Smoothed pe", color="grey", linewidth=1.5
     )
@@ -889,9 +901,7 @@ def generate_plots():
     plt.loglog(ftv_freq, np.divide(smooth_gm_ft, smooth_gm_ft_pe), c="k")
     ymin, ymax = ax.get_ylim()
     plt.hlines([2.0], ft1_freq[1], ft1_freq[-1], color=["r"], linestyle="--")
-    plt.vlines(
-        [0.1, fmin], ymin, ymax, color=["r", "b"], linewidth=1, linestyle="--"
-    )
+    plt.vlines([0.1, fmin], ymin, ymax, color=["r", "b"], linewidth=1, linestyle="--")
     plt.xlabel("Frequency (Hz)")
     plt.ylabel("Geomean Signal to noise ratio")
     ax.set_xlim([0.001, 100])
