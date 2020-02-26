@@ -2,6 +2,7 @@
 Based on existing implemention
 from Xavier Bellagamba (https://github.com/xavierbellagamba/GroundMotionRecordClassifier)
 """
+import gc
 import os
 import math
 from typing import Tuple, Dict, Union, Any

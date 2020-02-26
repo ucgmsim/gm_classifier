@@ -8,14 +8,11 @@ from . import features
 from . import pre_processing as pre
 
 
-def run_original(model_dir: str, model_name: str, input_df: pd.DataFrame) -> pd.DataFrame:
+def run_original(model_name: str, input_df: pd.DataFrame) -> pd.DataFrame:
     """Runs the specified original model for the given input data
 
     Parameters
     ----------
-    model_dir: string
-        Path to the directory that contains all the original model's information,
-        i.e. weights, bias, mu, sigma, etc.
     model_name: string
         Name of the model, required for correct pre-processing
         Either canterbury or canterbury_wellington
@@ -29,6 +26,19 @@ def run_original(model_dir: str, model_name: str, input_df: pd.DataFrame) -> pd.
         either high or low quality
         Columns: [y_low, y_high]
     """
+    file_dir = os.path.dirname(__file__)
+    if model_name == "canterbury":
+        model_dir = os.path.join(file_dir, "../original_models/Canterbury/model")
+    elif model_name == "canterbury_wellington":
+        model_dir = os.path.join(
+            file_dir, "../original_models/CanterburyWellington/model"
+        )
+    else:
+        raise ValueError(
+            f"model_name of {model_name} is not valid, has to be "
+            f"one of ['canterbury', 'canterbury_wellington']"
+        )
+
     # Load the model
     cur_model = model.get_orig_model(model_dir)
 

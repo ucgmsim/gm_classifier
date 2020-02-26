@@ -56,12 +56,17 @@ def main(
     output_ffp: str,
     record_dir: str,
     event_list_ffp: str = None,
+    record_list_ffp: str = None,
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
 ):
 
     feature_df = gm.records.process_records(
-        record_dir, event_list_ffp, ko_matrices_dir, low_mem_usage=low_mem_usage
+        record_dir,
+        event_list_ffp=event_list_ffp,
+        record_list_ffp=record_list_ffp,
+        ko_matrices_dir=ko_matrices_dir,
+        low_mem_usage=low_mem_usage,
     )
     feature_df.to_csv(output_ffp)
 
@@ -76,13 +81,18 @@ if __name__ == "__main__":
         "record_dir",
         type=str,
         help="Root directory for the records, "
-             "will search for records recursively from here",
+        "will search for records recursively from here",
     )
     parser.add_argument(
         "--event_list_ffp",
         type=str,
-        help="Path to file that list all events of interest (one per line), "
-             "if None (default) all found records are used",
+        help="Path to file that lists all events to use (one per line)",
+        default=None,
+    )
+    parser.add_argument(
+        "--record_list_ffp",
+        type=str,
+        help="Path to file that lists all records to use (one per line)",
         default=None,
     )
     parser.add_argument(
@@ -105,7 +115,8 @@ if __name__ == "__main__":
     main(
         args.output_ffp,
         args.record_dir,
-        args.event_list_ffp,
+        event_list_ffp=args.event_list_ffp,
+        record_list_ffp=args.record_list_ffp,
         ko_matrices_dir=args.ko_matrices_dir,
         low_mem_usage=args.low_memory,
     )

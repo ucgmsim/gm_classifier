@@ -13,7 +13,7 @@ from . import features
 
 def process_record(
     record_ffp: str, konno_matrices: Union[str, Dict[int, np.ndarray]]
-) -> Union[None, Tuple[Dict[str, float], Dict[str, float]]]:
+) -> Union[Tuple[None, None], Tuple[Dict[str, float], Dict[str, float]]]:
     """Extracts the features from a GeoNet record file
 
     Parameters
@@ -41,7 +41,7 @@ def process_record(
     # Check that record is more than 5 seconds
     if gf.comp_1st.acc.size < 5.0 / gf.comp_1st.delta_t:
         print(f"Record {record_ffp} - length is less than 5 seconds, ignored.")
-        return None
+        return None, None
 
     # TODO: Pretty sure this has a bug in it?
     # When appended zeroes at the beginning of the record are removed, the
@@ -58,7 +58,7 @@ def process_record(
             f"Record {record_ffp} - less than 10 elements between earthquake "
             f"rupture origin time and end of record"
         )
-        return None
+        return None, None
 
     # Quick and simple (not the best) baseline correction with demean and detrend
     gf.comp_1st.acc -= gf.comp_1st.acc.mean()
@@ -79,6 +79,7 @@ def process_record(
 def process_records(
     record_dir: str,
     event_list_ffp: str = None,
+    record_list_ffp: str = None,
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
 ) -> pd.DataFrame:
@@ -124,12 +125,50 @@ def process_records(
 
         # Filter
         record_events = np.asarray(
-            [os.path.basename(record_ffp).split("_")[0] for record_ffp in record_files],
+            [
+                "_".join(os.path.basename(record_ffp).split("_")[0:-2])
+                for record_ffp in record_files
+            ],
             dtype=str,
         )
         record_files = record_files[np.isin(record_events, events_filter)]
 
-    konno_matrices = None
+        missing_events_mask = ~np.isin(events_filter, record_events)
+        if np.count_nonzero(missing_events_mask):
+            print(
+                "These events were specified in the event list, however no "
+                "records were found:\n{}".format(
+                    "\n".join(events_filter[missing_events_mask])
+                )
+            )
+    elif record_list_ffp is not None:
+        with open(record_list_ffp, "r") as f:
+            record_ids_filter = f.readlines()
+
+        # Strip and drop empty lines
+        record_ids_filter = np.asarray(
+            [event.strip() for event in record_ids_filter if len(event.strip()) > 0],
+            dtype=str,
+        )
+
+        # Filter
+        record_ids = np.asarray(
+            [
+                os.path.basename(record_ffp).split(".")[0]
+                for record_ffp in record_files
+            ],
+            dtype=str,
+        )
+        record_files = record_files[np.isin(record_ids, record_ids_filter)]
+
+        missing_records_mask = ~np.isin(record_ids_filter, record_ids)
+        if np.count_nonzero(missing_records_mask):
+            print(
+                "No matching record files were found for these records: {}".format(
+                    "\n".join(record_ids_filter[missing_records_mask])
+                )
+            )
+
     # Load the Konno matrices into memory
     if ko_matrices_dir is not None and not low_mem_usage:
         print(f"Loading Konno matrices into memory")
@@ -154,15 +193,25 @@ def process_records(
             "then the --ko_matrices_dir has to be specified"
         )
 
-    features_rows = []
-    for record in record_files:
-        cur_features, cur_add_data = process_record(
-            record, konno_matrices=konno_matrices
-        )
+    print(f"Starting processing of {record_files.size} record files")
 
-        # Cumber of zero crossings per 10 seconds less than 10 equals
+    features_rows = []
+    n_failed_records = 0
+    for ix, record_ffp in enumerate(record_files):
+        record_name = os.path.basename(record_ffp)
+        try:
+            print(f"Processing record {record_name}, {ix + 1}/{record_files.size}")
+            cur_features, cur_add_data = process_record(
+                record_ffp, konno_matrices=konno_matrices
+            )
+        except Exception as ex:
+            print(f"Record {record_name} failed with exception:\n{ex}")
+            cur_features, cur_add_data = None, None
+            n_failed_records += 1
+
+        # Number of zero crossings per 10 seconds less than 10 equals
         # means malfunctioned record
-        if cur_add_data["zeroc"] < 10:
+        if cur_add_data is None or cur_add_data["zeroc"] < 10:
             continue
 
         features_rows.append(cur_features)
@@ -170,6 +219,9 @@ def process_records(
     feature_df = pd.DataFrame(features_rows)
     feature_df.set_index("record_id", drop=True, inplace=True)
 
+    if n_failed_records > 0:
+        print(
+            f"{n_failed_records} records failed processing. "
+            f"Check the log to see what went wrong."
+        )
     return feature_df
-
-

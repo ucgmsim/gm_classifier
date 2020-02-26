@@ -10,9 +10,9 @@ def run_e2e(
     model: str,
     output_ffp: str,
     event_list_ffp: str = None,
+    record_list_ffp: str = None,
     ko_matrices_dir: str = None,
     low_memory: bool = None,
-    model_name: str = None,
 ):
     input_df = gm.records.process_records(
         record_dir,
@@ -21,14 +21,8 @@ def run_e2e(
         low_mem_usage=low_memory,
     )
 
-    if os.path.isdir(model):
-        if model_name is None:
-            raise ValueError(
-                "If a directory for an original model is given, "
-                "then the model name has to be specified"
-            )
-
-        result_df = gm.predict.run_original(model, model_name, input_df)
+    if model.strip().lower() in ["canterbury", "canterbury_wellington"]:
+        result_df = gm.predict.run_original(model, input_df)
         result_df.to_csv(output_ffp)
     else:
         raise NotImplementedError
@@ -48,7 +42,7 @@ if __name__ == "__main__":
         "model",
         type=str,
         help="Either the path to a saved keras model "
-        "or path to an original model directory",
+        "or the name of an original model (i.e. ['canterbury', 'canterbury_wellington']",
     )
     parser.add_argument("output_ffp", type=str, help="Output csv path")
     parser.add_argument(
@@ -56,6 +50,12 @@ if __name__ == "__main__":
         type=str,
         help="Path to file that list all events of interest (one per line), "
         "if None (default) all found records are used",
+        default=None,
+    )
+    parser.add_argument(
+        "--record_list_ffp",
+        type=str,
+        help="Path to file that lists all records to use (one per line)",
         default=None,
     )
     parser.add_argument(
@@ -72,14 +72,6 @@ if __name__ == "__main__":
         "Requires --ko_matrices_dir to be specified. ",
         default=False,
     )
-    parser.add_argument(
-        "--model_name",
-        type=str,
-        choices=["canterbury", "canterbury_wellington"],
-        default=None,
-        help="If an original model is used, then the name has to be set"
-        " here to allow for correct pre-processing to be used",
-    )
     args = parser.parse_args()
 
     run_e2e(
@@ -87,7 +79,7 @@ if __name__ == "__main__":
         args.model,
         args.output_ffp,
         event_list_ffp=args.event_list_ffp,
+        record_list_ffp=args.record_list_ffp,
         ko_matrices_dir=args.ko_matrices_dir,
         low_memory=args.low_memory,
-        model_name=args.model_name,
     )
