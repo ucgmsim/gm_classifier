@@ -6,7 +6,7 @@ setup(
     packages=find_packages(),
     url="",
     description="Ground motion record classifier",
-    install_requires=["numpy", "pandas", "matplotlib", "scipy"],
+    install_requires=["numpy", "pandas", "matplotlib", "scipy", "tensorflow>=2.1.0"],
     scripts=["gm_classifier/scripts/extract_features.py",
              "gm_classifier/scripts/gen_konno_matrices.py",
              "gm_classifier/scripts/run_predict.py"],
