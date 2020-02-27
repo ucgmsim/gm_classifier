@@ -43,6 +43,12 @@ def process_record(
         print(f"Record {record_ffp} - length is less than 5 seconds, ignored.")
         return None, None
 
+    # Check that all the time-series of the record have the same length
+    if not gf.comp_1st.acc.size == gf.comp_2nd.acc.size == gf.comp_up.acc.size:
+        print(f"The size of the acceleration time-series is "
+              f"different between components for record {record_ffp}")
+        return None, None
+
     # TODO: Pretty sure this has a bug in it?
     # When appended zeroes at the beginning of the record are removed, the
     # record might then be empty, skipp processing in such a case

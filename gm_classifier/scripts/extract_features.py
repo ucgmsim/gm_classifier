@@ -60,7 +60,6 @@ def main(
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
 ):
-
     feature_df = gm.records.process_records(
         record_dir,
         event_list_ffp=event_list_ffp,
