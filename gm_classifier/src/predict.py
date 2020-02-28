@@ -16,8 +16,9 @@ def run_original(model_name: str, input_df: pd.DataFrame) -> pd.DataFrame:
     model_name: string
         Name of the model, required for correct pre-processing
         Either canterbury or canterbury_wellington
-    input_data_ffp: string
-        Path to the input data to use
+    input_df: DataFrame
+        Dataframe with the features for each record to classify
+        Also expects columns event_id, station and record_id as index
 
     Returns
     -------
@@ -53,6 +54,8 @@ def run_original(model_name: str, input_df: pd.DataFrame) -> pd.DataFrame:
     input_data = pre.apply_pre_original(model_name, input_data, mu, sigma, m)
 
     result = cur_model.predict(input_data)
-    result_df = pd.DataFrame(data=result, columns=["y_low", "y_high"])
+    result_df = input_df.copy()
+    result_df["y_low"] = result[:, 0]
+    result_df["y_high"] = result[:, 1]
 
     return result_df

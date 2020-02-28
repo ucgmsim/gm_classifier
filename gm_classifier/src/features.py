@@ -286,7 +286,7 @@ def get_features(
         samp_rate=sample_rate,  # sample_rate
         f1=low_pass,  # low_pass
         f2=high_pass,  # high_pass
-        lta_p=0.0,  # P-LTA
+        lta_p=1.0,  # P-LTA
         sta_p=0.2,  # P-STA,
         lta_s=2.0,  # S-LTA
         sta_s=0.4,  # S-STA
@@ -335,7 +335,7 @@ def get_features(
 
     # Compute Average Tail Ratio and Average Tail Noise Ratio
     tail_duration = min(5.0, 0.1 * t[-1])
-    tail_length = math.ceil(tail_duration * sample_rate)
+    tail_length = int(tail_duration * sample_rate)
     tail_average1 = np.mean(np.abs(acc1[-tail_length:]))
     tail_average2 = np.mean(np.abs(acc2[-tail_length:]))
     tail_averagev = np.mean(np.abs(accv[-tail_length:]))
@@ -353,7 +353,7 @@ def get_features(
 
     # Compute Maximum Tail Ratio and Maximum Tail Noise Ratio
     max_tail_duration = min(2.0, 0.1 * t[-1])
-    max_tail_length = math.ceil(max_tail_duration * sample_rate)
+    max_tail_length = int(max_tail_duration * sample_rate)
     tail_max1 = np.max(np.abs(acc1[-max_tail_length:]))
     tail_max2 = np.max(np.abs(acc2[-max_tail_length:]))
     tail_maxv = np.max(np.abs(accv[-max_tail_length:]))
@@ -371,7 +371,7 @@ def get_features(
 
     # Compute Maximum Head Ratio
     head_duration = 1.0
-    head_length = math.ceil(head_duration * sample_rate)
+    head_length = int(head_duration * sample_rate)
     head_average1 = np.max(np.abs(acc1[0:head_length]))
     head_average2 = np.max(np.abs(acc2[0:head_length]))
     head_averagev = np.max(np.abs(accv[0:head_length]))

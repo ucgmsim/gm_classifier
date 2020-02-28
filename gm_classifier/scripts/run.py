@@ -1,5 +1,4 @@
 """Script for running end-to-end prediction from GeoNet record files"""
-import os
 import argparse
 
 import gm_classifier as gm
@@ -16,14 +15,18 @@ def run_e2e(
 ):
     input_df = gm.records.process_records(
         record_dir,
-        event_list_ffp,
+        event_list_ffp=event_list_ffp,
+        record_list_ffp=record_list_ffp,
         ko_matrices_dir=ko_matrices_dir,
         low_mem_usage=low_memory,
     )
 
+    print("Running classification")
     if model.strip().lower() in ["canterbury", "canterbury_wellington"]:
         result_df = gm.predict.run_original(model, input_df)
-        result_df.to_csv(output_ffp)
+        result_df.to_csv(
+            output_ffp,
+        )
     else:
         raise NotImplementedError
 
@@ -48,8 +51,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--event_list_ffp",
         type=str,
-        help="Path to file that list all events of interest (one per line), "
-        "if None (default) all found records are used",
+        help="Path to file that lists all events to use (one per line). "
+        "Note: in order to be able to use event filtering, the path from the "
+        "record_dir has to include a folder with the event id as its name. "
+        "Formats of event ids: just a number or "
+        "XXXXpYYYYYY (where XXXX is a valid year)",
         default=None,
     )
     parser.add_argument(

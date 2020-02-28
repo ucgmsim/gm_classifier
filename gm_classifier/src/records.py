@@ -1,7 +1,7 @@
 import os
 import math
 import glob
-from typing import Union, Tuple, Dict
+from typing import Union, Tuple, Dict, Any
 
 import numpy as np
 import pandas as pd
@@ -10,10 +10,40 @@ import scipy.signal as signal
 from .geoNet_file import GeoNet_File
 from . import features
 
+EVENT_YEARS = [str(ix) for ix in range(1950, 2050, 1)]
+
+
+def get_event_id(record_ffp: str) -> Union[str, None]:
+    for part in record_ffp.split("/"):
+        if "p" in part:
+            split_part = part.split("p")
+            if (
+                len(split_part) == 2
+                and split_part[0] in EVENT_YEARS
+                and split_part[1].isdigit()
+            ):
+                return part
+        elif part.isdigit():
+            return part
+    return None
+
+
+def get_record_id(record_ffp: str) -> str:
+    return str(os.path.basename(record_ffp).split(".")[0])
+
+
+def get_station(record_ffp: str) -> str:
+    filename = os.path.basename(record_ffp)
+    split_fname = filename.split("_")
+    if len(split_fname) == 3:
+        return str(split_fname[-1].split(".")[0])
+    else:
+        return str(split_fname[-2])
+
 
 def process_record(
     record_ffp: str, konno_matrices: Union[str, Dict[int, np.ndarray]]
-) -> Union[Tuple[None, None], Tuple[Dict[str, float], Dict[str, float]]]:
+) -> Union[Tuple[None, None], Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Extracts the features from a GeoNet record file
 
     Parameters
@@ -31,10 +61,6 @@ def process_record(
     add_data: dictionary
         Additional data
     """
-
-    # Get the record ID
-    record_id = str(os.path.basename(record_ffp).split(".")[0])
-
     # Load the file
     gf = GeoNet_File(record_ffp)
 
@@ -45,8 +71,10 @@ def process_record(
 
     # Check that all the time-series of the record have the same length
     if not gf.comp_1st.acc.size == gf.comp_2nd.acc.size == gf.comp_up.acc.size:
-        print(f"The size of the acceleration time-series is "
-              f"different between components for record {record_ffp}")
+        print(
+            f"The size of the acceleration time-series is "
+            f"different between components for record {record_ffp}"
+        )
         return None, None
 
     # TODO: Pretty sure this has a bug in it?
@@ -77,7 +105,9 @@ def process_record(
 
     input_data, add_data = features.get_features(gf, ko_matrices=konno_matrices)
 
-    input_data["record_id"] = record_id
+    input_data["record_id"] = get_record_id(record_ffp)
+    input_data["event_id"] = get_event_id(record_ffp)
+    input_data["station"] = get_station(record_ffp)
 
     return input_data, add_data
 
@@ -97,8 +127,12 @@ def process_records(
     record_dir: string
         Base record directory, a recursive search for
         GeoNet record files is done from here
-    event_list_ffp: string
+    record_list_ffp: string
         Path to a text file which contains all records (one per line)
+        to be processed. This should be a subset of records found
+        from record_dir
+    event_list_ffp: string
+        Path to a text file which contains all events (one per line)
         to be processed. This should be a subset of records found
         from record_dir
     ko_matrices_dir: str
@@ -125,17 +159,17 @@ def process_records(
 
         # Strip and drop empty lines
         events_filter = np.asarray(
-            [event.strip() for event in events_filter if len(event.strip()) > 0],
+            [
+                event_id.strip()
+                for event_id in events_filter
+                if len(event_id.strip()) > 0 and event_id.strip()[0] != "#"
+            ],
             dtype=str,
         )
 
         # Filter
         record_events = np.asarray(
-            [
-                "_".join(os.path.basename(record_ffp).split("_")[0:-2])
-                for record_ffp in record_files
-            ],
-            dtype=str,
+            [get_event_id(record_ffp) for record_ffp in record_files], dtype=str
         )
         record_files = record_files[np.isin(record_events, events_filter)]
 
@@ -153,17 +187,17 @@ def process_records(
 
         # Strip and drop empty lines
         record_ids_filter = np.asarray(
-            [event.strip() for event in record_ids_filter if len(event.strip()) > 0],
+            [
+                record_id.strip()
+                for record_id in record_ids_filter
+                if len(record_id.strip()) > 0 and record_id.strip()[0] != "#"
+            ],
             dtype=str,
         )
 
         # Filter
         record_ids = np.asarray(
-            [
-                os.path.basename(record_ffp).split(".")[0]
-                for record_ffp in record_files
-            ],
-            dtype=str,
+            [get_record_id(record_ffp) for record_ffp in record_files], dtype=str
         )
         record_files = record_files[np.isin(record_ids, record_ids_filter)]
 
