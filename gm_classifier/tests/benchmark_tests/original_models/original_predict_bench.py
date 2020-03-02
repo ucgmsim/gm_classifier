@@ -25,7 +25,7 @@ original_models_dir = os.path.join(file_dir, "../../../original_models")
 def test_orig_predict(model_name: str, input_data_ffp: str):
     # Contains both the input data and the expected output
     bench_df = pd.read_csv(input_data_ffp)
-    result = gm.predict.run_original(
+    result = gm.predict.classify_original(
         model_name, bench_df.loc[:, gm.features.FEATURE_NAMES]
     )
 

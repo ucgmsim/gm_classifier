@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Tuple
 
 import numpy as np
 
@@ -119,29 +119,40 @@ def whiten(X: np.ndarray, W: np.ndarray):
     return W.dot(X.T).T
 
 
-def get_label_from_score(scores: np.ndarray) -> np.ndarray:
+def get_label_from_score(
+    scores: np.ndarray, high_th: float = 0.99, low_th: float = 0.01
+) -> Tuple[np.ndarray, np.ndarray]:
     """Gets the binary label from the score
     I.e.
-        score > 0.5 -> 1
-        score < 0.5 -> 0
+        score > high_th -> 1
+        score < low_th -> 0
+    All records in range low_th < score < high_th are dropped
+
 
     Parameters
     ----------
     scores: numpy array of floats
         One dimensional array of scores to convert to labels
+    high_th: float
+        Score threshold for high quality records
+    low_th
+        Score threshold for low quality records
 
     Returns
     -------
     numpy array of ints
+        The labelled records
+    numpy array of bools
+        Mask indicating which records to keep as
+        their scores meet the specified high/low
+        score threshold
     """
     labels = scores.copy()
-    labels[scores > 0.5] = 1
-    labels[scores < 0.5] = 0
+    labels[scores > high_th] = 1
+    labels[scores < low_th] = 0
 
-    # Sanity check
-    assert np.all(np.isin(labels, [0.0, 1.0]))
-
-    return labels.astype(int)
+    mask = np.isin(labels, [0.0, 1.0])
+    return labels[mask].astype(int), mask
 
 
 def compute_W_ZCA(X: np.ndarray) -> np.ndarray:
@@ -169,20 +180,69 @@ def compute_W_ZCA(X: np.ndarray) -> np.ndarray:
     return np.linalg.inv(cov_X_sqrt)
 
 
+def apply(
+    X: np.ndarray,
+    deskew: Union[str, bool] = False,
+    mu: np.ndarray = None,
+    sigma: np.ndarray = None,
+    W: np.ndarray = None,
+):
+    """Applies the pre-processing
+
+    Parameters
+    ----------
+    X: numpy array of floats
+        Input data
+        Shape: [n_samples, n_features]
+    deskew: str or bool, optional
+        Applies either 'canterbury' or 'canterbury_wellington' if specified
+    mu: numpy array of floats
+    sigma: numpy array of floats
+        Standardises the data (i.e. zero mean and standard dev of one) (per feature)
+        Shape: [n_features]
+    W: numpy array of floats
+        Whitening matrix, applies whitening if specified
+        Shape: [n_feature, n_features]
+
+    Returns
+    -------
+    numpy array of floats
+        Pre-processed input data
+    """
+    if deskew is not False:
+        print(f"Applying {deskew} deskew")
+        if deskew == "canterbury":
+            X = deskew_canterbury(X)
+        elif deskew == "canterbury_wellington":
+            X = deskew_canterbury_wellington(X)
+        else:
+            raise ValueError(f"{deskew} is not a valid deskew value")
+
+    if mu is not None and sigma is not None:
+        print("Standardising input data")
+        X = standardise(X, mu, sigma)
+
+    if W is not None:
+        print("Whitening input data")
+        X = whiten(X, W)
+
+    return X
+
+
 def apply_pre_original(
-    model_name: str, data: np.ndarray, mu: np.ndarray, sigma: np.ndarray, m: np.ndarray
+    model_name: str, X: np.ndarray, mu: np.ndarray, sigma: np.ndarray, W: np.ndarray
 ):
     if model_name == "canterbury":
-        data = deskew_canterbury(data)
+        X = deskew_canterbury(X)
     elif model_name == "canterbury_wellington":
-        data = deskew_canterbury_wellington(data)
+        X = deskew_canterbury_wellington(X)
     else:
         raise ValueError(
             f"Model name {model_name} is not valid, has to be "
             f"one of ['canterbury', 'canterbury_wellington']"
         )
 
-    data = standardise(data, mu, sigma)
-    data = whiten(data, m)
+    X = standardise(X, mu, sigma)
+    X = whiten(X, W)
 
-    return data
+    return X

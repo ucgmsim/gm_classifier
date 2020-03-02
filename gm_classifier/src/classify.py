@@ -1,14 +1,68 @@
+import json
 import os
 
 import numpy as np
 import pandas as pd
+import tensorflow.keras as keras
 
 from . import model
 from . import features
 from . import pre_processing as pre
 
 
-def run_original(model_name: str, input_df: pd.DataFrame) -> pd.DataFrame:
+def classify(model_dir: str, input_df: pd.DataFrame) -> pd.DataFrame:
+    """Runs classification
+
+    Parameters
+    ----------
+    model_dir: string
+        Path to directory that contains the model and
+        pre-processing information as produced by training.train
+    input_df: Dataframe
+        Feature data, requires columns features.FEATURE_NAMES
+
+    Returns
+    -------
+    Dataframe
+        Same as input dataframe with the additional
+        columns 'y_low' and 'y_high'
+    """
+    # Load the model
+    model = keras.models.load_model(os.path.join(model_dir, "model.h5"))
+
+    # Load the config
+    with open(os.path.join(model_dir, "config.json"), "r") as f:
+        config = json.load(f)
+
+    # Apply the pre-processing
+    X = input_df.loc[:, features.FEATURE_NAMES].values
+
+    mu_ffp = os.path.join(model_dir, "mu.npy")
+    sigma_ffp = os.path.join(model_dir, "sigma.npy")
+    W_ffp = os.path.join(model_dir, "W.npy")
+
+    pre_config = config["preprocessing"]
+
+    X = pre.apply(
+        X,
+        deskew=pre_config["deskew"],
+        mu=np.load(mu_ffp) if os.path.isfile(mu_ffp) else None,
+        sigma=np.load(sigma_ffp) if os.path.isfile(sigma_ffp) else None,
+        W=np.load(W_ffp) if os.path.isfile(W_ffp) else None,
+    )
+
+    # Run classification
+    y = model.predict(X)
+
+    # Create result dataframes
+    result_df = input_df.copy()
+    result_df["y_low"] = 1 - y
+    result_df["y_high"] = y
+
+    return result_df
+
+
+def classify_original(model_name: str, input_df: pd.DataFrame) -> pd.DataFrame:
     """Runs the specified original model for the given input data
 
     Parameters

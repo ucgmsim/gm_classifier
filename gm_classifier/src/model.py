@@ -30,7 +30,12 @@ class ModelArchitecture:
         # Hidden layers
         x = None
         for ix, n_units in enumerate(self.units):
-            cur_layer = layers.Dense(n_units, activation=self.act_funcs[ix])
+            cur_layer = layers.Dense(
+                n_units,
+                activation=self.act_funcs[ix]
+                if isinstance(self.act_funcs, list)
+                else self.act_funcs,
+            )
 
             if x is None:
                 x = cur_layer(inputs)

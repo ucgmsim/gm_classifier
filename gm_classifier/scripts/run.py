@@ -23,12 +23,13 @@ def run_e2e(
 
     print("Running classification")
     if model.strip().lower() in ["canterbury", "canterbury_wellington"]:
-        result_df = gm.predict.run_original(model, input_df)
+        result_df = gm.classify.classify_original(model, input_df)
         result_df.to_csv(
             output_ffp,
         )
     else:
-        raise NotImplementedError
+        result_df = gm.classify.classify(model, input_df)
+        result_df.to_csv(output_ffp)
 
     return
 
@@ -44,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "model",
         type=str,
-        help="Either the path to a saved keras model "
+        help="Either directory of saved model (and the pre-processing information) "
         "or the name of an original model (i.e. ['canterbury', 'canterbury_wellington']",
     )
     parser.add_argument("output_ffp", type=str, help="Output csv path")

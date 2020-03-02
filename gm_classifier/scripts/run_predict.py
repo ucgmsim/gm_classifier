@@ -1,19 +1,18 @@
 import os
 import argparse
 
-import numpy as np
 import pandas as pd
 
 import gm_classifier as gm
 
 
 def run(model: str, input_data_ffp: str, output_ffp: str) -> None:
+    input_df = pd.read_csv(input_data_ffp)
     if model.strip().lower() in ["canterbury", "canterbury_wellington"]:
-        input_df = pd.read_csv(input_data_ffp)
-        result_df = gm.predict.run_original(model, input_df)
+        result_df = gm.classify.classify_original(model, input_df)
         result_df.to_csv(output_ffp)
     elif os.path.isfile(model):
-        raise NotImplementedError
+        gm.classify.classify(model, input_df)
     else:
         raise ValueError(
             "Argument models has to either be a path to "
@@ -27,7 +26,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "model",
         type=str,
-        help="Either the path to a saved keras model "
+        help="Either directory of saved model (and the pre-processing information) "
         "or the name of an original model (i.e. ['canterbury', 'canterbury_wellington']",
     )
     parser.add_argument(
