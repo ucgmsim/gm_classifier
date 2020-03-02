@@ -12,7 +12,7 @@ from functools import partial
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import cumtrapz
-from obspy.signal.trigger import ar_pick, pk_baer
+from obspy.signal.trigger import ar_pick
 from obspy.signal.konnoohmachismoothing import calculate_smoothing_matrix
 
 # Note: the order of these is important!

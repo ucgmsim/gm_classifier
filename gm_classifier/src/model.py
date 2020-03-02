@@ -7,6 +7,7 @@ import tensorflow.keras.layers as layers
 
 import gm_classifier as gm
 
+
 class ModelArchitecture:
     def __init__(
         self,
@@ -41,10 +42,20 @@ class ModelArchitecture:
 
         return keras.Model(inputs=inputs, outputs=output)
 
+    @classmethod
+    def from_dict(
+        cls, n_inputs: int, n_outputs: int, model_dict: Dict
+    ) -> "ModelArchitecture":
+        return ModelArchitecture(
+            n_inputs,
+            model_dict["units"],
+            model_dict["act_funcs"],
+            n_outputs,
+            model_dict["output_act_func"],
+        )
 
-def get_orig_model(
-    model_dir: str
-) -> keras.Model:
+
+def get_orig_model(model_dir: str) -> keras.Model:
     with open(os.path.join(model_dir, "masterF.txt"), "r") as f:
         line = f.readline()
     values = [value.strip() for value in line.split(",")]
@@ -53,7 +64,9 @@ def get_orig_model(
     weights_1 = np.loadtxt(os.path.join(model_dir, "weight_1.csv"), delimiter=",")
     bias_1 = np.loadtxt(os.path.join(model_dir, "bias_1.csv"), delimiter=",")
 
-    weights_out = np.loadtxt(os.path.join(model_dir, "weight_output.csv"), delimiter=",")
+    weights_out = np.loadtxt(
+        os.path.join(model_dir, "weight_output.csv"), delimiter=","
+    )
     bias_out = np.loadtxt(os.path.join(model_dir, "bias_output.csv"), delimiter=",")
 
     if len(values) == 7:

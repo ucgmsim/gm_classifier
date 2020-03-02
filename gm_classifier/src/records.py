@@ -32,13 +32,31 @@ def get_record_id(record_ffp: str) -> str:
     return str(os.path.basename(record_ffp).split(".")[0])
 
 
-def get_station(record_ffp: str) -> str:
+def get_station(record_ffp: str) -> Union[str, None]:
     filename = os.path.basename(record_ffp)
     split_fname = filename.split("_")
     if len(split_fname) == 3:
         return str(split_fname[-1].split(".")[0])
-    else:
+    elif len(split_fname) in [2, 4]:
         return str(split_fname[-2])
+    else:
+        return None
+
+
+def get_record_ids_filter(record_list_ffp: str) -> np.ndarray:
+    """Gets the record IDs from the specified record list"""
+    with open(record_list_ffp, "r") as f:
+        record_ids_filter = f.readlines()
+
+    # Strip and drop empty lines
+    return np.asarray(
+        [
+            record_id.strip()
+            for record_id in record_ids_filter
+            if len(record_id.strip()) > 0 and record_id.strip()[0] != "#"
+        ],
+        dtype=str,
+    )
 
 
 def process_record(
@@ -182,18 +200,7 @@ def process_records(
                 )
             )
     elif record_list_ffp is not None:
-        with open(record_list_ffp, "r") as f:
-            record_ids_filter = f.readlines()
-
-        # Strip and drop empty lines
-        record_ids_filter = np.asarray(
-            [
-                record_id.strip()
-                for record_id in record_ids_filter
-                if len(record_id.strip()) > 0 and record_id.strip()[0] != "#"
-            ],
-            dtype=str,
-        )
+        record_ids_filter = get_record_ids_filter(record_list_ffp)
 
         # Filter
         record_ids = np.asarray(

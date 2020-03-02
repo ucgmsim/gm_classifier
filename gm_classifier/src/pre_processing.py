@@ -101,22 +101,72 @@ def standardise(
     return (data - mu) / sigma
 
 
-def decorrelate(data: np.ndarray, m: np.ndarray):
+def whiten(X: np.ndarray, W: np.ndarray):
     """Decorrolates the data using the
     Mahalanobis transform
 
     Parameters
     ----------
-    data: numpy array of floats
-    m: numpy array of floats
-        Mahalanobis matrix to use
+    X: numpy array of floats
+    W: numpy array of floats
+        Whitening matrix to use
 
     Returns
     -------
     data: numpy array of floats
         Decorrelated data
     """
-    return m.dot(data.T).T
+    return W.dot(X.T).T
+
+
+def get_label_from_score(scores: np.ndarray) -> np.ndarray:
+    """Gets the binary label from the score
+    I.e.
+        score > 0.5 -> 1
+        score < 0.5 -> 0
+
+    Parameters
+    ----------
+    scores: numpy array of floats
+        One dimensional array of scores to convert to labels
+
+    Returns
+    -------
+    numpy array of ints
+    """
+    labels = scores.copy()
+    labels[scores > 0.5] = 1
+    labels[scores < 0.5] = 0
+
+    # Sanity check
+    assert np.all(np.isin(labels, [0.0, 1.0]))
+
+    return labels.astype(int)
+
+
+def compute_W_ZCA(X: np.ndarray) -> np.ndarray:
+    """
+    Computes the ZCA (or Mahalanobis) whitening matrix
+
+    Parameters
+    ----------
+    X: numpy array of floats
+        The data for which to compute the whitening matrix
+        Shape: [n_samples, n_features]
+
+    Returns
+    -------
+    numpy array of floats
+        Whitening matrix of shape [n_features, n_features]
+    """
+    cov_X = np.cov(X, rowvar=False)
+
+    # Compute square root of cov(X)
+    (L, V) = np.linalg.eig(cov_X)
+    cov_X_sqrt = V.dot(np.diag(np.sqrt(L))).dot(V.T)
+
+    # Compute inverse
+    return np.linalg.inv(cov_X_sqrt)
 
 
 def apply_pre_original(
@@ -133,6 +183,6 @@ def apply_pre_original(
         )
 
     data = standardise(data, mu, sigma)
-    data = decorrelate(data, m)
+    data = whiten(data, m)
 
     return data
