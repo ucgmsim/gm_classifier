@@ -1,55 +1,6 @@
-import copy
 import argparse
 
-import numpy as np
-
 import gm_classifier as gm
-
-
-def adjust_for_time_delay(ts, dt, shift):
-    """
-        ts: time series data
-    """
-    t0_index = int(shift / dt)
-    if t0_index == 0:
-        num_pts = ts.size
-    elif t0_index > 0:
-        ts = np.concatenate((np.zeros(t0_index), ts))
-        num_pts = ts.size
-    elif t0_index < 0:
-        ts = ts[np.abs(t0_index) :]
-        num_pts = ts.size
-
-    return ts, num_pts, dt
-
-
-def adjust_gf_for_time_delay(gf):
-    """
-    Note:
-        Only works with geoNet Vol1 data
-    gf:
-        is of type geoNet_file
-    returns:
-        a deep copy of gf, leaving the original untouched
-    """
-    gf = copy.deepcopy(gf)
-    gf.comp_1st.acc, _, _ = adjust_for_time_delay(
-        gf.comp_1st.acc, gf.comp_1st.delta_t, gf.comp_1st.time_delay
-    )
-    gf.comp_1st.time_delay = 0.0
-
-    gf.comp_2nd.acc, _, _ = adjust_for_time_delay(
-        gf.comp_2nd.acc, gf.comp_2nd.delta_t, gf.comp_2nd.time_delay
-    )
-
-    gf.comp_2nd.time_delay = 0.0
-
-    gf.comp_up.acc, _, _ = adjust_for_time_delay(
-        gf.comp_up.acc, gf.comp_up.delta_t, gf.comp_up.time_delay
-    )
-    gf.comp_up.time_delay = 0.0
-
-    return gf
 
 
 def main(
@@ -66,8 +17,8 @@ def main(
         record_list_ffp=record_list_ffp,
         ko_matrices_dir=ko_matrices_dir,
         low_mem_usage=low_mem_usage,
+        output_ffp=output_ffp
     )
-    feature_df.to_csv(output_ffp)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 import os
 import math
 import glob
-from typing import Union, Tuple, Dict, Any
+from typing import Union, Tuple, Dict, Any, List
 
 import numpy as np
 import pandas as pd
@@ -124,6 +124,15 @@ def process_record(
 
     input_data, add_data = features.get_features(gf, ko_matrices=konno_matrices)
 
+    # Number of zero crossings per 10 seconds less than 10 equals
+    # means malfunctioned record
+    if add_data is None or add_data["zeroc"] < 10:
+        print(
+            "Number of zero crossings per 10 seconds "
+            "less than 10 -> malfunctioned record"
+        )
+        return None, None
+
     input_data["record_id"] = get_record_id(record_ffp)
     input_data["event_id"] = get_event_id(record_ffp)
     input_data["station"] = get_station(record_ffp)
@@ -137,6 +146,7 @@ def process_records(
     record_list_ffp: str = None,
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
+    output_ffp: str = None,
 ) -> pd.DataFrame:
     """Processes a set of record files, allows filtering of which
     records to process
@@ -146,27 +156,45 @@ def process_records(
     record_dir: string
         Base record directory, a recursive search for
         GeoNet record files is done from here
-    record_list_ffp: string
+    record_list_ffp: string, optional
         Path to a text file which contains all records (one per line)
         to be processed. This should be a subset of records found
         from record_dir
-    event_list_ffp: string
+    event_list_ffp: string, optional
         Path to a text file which contains all events (one per line)
         to be processed. This should be a subset of records found
         from record_dir
-    ko_matrices_dir: str
+    ko_matrices_dir: str, optional
         Path to directory that contains the Konno
         matrices generated with gen_konno_matrices.py
-    low_mem_usage: bool
+    low_mem_usage: bool, optional
         If true, then Konno matrices are loaded on-the-fly
         versus loading all into memory initially. This will result in
         a performance drop when processing a large number of records
+    output_ffp: string, optional
+        Output path, file is regularly backed up to this file during processing,
+        all records already existing in this file are skipped
 
     Returns
     -------
     pandas dataframe
         Dataframe with the features of all the processed records
     """
+
+    def write(feature_df: pd.DataFrame, feature_rows: List):
+        print("Writing results..")
+        cur_feature_df = pd.DataFrame(feature_rows)
+        cur_feature_df.set_index("record_id", drop=True, inplace=True)
+
+        feature_df = (
+            pd.concat([feature_df, cur_feature_df])
+            if feature_df is not None
+            else cur_feature_df
+        )
+        feature_df.to_csv(output_ffp)
+
+        return feature_df
+
     record_files = np.asarray(
         glob.glob(os.path.join(record_dir, "**/*.V1A"), recursive=True), dtype=str
     )
@@ -243,8 +271,20 @@ def process_records(
 
     print(f"Starting processing of {record_files.size} record files")
 
-    features_rows = []
-    n_failed_records = 0
+    feature_df = None
+    if output_ffp is not None and os.path.isfile(output_ffp):
+        print(
+            "Output file already exists, filtering out record files that "
+            "have already been processed"
+        )
+        feature_df = pd.read_csv(output_ffp, index_col="record_id")
+
+        # Filter, as to not process already processed records
+        record_ids = [get_record_id(record_ffp) for record_ffp in record_files]
+        record_files = record_files[~np.isin(record_ids, feature_df.index.values)]
+
+    feature_rows = []
+    failed_records = []
     for ix, record_ffp in enumerate(record_files):
         record_name = os.path.basename(record_ffp)
         try:
@@ -255,21 +295,27 @@ def process_records(
         except Exception as ex:
             print(f"Record {record_name} failed with exception:\n{ex}")
             cur_features, cur_add_data = None, None
-            n_failed_records += 1
+            failed_records.append(record_ffp)
 
-        # Number of zero crossings per 10 seconds less than 10 equals
-        # means malfunctioned record
-        if cur_add_data is None or cur_add_data["zeroc"] < 10:
-            continue
+        if cur_features is not None:
+            feature_rows.append(cur_features)
 
-        features_rows.append(cur_features)
+        if output_ffp is not None and ix % 100 == 0 and ix > 0:
+            feature_df = write(feature_df, feature_rows)
+            feature_rows = []
 
-    feature_df = pd.DataFrame(features_rows)
-    feature_df.set_index("record_id", drop=True, inplace=True)
+    # Save
+    if feature_df is not None:
+        feature_df = write(feature_df, feature_rows)
+    # Just return the results
+    else:
+        feature_df = pd.DataFrame(feature_rows)
+        feature_df.set_index("record_id", drop=True, inplace=True)
 
-    if n_failed_records > 0:
+    if len(failed_records) > 0:
         print(
-            f"{n_failed_records} records failed processing. "
-            f"Check the log to see what went wrong."
+            "The following records failed processing:\n {}".format(
+                "\n".join(failed_records)
+            )
         )
     return feature_df
