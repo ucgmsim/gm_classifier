@@ -14,6 +14,7 @@ EVENT_YEARS = [str(ix) for ix in range(1950, 2050, 1)]
 
 
 def get_event_id(record_ffp: str) -> Union[str, None]:
+    event_id = None
     for part in record_ffp.split("/"):
         if "p" in part:
             split_part = part.split("p")
@@ -23,9 +24,9 @@ def get_event_id(record_ffp: str) -> Union[str, None]:
                 and split_part[1].isdigit()
             ):
                 return part
-        elif part.isdigit():
-            return part
-    return None
+        elif part.isdigit() and event_id is None:
+            event_id = part
+    return event_id
 
 
 def get_record_id(record_ffp: str) -> str:
