@@ -295,7 +295,7 @@ def process_records(
         if cur_features is not None:
             feature_rows.append(cur_features)
 
-        if output_ffp is not None and ix % 100 == 0 and ix > 0:
+        if output_ffp is not None and ix % 100 == 0 and ix > 0 and len(feature_rows) > 0:
             feature_df = write(feature_df, feature_rows)
             feature_rows = []
 
