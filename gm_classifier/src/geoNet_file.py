@@ -1,6 +1,3 @@
-"""Contains class for loading & parsing of GeoNet record file,
-code is from https://github.com/xavierbellagamba/GroundMotionRecordClassifier"""
-
 _sample_file_header_format=\
 """\
 Uncorrected accelerogram 20160214_001343_NBLC_20 GNS Science

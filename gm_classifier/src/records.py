@@ -1,3 +1,4 @@
+import copy
 import os
 import math
 import glob
@@ -96,22 +97,16 @@ def process_record(
         )
         return None, None
 
-    # TODO: Pretty sure this has a bug in it?
-    # When appended zeroes at the beginning of the record are removed, the
-    # record might then be empty, skipp processing in such a case
-    # agf=adjust_gf_for_time_delay(gf)
-    # if agf.comp_1st.acc.size <= 10:
-    #     print(f"Record {record_ffp} - less than 10 elements between earthquake rupture origin time and end of record")
-    #     return None
-
-    # Ensure time delay adjusted time-series still has more than 10 elements
-    event_start_ix = math.floor(gf.comp_1st.time_delay / gf.comp_1st.delta_t)
-    if gf.comp_1st.acc.size - event_start_ix < 10:
-        print(
-            f"Record {record_ffp} - less than 10 elements between earthquake "
-            f"rupture origin time and end of record"
-        )
-        return None, None
+    # Ensure time delay adjusted timeseries still has more than 10 elements
+    # Time delay < 0 when buffer start time is before event start time
+    if gf.comp_1st.time_delay < 0:
+        event_start_ix = math.floor(-1 * gf.comp_1st.time_delay / gf.comp_1st.delta_t)
+        if gf.comp_1st.acc.size - event_start_ix < 10:
+            print(
+                f"Record {record_ffp} - less than 10 elements between earthquake "
+                f"rupture origin time and end of record"
+            )
+            return None, None
 
     # Quick and simple (not the best) baseline correction with demean and detrend
     gf.comp_1st.acc -= gf.comp_1st.acc.mean()
