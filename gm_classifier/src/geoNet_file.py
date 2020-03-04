@@ -1,3 +1,6 @@
+class EmptyFile(Exception):
+    pass
+
 _sample_file_header_format=\
 """\
 Uncorrected accelerogram 20160214_001343_NBLC_20 GNS Science
@@ -345,6 +348,9 @@ class GeoNet_File(object):
     def _parse(self):
         with open(self.record_ffp, "r") as f:
             lines = f.readlines()
+
+        if len(lines) == 0:
+            raise EmptyFile(f"This GeoNet file {self.record_ffp} is empty.")
 
         self.comp_1st, self.comp_2nd, self.comp_up = (
                     FileComponent() for i in range(3))

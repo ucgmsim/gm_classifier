@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import scipy.signal as signal
 
-from .geoNet_file import GeoNet_File
+from .geoNet_file import GeoNet_File, EmptyFile
 from . import features
 
 EVENT_YEARS = [str(ix) for ix in range(1950, 2050, 1)]
@@ -82,18 +82,23 @@ def process_record(
         Additional data
     """
     # Load the file
-    gf = GeoNet_File(record_ffp)
+    record_filename = os.path.basename(record_ffp)
+    try:
+        gf = GeoNet_File(record_ffp)
+    except EmptyFile as ex:
+        print(f"Record {record_filename} - File is empty")
+        return None, None
 
     # Check that record is more than 5 seconds
     if gf.comp_1st.acc.size < 5.0 / gf.comp_1st.delta_t:
-        print(f"Record {record_ffp} - length is less than 5 seconds, ignored.")
+        print(f"Record {record_filename} - length is less than 5 seconds, ignored.")
         return None, None
 
     # Check that all the time-series of the record have the same length
     if not gf.comp_1st.acc.size == gf.comp_2nd.acc.size == gf.comp_up.acc.size:
         print(
-            f"The size of the acceleration time-series is "
-            f"different between components for record {record_ffp}"
+            f"Record {record_filename} - The size of the acceleration time-series is "
+            f"different between components"
         )
         return None, None
 
@@ -103,7 +108,7 @@ def process_record(
         event_start_ix = math.floor(-1 * gf.comp_1st.time_delay / gf.comp_1st.delta_t)
         if gf.comp_1st.acc.size - event_start_ix < 10:
             print(
-                f"Record {record_ffp} - less than 10 elements between earthquake "
+                f"Record {record_filename} - less than 10 elements between earthquake "
                 f"rupture origin time and end of record"
             )
             return None, None
@@ -123,8 +128,8 @@ def process_record(
     # means malfunctioned record
     if add_data is None or add_data["zeroc"] < 10:
         print(
-            "Number of zero crossings per 10 seconds "
-            "less than 10 -> malfunctioned record"
+            f"Record {record_filename} - Number of zero crossings per 10 seconds "
+            f"less than 10 -> malfunctioned record"
         )
         return None, None
 

@@ -1,4 +1,4 @@
-from .geoNet_file import GeoNet_File
+from .geoNet_file import GeoNet_File, EmptyFile
 
 from . import features
 from . import model
