@@ -161,7 +161,7 @@ features_df = pd.read_csv(features_ffp, index_col="record_id")
 label_df = pd.read_csv(label_ffp, index_col="record_id")
 
 # Run the training
-gm.training.train(output_dir, features_df, label_df, config, val_split=0.1)
+gm.training.run_trainining(output_dir, features_df, label_df, config, val_split=0.1)
 
 # Classify
 result_df = gm.classify.classify(output_dir, features_df)

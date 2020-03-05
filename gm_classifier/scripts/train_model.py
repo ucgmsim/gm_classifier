@@ -29,7 +29,7 @@ def train(
         else None
     )
 
-    gm.training.train(
+    gm.training.run_trainining(
         output_dir,
         features_df,
         label_df,

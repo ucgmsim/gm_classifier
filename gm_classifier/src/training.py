@@ -1,6 +1,7 @@
 import json
 import os
-from typing import Dict, Tuple
+from pathlib import Path
+from typing import Dict, Tuple, Union
 
 import pandas as pd
 import numpy as np
@@ -12,15 +13,20 @@ from . import model
 from . import pre_processing as pre
 
 
-def train(
-    output_dir: str,
+def run_trainining(
+    output_dir: Path,
     features_df: pd.DataFrame,
     label_df: pd.DataFrame,
     config: Dict,
     record_ids_filter: np.ndarray = None,
     val_split: float = 0.1,
     score_th: Tuple[float, float] = (0.01, 0.99),
-) -> None:
+) -> Tuple[
+    pd.DataFrame,
+    Dict,
+    Tuple[np.ndarray, np.ndarray, np.ndarray],
+    Tuple[np.ndarray, np.ndarray, np.ndarray],
+]:
     """Trains a model and saves the results
     in the specified output directory
 
@@ -53,6 +59,7 @@ def train(
     """
     # Get the training data
     train_df = pd.merge(features_df, label_df, left_index=True, right_index=True)
+    train_df.to_csv(output_dir / "training_data.csv")
 
     # Some sanity checks
     assert np.all(np.isin(features.FEATURE_NAMES, features_df.columns.values))
@@ -73,7 +80,7 @@ def train(
                 )
             )
 
-    # Get labels from scores
+    # Get training data
     y, mask = pre.get_label_from_score(
         train_df.loc[:, "score"].values, low_th=score_th[0], high_th=score_th[1]
     )
@@ -100,10 +107,54 @@ def train(
         X_train, y_train, ids_train = X, y, ids
         X_val, y_val, ids_val = None, None, None
 
+    history, X_train, X_val = train(
+        output_dir,
+        config,
+        (X_train, y_train, ids_train),
+        val_data=(X_val, y_val, ids_val),
+    )
+
+    return train_df, history, (X_train, y_train, ids_train), (X_val, y_val, ids_val)
+
+
+def train(
+    output_dir: Path,
+    config: Dict,
+    trainig_data: Tuple[np.ndarray, np.ndarray, np.ndarray],
+    val_data: Union[None, Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
+    verbose: int = 1,
+) -> Tuple[Dict, np.ndarray, np.ndarray]:
+    """
+    Performs the training for the specified
+    training and validation data
+
+    Parameters
+    ----------
+    output_dir: str
+        Path to directory where results are saved
+    config: dictionary with string keys
+        Dictionary that contains the model architecture,
+        pre-processing & training details
+        See train_config.json for an example
+    trainig_data: triplet of numpy arrays
+        Training data, expected tuple data:
+        (X_train, y_train, ids_train)
+    val_data: triplet of numpy arrays, optional
+        Validation data, expected tuple data:
+        (X_train, y_train, ids_train)
+    verbose: int, optional
+        Verbosity level for keras training,
+        see verbose parameter for
+        https://www.tensorflow.org/api_docs/python/tf/keras/Model#fit
+    """
+    # Unroll training & validation data
+    X_train, y_train, ids_train = trainig_data
+    X_val, y_val, ids_val = val_data if val_data is not None else (None, None, None)
+
     # Save training and validation records
-    np.save(os.path.join(output_dir, "train_records_ids.npy"), ids_train)
+    np.save(output_dir / "train_records_ids.npy", ids_train)
     if ids_val is not None:
-        np.save(os.path.join(output_dir, "val_records_ids.npy"), ids_val)
+        np.save(output_dir / "val_records_ids.npy", ids_val)
 
     # Load the configs
     train_config = config["training"]
@@ -121,7 +172,7 @@ def train(
     gm_model = model_arch.build()
 
     # Train the model
-    callbacks = [keras.callbacks.ModelCheckpoint(os.path.join(output_dir, "model.h5"))]
+    callbacks = [keras.callbacks.ModelCheckpoint(str(output_dir / "model.h5"), save_best_only=True)]
     gm_model.compile(
         optimizer=train_config["optimizer"],
         loss=train_config["loss"],
@@ -134,22 +185,25 @@ def train(
         epochs=train_config["n_epochs"],
         validation_data=(X_val, y_val),
         callbacks=callbacks,
+        verbose=verbose,
     )
 
     # Save the history
     hist_df = pd.DataFrame.from_dict(history.history, orient="columns")
-    hist_df.to_csv(os.path.join(output_dir, "history.csv"), index_label="epoch")
+    hist_df.to_csv(output_dir / "history.csv", index_label="epoch")
 
     # Save the model
-    gm_model.save(os.path.join(output_dir, "model.h5"))
+    gm_model.save(output_dir / "model.h5")
 
     # Save the config
-    with open(os.path.join(output_dir, "config.json"), "w") as f:
+    with open(output_dir / "config.json", "w") as f:
         json.dump(config, f)
+
+    return history.history, X_train, X_val
 
 
 def _apply_pre(
-    X_train: np.ndarray, pre_config: Dict, output_dir: str, X_val: np.ndarray = None
+    X_train: np.ndarray, pre_config: Dict, output_dir: Path, X_val: np.ndarray = None
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Applies the pre-processing as per the given config"""
     n_features = X_train.shape[1]
@@ -186,8 +240,8 @@ def _apply_pre(
         assert np.all(np.isclose(np.std(X_train), np.ones(n_features)))
 
         # Save mu and sigma
-        np.save(os.path.join(output_dir, "mu.npy"), mu)
-        np.save(os.path.join(output_dir, "sigma.npy"), sigma)
+        np.save(output_dir / "mu.npy", mu)
+        np.save(output_dir / "sigma.npy", sigma)
 
     whiten = pre_config["whiten"]
     if whiten is True:
@@ -204,6 +258,6 @@ def _apply_pre(
         )
 
         # Save whitening matrix
-        np.save(os.path.join(output_dir, "W.npy"), W)
+        np.save(output_dir / "W.npy", W)
 
     return X_train, X_val
