@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, Tuple, Union
+from typing import Dict, Tuple, Union, Callable
 
 import pandas as pd
 import numpy as np
@@ -21,6 +21,9 @@ def run_trainining(
     record_ids_filter: np.ndarray = None,
     val_split: float = 0.1,
     score_th: Tuple[float, float] = (0.01, 0.99),
+    record_weight_fn: Callable[
+        [pd.DataFrame, np.ndarray, np.ndarray, np.ndarray], np.ndarray
+    ] = None,
 ) -> Tuple[
     pd.DataFrame,
     Dict,
@@ -56,6 +59,10 @@ def run_trainining(
         I.e. all records with score < low_score_th (> high_score_th) will be used as
         low (high) quality record
         Note: All records not falling within those ranges are dropped
+    record_weight_fn: callable
+        Function that computes the weight for each training record, must take
+        the following inputs: training_df, X_train, y_train, ids_train
+        and return a 1-D array of size: X_train.shape[0]
     """
     # Get the training data
     train_df = pd.merge(features_df, label_df, left_index=True, right_index=True)
@@ -107,11 +114,18 @@ def run_trainining(
         X_train, y_train, ids_train = X, y, ids
         X_val, y_val, ids_val = None, None, None
 
+    sample_weights = (
+        None
+        if record_weight_fn is None
+        else record_weight_fn(train_df, X_train, y_train, ids_train)
+    )
+
     history, X_train, X_val = train(
         output_dir,
         config,
         (X_train, y_train, ids_train),
         val_data=(X_val, y_val, ids_val),
+        sample_weights=sample_weights,
     )
 
     return train_df, history, (X_train, y_train, ids_train), (X_val, y_val, ids_val)
@@ -122,6 +136,7 @@ def train(
     config: Dict,
     trainig_data: Tuple[np.ndarray, np.ndarray, np.ndarray],
     val_data: Union[None, Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
+    sample_weights: np.ndarray = None,
     verbose: int = 1,
 ) -> Tuple[Dict, np.ndarray, np.ndarray]:
     """
@@ -142,6 +157,9 @@ def train(
     val_data: triplet of numpy arrays, optional
         Validation data, expected tuple data:
         (X_train, y_train, ids_train)
+    sample_weights: numpy array of floats
+        Weights for each training sample,
+        Shape: [n_training_samples]
     verbose: int, optional
         Verbosity level for keras training,
         see verbose parameter for
@@ -150,6 +168,10 @@ def train(
     # Unroll training & validation data
     X_train, y_train, ids_train = trainig_data
     X_val, y_val, ids_val = val_data if val_data is not None else (None, None, None)
+
+    # Sanity check
+    if sample_weights is not None:
+        assert sample_weights.shape[0] == X_train.shape[0]
 
     # Save training and validation records
     np.save(output_dir / "train_records_ids.npy", ids_train)
@@ -172,7 +194,11 @@ def train(
     gm_model = model_arch.build()
 
     # Train the model
-    callbacks = [keras.callbacks.ModelCheckpoint(str(output_dir / "model.h5"), save_best_only=True)]
+    callbacks = [
+        keras.callbacks.ModelCheckpoint(
+            str(output_dir / "model.h5"), save_best_only=True
+        )
+    ]
     gm_model.compile(
         optimizer=train_config["optimizer"],
         loss=train_config["loss"],
@@ -184,6 +210,7 @@ def train(
         batch_size=train_config["batch_size"],
         epochs=train_config["n_epochs"],
         validation_data=(X_val, y_val),
+        sample_weight=sample_weights,
         callbacks=callbacks,
         verbose=verbose,
     )
@@ -200,6 +227,42 @@ def train(
         json.dump(config, f)
 
     return history.history, X_train, X_val
+
+
+def score_weighting(
+    train_df: pd.DataFrame,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    ids_train: np.ndarray,
+):
+    """Weighs the records based on their score,
+    score in:
+        [0.0, 1.0]      => 1.0
+        [0.25, 0.75]    => 0.75
+        [0.5]           => 0.5
+
+    Parameters
+    ----------
+    train_df: Dataframe
+    X_train: numpy array of floats
+    y_train: numpy array of floats
+    ids_train: numpy array of strings
+
+    Returns
+    -------
+    numpy array of floats
+        The sample weights for each record in X_train (and y_train obviously)
+    """
+    scores = train_df.loc[ids_train, "score"].values
+
+    weights = np.full(X_train.shape[0], np.nan, dtype=float)
+    weights[np.isin(scores, [0.0, 1.0])] = 1.0
+    weights[np.isin(scores, [0.25, 0.75])] = 0.75
+    weights[scores == 0.5] = 0.5
+
+    assert np.all(~np.isnan(weights))
+
+    return weights
 
 
 def _apply_pre(

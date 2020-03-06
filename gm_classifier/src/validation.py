@@ -4,6 +4,7 @@ from typing import Dict, Tuple, Callable
 import pandas as pd
 import numpy as np
 import tensorflow.keras as keras
+import matplotlib.pyplot as plt
 import sklearn.metrics as metrics
 from sklearn.model_selection import KFold
 
@@ -87,7 +88,9 @@ def eval(
     y_train_est = label_from_prob(model.predict(X_train).reshape(-1))
     y_val_est = label_from_prob(model.predict(X_val).reshape(-1))
 
-    tn_train, fp_train, fn_train, tp_train = metrics.confusion_matrix(y_train, y_train_est).ravel()
+    tn_train, fp_train, fn_train, tp_train = metrics.confusion_matrix(
+        y_train, y_train_est
+    ).ravel()
     tn_val, fp_val, fn_val, tp_val = metrics.confusion_matrix(y_val, y_val_est).ravel()
 
     return {
@@ -99,14 +102,13 @@ def eval(
         "fp_train": fp_train,
         "fn_train": fn_train,
         "tp_train": tp_train,
-
         "prec_val": metrics.precision_score(y_val, y_val_est),
         "rec_val": metrics.recall_score(y_val_est, y_val_est),
         "f1_val": metrics.f1_score(y_val, y_val_est),
         "acc_val": metrics.accuracy_score(y_val, y_val_est),
         "tn_val": tn_val,
         "fp_val": fp_val,
-        "fn_val":fn_val,
+        "fn_val": fn_val,
         "tp_val": tp_val,
     }
 
@@ -116,3 +118,41 @@ def label_from_prob(prob: np.ndarray, threshold: float = 0.5):
     y[prob > threshold] = 1
 
     return y
+
+
+def plot_multi_loss(loss_dict: Dict, ax: plt.Axes = None, colour_char: str = "b"):
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    epochs = np.arange(len(loss_dict["iter_0"]["train"]))
+
+    train_sum, val_sum = None, None
+    for cur_values in loss_dict.values():
+        pass
+        ax.plot(epochs, cur_values["train"], f"{colour_char}-", lw=1)
+        ax.plot(epochs, cur_values["val"], f"{colour_char}--", lw=1)
+
+        train_sum = (
+            np.asarray(cur_values["train"])
+            if train_sum is None
+            else train_sum + np.asarray(cur_values["train"])
+        )
+        val_sum = (
+            np.asarray(cur_values["val"])
+            if train_sum is None
+            else train_sum + np.asarray(cur_values["val"])
+        )
+
+    ax.plot(epochs, train_sum / len(loss_dict), "k-", lw=2, label="Training")
+    ax.plot(epochs, val_sum / len(loss_dict), "k--", lw=2, label="Validation")
+
+    ax.set_xlabel("Epochs")
+    ax.set_ylabel("Loss")
+    ax.legend()
+
+def compute_multi_mean_min_loss(loss_dict: Dict):
+    min_train_loss_values = np.asarray([np.min(cur_values["train"]) for cur_values in loss_dict.values()])
+    min_val_losss_values = np.asarray([np.min(cur_values["val"]) for cur_values in loss_dict.values()])
+
+    return min_train_loss_values.mean(), min_val_losss_values.mean()
+
