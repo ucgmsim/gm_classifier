@@ -5,13 +5,13 @@ import pandas as pd
 import numpy as np
 import tensorflow.keras as keras
 import matplotlib.pyplot as plt
+import seaborn as sns
 import sklearn.metrics as metrics
 from sklearn.model_selection import KFold
 
 from . import training
 from . import features
 from . import pre_processing as pre
-from . import model
 
 
 def k_fold(
@@ -22,6 +22,9 @@ def k_fold(
     eval_fn: Callable,
     n_splits: int = 10,
     score_th: Tuple[float, float] = (0.01, 0.99),
+    record_weight_fn: Callable[
+        [pd.DataFrame, np.ndarray, np.ndarray, np.ndarray], np.ndarray
+    ] = None,
     verbose: int = 0,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict]:
     output_dir = Path(output_dir)
@@ -55,6 +58,12 @@ def k_fold(
         X_train, y_train, ids_train = X[train_ind], y[train_ind], ids[train_ind]
         X_val, y_val, ids_val = X[val_ind], y[val_ind], ids[val_ind]
 
+        sample_weights = (
+            None
+            if record_weight_fn is None
+            else record_weight_fn(train_df, X_train, y_train, ids_train)
+        )
+
         # Run the training
         history, X_train, X_val = training.train(
             cur_output_dir,
@@ -62,6 +71,7 @@ def k_fold(
             (X_train, y_train, ids_train),
             val_data=(X_val, y_val, ids_val),
             verbose=verbose,
+            sample_weights=sample_weights
         )
         loss_dict[cur_id] = {"train": history["loss"], "val": history["val_loss"]}
 
@@ -150,9 +160,30 @@ def plot_multi_loss(loss_dict: Dict, ax: plt.Axes = None, colour_char: str = "b"
     ax.set_ylabel("Loss")
     ax.legend()
 
+
 def compute_multi_mean_min_loss(loss_dict: Dict):
     min_train_loss_values = np.asarray([np.min(cur_values["train"]) for cur_values in loss_dict.values()])
     min_val_losss_values = np.asarray([np.min(cur_values["val"]) for cur_values in loss_dict.values()])
 
     return min_train_loss_values.mean(), min_val_losss_values.mean()
 
+def plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, ax: plt.Axes = None, title: str = None):
+    cm_train = metrics.confusion_matrix(y_true, y_pred)
+    cm_train = pd.DataFrame(data=cm_train, index=["Low", "High"],
+                            columns=["Low", "High"])
+
+    if ax is None:
+        fig, ax = plt.subplots()
+    sns.heatmap(cm_train, annot=True, fmt="d", cbar=False, cmap="Blues", ax=ax)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("True")
+
+    ax.set_title(title)
+
+def plot_loss(history: Dict, **kwargs):
+    plt.figure(**kwargs)
+    epochs = np.arange(len(history["loss"]))
+    plt.plot(epochs, history["loss"], "k-", label="Training")
+    plt.plot(epochs, history["val_loss"], "k--", label="Validation")
+    plt.legend()
+    plt.show()

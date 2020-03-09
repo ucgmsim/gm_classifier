@@ -24,6 +24,7 @@ def run_trainining(
     record_weight_fn: Callable[
         [pd.DataFrame, np.ndarray, np.ndarray, np.ndarray], np.ndarray
     ] = None,
+    verbose: int = 2
 ) -> Tuple[
     pd.DataFrame,
     Dict,
@@ -63,6 +64,10 @@ def run_trainining(
         Function that computes the weight for each training record, must take
         the following inputs: training_df, X_train, y_train, ids_train
         and return a 1-D array of size: X_train.shape[0]
+    verbose: int, optional
+        Verbosity level for keras training,
+        see verbose parameter for
+        https://www.tensorflow.org/api_docs/python/tf/keras/Model#fit
     """
     # Get the training data
     train_df = pd.merge(features_df, label_df, left_index=True, right_index=True)
@@ -104,7 +109,9 @@ def run_trainining(
 
     # Training & validation data split
     if val_split > 0:
-        X_train, X_val, y_train, y_val, ids_train, ids_val = train_test_split(X, y, ids)
+        X_train, X_val, y_train, y_val, ids_train, ids_val = train_test_split(
+            X, y, ids, test_size=val_split
+        )
         print(
             f"Labelled data split into {X_train.shape[0]} training "
             f"and {X_val.shape[0]} validation samples"
@@ -126,6 +133,7 @@ def run_trainining(
         (X_train, y_train, ids_train),
         val_data=(X_val, y_val, ids_val),
         sample_weights=sample_weights,
+        verbose=verbose
     )
 
     return train_df, history, (X_train, y_train, ids_train), (X_val, y_val, ids_val)
@@ -203,6 +211,7 @@ def train(
         optimizer=train_config["optimizer"],
         loss=train_config["loss"],
         metrics=["accuracy"],
+        sample_weight_mode=None,
     )
     history = gm_model.fit(
         X_train,

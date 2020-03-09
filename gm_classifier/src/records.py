@@ -295,7 +295,7 @@ def process_records(
         except Exception as ex:
             print(f"Record {record_name} failed with exception:\n{ex}")
             cur_features, cur_add_data = None, None
-            failed_records.append(record_ffp)
+            failed_records.append(record_name)
 
         if cur_features is not None:
             feature_rows.append(cur_features)
