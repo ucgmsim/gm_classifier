@@ -318,22 +318,27 @@ class FileComponent(object):
         # because datetime is unaware by default
         self.event_origin_time = event_origin_time.replace(tzinfo=pytz.utc)
 
-        buffer_start_time = datetime(eo['buffer_start_time_year'],
-                                     eo['buffer_start_time_month'],
-                                     self.B_header["source_info"][
-                                         'buffer_start_time_day'],
-                                     self.B_header["source_info"][
-                                         'buffer_start_time_hour'],
-                                     self.B_header['sample_info'][
-                                         'buffer_start_time_minute'],
-                                     int(floor(self.B_header['sample_info'][
-                                                   'buffer_start_time_secx1000'] * 1e-3)),
-                                     int(1e6 * self.B_header['sample_info'][
-                                         'buffer_start_time_secx1000'] * 1e-3 -
-                                         1e6 * floor(self.B_header['sample_info'][
-                                                         'buffer_start_time_secx1000'] * 1e-3)
+        try:
+            buffer_start_time = datetime(eo['buffer_start_time_year'],
+                                         eo['buffer_start_time_month'],
+                                         self.B_header["source_info"][
+                                             'buffer_start_time_day'],
+                                         self.B_header["source_info"][
+                                             'buffer_start_time_hour'],
+                                         self.B_header['sample_info'][
+                                             'buffer_start_time_minute'],
+                                         int(floor(self.B_header['sample_info'][
+                                                       'buffer_start_time_secx1000'] * 1e-3)),
+                                         int(1e6 * self.B_header['sample_info'][
+                                             'buffer_start_time_secx1000'] * 1e-3 -
+                                             1e6 * floor(self.B_header['sample_info'][
+                                                             'buffer_start_time_secx1000'] * 1e-3)
+                                             )
                                          )
-                                     )
+        # Record is missing a buffer start time, use the event start time instead
+        except ValueError as ex:
+            buffer_start_time = event_origin_time
+
         # because datetime is unaware by default
         self.buffer_start_time = buffer_start_time.replace(tzinfo=pytz.utc)
 

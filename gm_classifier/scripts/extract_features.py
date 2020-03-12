@@ -11,7 +11,7 @@ def main(
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
 ):
-    feature_df = gm.records.process_records(
+    feature_df, failed_records = gm.records.process_records(
         record_dir,
         event_list_ffp=event_list_ffp,
         record_list_ffp=record_list_ffp,
@@ -19,6 +19,8 @@ def main(
         low_mem_usage=low_mem_usage,
         output_ffp=output_ffp
     )
+
+    gm.records.print_errors(failed_records)
 
 
 if __name__ == "__main__":

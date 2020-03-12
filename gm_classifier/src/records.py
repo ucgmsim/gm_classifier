@@ -2,6 +2,7 @@ import copy
 import os
 import math
 import glob
+from enum import Enum
 from typing import Union, Tuple, Dict, Any, List
 
 import numpy as np
@@ -12,6 +13,27 @@ from .geoNet_file import GeoNet_File, EmptyFile
 from . import features
 
 EVENT_YEARS = [str(ix) for ix in range(1950, 2050, 1)]
+
+
+class RecordErrorType(Enum):
+    # Record total length is less than 5 seconds
+    TotalTime = 1
+
+    # The acceleration timeseries have different lengths
+    CompsNotMatching = 2
+
+    # Time delay adjusted time series has less than 10 data points
+    NQuakePoints = 3
+
+    # Not enough zero crossings
+    ZeroCrossings = 4
+
+
+class RecordError(Exception):
+    def __init__(self, message: str, error_type: RecordErrorType):
+        super(Exception, self).__init__(message)
+
+        self.error_type = error_type
 
 
 def get_event_id(record_ffp: str) -> Union[str, None]:
@@ -83,35 +105,34 @@ def process_record(
     """
     # Load the file
     record_filename = os.path.basename(record_ffp)
-    try:
-        gf = GeoNet_File(record_ffp)
-    except EmptyFile as ex:
-        print(f"Record {record_filename} - File is empty")
-        return None, None
+
+    gf = GeoNet_File(record_ffp)
 
     # Check that record is more than 5 seconds
     if gf.comp_1st.acc.size < 5.0 / gf.comp_1st.delta_t:
-        print(f"Record {record_filename} - length is less than 5 seconds, ignored.")
-        return None, None
+        raise RecordError(
+            f"Record {record_filename} - length is less than 5 seconds, ignored.",
+            RecordErrorType.TotalTime,
+        )
 
     # Check that all the time-series of the record have the same length
     if not gf.comp_1st.acc.size == gf.comp_2nd.acc.size == gf.comp_up.acc.size:
-        print(
+        raise RecordError(
             f"Record {record_filename} - The size of the acceleration time-series is "
-            f"different between components"
+            f"different between components",
+            RecordErrorType.CompsNotMatching,
         )
-        return None, None
 
     # Ensure time delay adjusted timeseries still has more than 10 elements
     # Time delay < 0 when buffer start time is before event start time
     if gf.comp_1st.time_delay < 0:
         event_start_ix = math.floor(-1 * gf.comp_1st.time_delay / gf.comp_1st.delta_t)
         if gf.comp_1st.acc.size - event_start_ix < 10:
-            print(
+            raise RecordError(
                 f"Record {record_filename} - less than 10 elements between earthquake "
-                f"rupture origin time and end of record"
+                f"rupture origin time and end of record",
+                RecordErrorType.NQuakePoints,
             )
-            return None, None
 
     # Quick and simple (not the best) baseline correction with demean and detrend
     gf.comp_1st.acc -= gf.comp_1st.acc.mean()
@@ -127,11 +148,11 @@ def process_record(
     # Number of zero crossings per 10 seconds less than 10 equals
     # means malfunctioned record
     if add_data is None or add_data["zeroc"] < 10:
-        print(
+        raise RecordError(
             f"Record {record_filename} - Number of zero crossings per 10 seconds "
-            f"less than 10 -> malfunctioned record"
+            f"less than 10 -> malfunctioned record",
+            RecordErrorType.ZeroCrossings,
         )
-        return None, None
 
     input_data["record_id"] = get_record_id(record_ffp)
     input_data["event_id"] = get_event_id(record_ffp)
@@ -147,7 +168,7 @@ def process_records(
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
     output_ffp: str = None,
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, Dict]:
     """Processes a set of record files, allows filtering of which
     records to process
 
@@ -179,6 +200,9 @@ def process_records(
     -------
     pandas dataframe
         Dataframe with the features of all the processed records
+    dictionary
+        The names of the failed records, where the keys are the different
+        error types
     """
 
     def write(feature_df: pd.DataFrame, feature_rows: List):
@@ -195,6 +219,7 @@ def process_records(
 
         return feature_df
 
+    print(f"Searching for record files")
     record_files = np.asarray(
         glob.glob(os.path.join(record_dir, "**/*.V1A"), recursive=True), dtype=str
     )
@@ -284,7 +309,9 @@ def process_records(
         record_files = record_files[~np.isin(record_ids, feature_df.index.values)]
 
     feature_rows = []
-    failed_records = []
+    failed_records = {err_type: [] for err_type in RecordErrorType}
+    failed_records["empty_file"] = []
+    failed_records["other"] = []
     for ix, record_ffp in enumerate(record_files):
         record_name = os.path.basename(record_ffp)
         try:
@@ -292,15 +319,25 @@ def process_records(
             cur_features, cur_add_data = process_record(
                 record_ffp, konno_matrices=konno_matrices
             )
-        except Exception as ex:
-            print(f"Record {record_name} failed with exception:\n{ex}")
+        except RecordError as ex:
+            failed_records[ex.error_type].append(record_name)
             cur_features, cur_add_data = None, None
-            failed_records.append(record_name)
+        except EmptyFile as ex:
+            failed_records["empty_file"].append(record_name)
+            cur_features, cur_add_data = None, None
+        except Exception as ex:
+            failed_records["other"].append(record_name)
+            cur_features, cur_add_data = None, None
 
         if cur_features is not None:
             feature_rows.append(cur_features)
 
-        if output_ffp is not None and ix % 100 == 0 and ix > 0 and len(feature_rows) > 0:
+        if (
+            output_ffp is not None
+            and ix % 100 == 0
+            and ix > 0
+            and len(feature_rows) > 0
+        ):
             feature_df = write(feature_df, feature_rows)
             feature_rows = []
 
@@ -312,10 +349,50 @@ def process_records(
         feature_df = pd.DataFrame(feature_rows)
         feature_df.set_index("record_id", drop=True, inplace=True)
 
-    if len(failed_records) > 0:
+    return feature_df, failed_records
+
+
+def print_errors(failed_records: Dict[Any, List]):
+    if len(failed_records[RecordErrorType.TotalTime]) > 0:
         print(
-            "The following records failed processing:\n {}".format(
-                "\n".join(failed_records)
+            "The following records failed processing due to "
+            "the record length < 5 seconds:\n {}".format(
+                "\n".join(failed_records[RecordErrorType.TotalTime])
             )
         )
-    return feature_df
+    if len(failed_records[RecordErrorType.CompsNotMatching]):
+        print(
+            "The following records failed processing due to the "
+            "acceleration timeseries of the components having"
+            "different length:\n{}".format(
+                "\n".join(failed_records[RecordErrorType.CompsNotMatching])
+            )
+        )
+    if len(failed_records[RecordErrorType.NQuakePoints]):
+        print(
+            "The following records failed processing due to the "
+            "time delay adjusted timeseries having less than "
+            "10 datapoints:\n{}".format(
+                "\n".join(failed_records[RecordErrorType.NQuakePoints])
+            )
+        )
+    if len(failed_records[RecordErrorType.ZeroCrossings]):
+        print(
+            "The following records failed processing due to"
+            "not meeting the required number of "
+            "zero crossings:\n{}".format(
+                "\n".join(failed_records[RecordErrorType.ZeroCrossings])
+            )
+        )
+    if len(failed_records["empty_file"]):
+        print(
+            "The following records failed processing due to the "
+            "geoNet file not containing any data:\n{}".format(
+                "\n".join(failed_records["empty_file"])
+            )
+        )
+    if len(failed_records["other"]):
+        print(
+            "The following records failed processing due to "
+            "an unknown exception:\n{}".format("\n".join(failed_records["other"]))
+        )
