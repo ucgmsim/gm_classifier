@@ -142,7 +142,7 @@ def run_trainining(
 def train(
     output_dir: Path,
     config: Dict,
-    trainig_data: Tuple[np.ndarray, np.ndarray, np.ndarray],
+    training_data: Tuple[np.ndarray, np.ndarray, np.ndarray],
     val_data: Union[None, Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
     sample_weights: np.ndarray = None,
     verbose: int = 1,
@@ -159,7 +159,7 @@ def train(
         Dictionary that contains the model architecture,
         pre-processing & training details
         See train_config.json for an example
-    trainig_data: triplet of numpy arrays
+    training_data: triplet of numpy arrays
         Training data, expected tuple data:
         (X_train, y_train, ids_train)
     val_data: triplet of numpy arrays, optional
@@ -174,7 +174,7 @@ def train(
         https://www.tensorflow.org/api_docs/python/tf/keras/Model#fit
     """
     # Unroll training & validation data
-    X_train, y_train, ids_train = trainig_data
+    X_train, y_train, ids_train = training_data
     X_val, y_val, ids_val = val_data if val_data is not None else (None, None, None)
 
     # Sanity check

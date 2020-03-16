@@ -224,6 +224,11 @@ def process_records(
         glob.glob(os.path.join(record_dir, "**/*.V1A"), recursive=True), dtype=str
     )
 
+    # Hack that (partially) allows getting around obspy issue, when running this
+    # function on a loop...
+    shuffle_ind = np.random.randint(0, record_files.size, record_files.size)
+    record_files = record_files[shuffle_ind]
+
     # Filter record files
     if event_list_ffp is not None:
         with open(event_list_ffp, "r") as f:
