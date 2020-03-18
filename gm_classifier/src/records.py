@@ -1,3 +1,4 @@
+import time
 import copy
 import os
 import math
@@ -226,6 +227,7 @@ def process_records(
 
     # Hack that (partially) allows getting around obspy issue, when running this
     # function on a loop...
+    np.random.seed(int(time.time()))
     shuffle_ind = np.random.randint(0, record_files.size, record_files.size)
     record_files = record_files[shuffle_ind]
 
