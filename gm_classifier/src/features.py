@@ -5,6 +5,7 @@ from Xavier Bellagamba (https://github.com/xavierbellagamba/GroundMotionRecordCl
 import gc
 import os
 import math
+from enum import Enum
 from typing import Tuple, Dict, Union, Any
 from collections import namedtuple
 from functools import partial
@@ -14,6 +15,21 @@ import matplotlib.pyplot as plt
 from scipy.integrate import cumtrapz
 from obspy.signal.trigger import ar_pick
 from obspy.signal.konnoohmachismoothing import calculate_smoothing_matrix
+
+from . import GeoNet_File
+
+
+class FeatureErrorType(Enum):
+    # PGA is zero
+    PGA_zero = 1
+
+
+class FeatureError(Exception):
+    def __init__(self, message: str, error_type: FeatureErrorType):
+        super(Exception, self).__init__(message)
+
+        self.error_type = error_type
+
 
 # Note: the order of these is important!
 FEATURE_NAMES = [
@@ -136,7 +152,6 @@ def compute_fourier(
     ft_freq: numpy array of floats
         Frequencies at which fourier amplitudes are computed
     """
-
     # Computes fourier spectra for acceleration time series
     npts = len(acc)
     npts_FFT = int(math.ceil(duration) / dt)
@@ -235,48 +250,148 @@ def comp_fourier_data(
     )
 
 
+def compute_pga(acc: np.ndarray):
+    """Computes PGA for the given acceleration time series"""
+    return np.max(np.abs(acc))
+
+
+def compute_pe_max_amp(acc: np.ndarray, p_wave_ix: int):
+    """Computes the pre-event max amplitude"""
+    return np.max(np.abs(acc[0:p_wave_ix]))
+
+
+def compute_avg_pn(acc: np.ndarray, p_wave_ix: int):
+    """Computes the arthmetic pre-event noise average"""
+    return np.average(np.abs(acc[0:p_wave_ix]))
+
+
+def compute_tail_avg(acc: np.ndarray, tail_length: int):
+    """Computes the tail average"""
+    return np.mean(np.abs(acc[-tail_length:]))
+
+
+def compute_tail_max(acc: np.ndarray, tail_length: int):
+    """Computes the maximum tail amplitude"""
+    return np.max(np.abs(acc[-tail_length:]))
+
+
+def compute_head_avg(acc: np.ndarray, head_length: int):
+    """Computes the head average"""
+    return np.max(np.abs(acc[0:head_length]))
+
+
+def compute_bracketed_pga_dur(
+    acc: np.ndarray, pga: float, pga_factor: float, dt: float
+):
+    """Computes the bracketed PGA duraction for the specified PGA factor"""
+    pga_excd_ix = np.flatnonzero(np.abs(acc) >= (pga_factor * pga))
+    return (np.max(pga_excd_ix) - np.min(pga_excd_ix)) * dt
+
+
+def compute_sig_duration(husid_ix_low: int, husid_ix_high: int, dt: float):
+    """Computes the significant duration"""
+    return (husid_ix_high - husid_ix_low) * dt
+
+
+def compute_snr_min(snr: np.ndarray, lower_ix: int, upper_ix: int):
+    """Computes SNR min"""
+    return np.round(np.min(snr[lower_ix:upper_ix]), 5)
+
+
+def compute_snr_max(snr: np.ndarray):
+    """Computes SNR max"""
+    return np.round(np.max(snr), 5)
+
+def compute_snr_avg(snr: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float):
+    """Computes the SNR average"""
+    lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
+    return np.round(
+        np.trapz(
+            snr[lower_ix:upper_ix],
+            ft_freq[lower_ix:upper_ix],
+        )
+        / (ft_freq[upper_ix] - ft_freq[lower_ix]),
+        5,
+    )
+
+def compute_snr(snr: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float):
+    """Computes the SNR for the specified frequency range"""
+    lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
+    return np.round(
+        np.trapz(
+            snr[lower_ix:upper_ix],
+            ft_freq[lower_ix:upper_ix],
+        )
+        / (ft_freq[upper_ix] - ft_freq[lower_ix]),
+        5,
+    )
+
+
+def compute_fas(
+    ft_smooth: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float
+):
+    """Computes the Fourier amplitude spectra (FAS) for the specified frequency range
+    Not sure, what ft_s actually is?
+    """
+    lower_index, upper_index_average = get_freq_ix(ft_freq, lower_freq, upper_freq)
+    fas = np.round(
+        np.trapz(
+            ft_smooth[lower_index:upper_index_average],
+            ft_freq[lower_index:upper_index_average],
+        )
+        / (ft_freq[upper_index_average] - ft_freq[lower_index]),
+        5,
+    )
+    ft_s = (ft_smooth[upper_index_average] - ft_smooth[lower_index]) / (
+        ft_freq[upper_index_average] / ft_freq[lower_index]
+    )
+
+    return fas, ft_s
+
+def compute_low_freq_fas(smooth_ft: np.ndarray, ft_freq: np.ndarray, low_freq: float) -> float:
+    """Computes the low frequency FAS"""
+    low_ix = min(np.flatnonzero(ft_freq > low_freq))
+    return np.trapz(smooth_ft[1:low_ix], ft_freq[1:low_ix]) / (ft_freq[low_ix] - ft_freq[1])
+
+
+
+
 def get_features(
-    gf, ko_matrices: Dict[int, np.ndarray] = None
-) -> Tuple[Dict[str, float], Dict[str, float]]:
+    gf: GeoNet_File, ko_matrices: Dict[int, np.ndarray] = None
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # Create the time vector
     t = np.arange(gf.comp_1st.acc.size) * gf.comp_1st.delta_t
 
     # Get acceleration time series
-    acc1, acc2 = gf.comp_1st.acc, gf.comp_2nd.acc
-    accv = gf.comp_up.acc
-
-    # Check number of zero crossings by
-    z_array1 = np.multiply(acc1[0:-2], acc1[1:-1])
-    zeroc1 = np.count_nonzero(z_array1 < 0)
-
-    zarray2 = np.multiply(acc2[0:-2], acc2[1:-1])
-    zeroc2 = np.count_nonzero(zarray2 < 1)
-
-    zarray3 = np.multiply(accv[0:-2], accv[1:-1])
-    zeroc3 = np.count_nonzero(zarray3 < 0)
-
-    zeroc = 10 * np.min([zeroc1, zeroc2, zeroc3]) / t[-1]
+    acc_1, acc_2 = gf.comp_1st.acc, gf.comp_2nd.acc
+    acc_v = gf.comp_up.acc
 
     # Compute husid and Arias intensities
-    husid1, AI1, Arias1, husid_index1_5, husid_index1_75, husid_index1_95 = compute_husid(
-        acc1, t
+    husid_1, AI_1, arias_1, husid_5_ix_1, husid_75_ix_1, husid_95_ix_1 = compute_husid(
+        acc_1, t
     )
-    husid2, AI2, Arias2, husid_index2_5, husid_index2_75, husid_index2_95 = compute_husid(
-        acc2, t
+    husid_2, AI_2, arias_2, husid_5_ix_2, husid_75_ix_2, husid_95_ix_2 = compute_husid(
+        acc_2, t
     )
-    husidv, AIv, Ariasv, husid_indexv_5, husid_indexv_75, husid_indexv_95 = compute_husid(
-        accv, t
+    husid_v, AI_v, arias_v, husid_5_ix_v, husid_75_ix_v, husid_95_ix_v = compute_husid(
+        acc_v, t
     )
-    arias = np.sqrt(Arias1 * Arias2)
+    arias_gm = np.sqrt(arias_1 * arias_2)
 
     # Set up some modified time series for p- and s-wave picking.
     # These are multiplied by an additional 10 because it seems to make the P-wave picking better
     # Also better if the vertical component is sign squared (apparently better)
-    tr1 = acc1 * 9806.7 * 10.0
-    tr2 = acc2 * 9806.7 * 10.0
-    tr3 = np.multiply(np.abs(accv), accv) * np.power(9806.7 * 10.0, 2)
+    tr1 = acc_1 * 9806.7 * 10.0
+    tr2 = acc_2 * 9806.7 * 10.0
+    tr3 = np.multiply(np.abs(acc_v), acc_v) * np.power(9806.7 * 10.0, 2)
+    dt = gf.comp_1st.delta_t
     sample_rate = 1.0 / gf.comp_1st.delta_t
+
+    # Sanity check
+    assert np.isclose(gf.comp_1st.delta_t, gf.comp_2nd.delta_t) and np.isclose(
+        gf.comp_1st.delta_t, gf.comp_up.delta_t
+    )
 
     low_pass = gf.comp_1st.delta_t * 20.0
     high_pass = sample_rate / 20.0
@@ -302,142 +417,158 @@ def get_features(
 
     if p_pick < 5.0:
         # NEXT THING TO DO IS TO TEST CHANGING THE PARAMETERS FOR THE FAKE PICK
-        tr3_fake1 = np.multiply(np.abs(acc1), accv) * np.power(9806.7 * 10.0, 2)
+        tr3_fake1 = np.multiply(np.abs(acc_1), acc_v) * np.power(9806.7 * 10.0, 2)
         p_pick_fake1, s_pick_fake1 = p_s_pick(tr3_fake1, tr1, tr2)
 
-        tr3_fake2 = np.multiply(np.abs(acc2), accv) * np.power(9806.7 * 10.0, 2)
+        tr3_fake2 = np.multiply(np.abs(acc_2), acc_v) * np.power(9806.7 * 10.0, 2)
         p_pick_fake2, s_pick_fake2 = p_s_pick(tr3_fake2, tr1, tr2)
 
-        # p_pick_fake = np.max([p_pick_fake1, p_pick_fake2])
-        # s_pick_fake = np.max([s_pick_fake1, s_pick_fake2])
-        # p_pick = max(p_pick, p_pick_fake)
-        # s_pick = max(s_pick, s_pick_fake)
         p_pick = np.max([p_pick_fake1, p_pick_fake2, p_pick])
         s_pick = np.max([s_pick_fake1, s_pick_fake2, s_pick])
-    index = int(np.floor(np.multiply(p_pick, sample_rate)))
+    p_wave_ix = int(np.floor(np.multiply(p_pick, sample_rate)))
 
     # Calculate max amplitudes of acc time series
-    PGA1 = np.round(np.max(np.abs(acc1)), 7)
-    PGA2 = np.round(np.max(np.abs(acc2)), 7)
-    PGAv = np.round(np.max(np.abs(accv)), 7)
-    amp1_pe = np.max(np.abs(acc1[0:index]))
-    amp2_pe = np.max(np.abs(acc2[0:index]))
+    pga_1, pga_2 = compute_pga(acc_1), compute_pga(acc_2)
+    pga_v = compute_pga(acc_v)
+    pga_gm = np.sqrt(pga_1 * pga_2)
 
-    # Compute PGA and Peak Noise (PN)
-    pga = np.sqrt(PGA1 * PGA2)
-    pn = np.sqrt(amp1_pe * amp2_pe)
-    PN_average = np.sqrt(
-        np.average(np.abs(acc1[0:index])) * np.average(np.abs(acc2[0:index]))
-    )
+    if np.isclose(pga_1, 0) or np.isclose(pga_2, 0) or np.isclose(pga_v, 0):
+        raise FeatureError(
+            f"Record {os.path.basename(gf.record_ffp)} - PGA is zero"
+            f" for one (or more) of the components",
+            FeatureErrorType.PGA_zero,
+        )
+
+    # Calculate pre-event max amplitude (noise)
+    max_pn_1 = compute_pe_max_amp(acc_1, p_wave_ix)
+    max_pn_2 = compute_pe_max_amp(acc_2, p_wave_ix)
+    max_pn_v = compute_pe_max_amp(acc_v, p_wave_ix)
+    max_pn_gm = np.sqrt(max_pn_1 * max_pn_2)
 
     # Compute Peak Noise to Peak Ground Acceleration Ratio
-    pn_pga_ratio = pn / pga
+    pn_pga_ratio_1 = max_pn_1 / pga_1
+    pn_pga_ratio_2 = max_pn_2 / pga_2
+    pn_pga_ratio_v = max_pn_v / pga_v
+    pn_pga_ratio_gm = max_pn_gm / pga_gm
 
-    # Compute Average Tail Ratio and Average Tail Noise Ratio
+    # Compute horizontal average PGA and Peak Noise (PN)
+    avg_pn_1 = compute_avg_pn(acc_1, p_wave_ix)
+    avg_pn_2 = compute_avg_pn(acc_2, p_wave_ix)
+    avg_pn_v = compute_avg_pn(acc_v, p_wave_ix)
+    avg_pn_gm = np.sqrt(np.average(avg_pn_1 * avg_pn_2))
+
+    # Compute tail average
     tail_duration = min(5.0, 0.1 * t[-1])
     tail_length = int(tail_duration * sample_rate)
-    tail_average1 = np.mean(np.abs(acc1[-tail_length:]))
-    tail_average2 = np.mean(np.abs(acc2[-tail_length:]))
-    tail_averagev = np.mean(np.abs(accv[-tail_length:]))
-    if PGA1 != 0 and PGA2 != 0:
-        average_tail_ratio1 = tail_average1 / PGA1
-        average_tail_ratio2 = tail_average2 / PGA2
-        average_tail_ratiov = tail_averagev / PGAv
-        average_tail_ratio = np.sqrt(average_tail_ratio1 * average_tail_ratio2)
-        average_tail_noise_ratio = average_tail_ratio / PN_average
-    else:
-        average_tail_ratio1 = 1.0
-        average_tail_ratio2 = 1.0
-        average_tail_ratiov = 1.0
-        average_tail_ratio = 1.0
+    tail_avg_1 = compute_tail_avg(acc_1, tail_length)
+    tail_avg_2 = compute_tail_avg(acc_2, tail_length)
+    tail_avg_v = compute_tail_avg(acc_v, tail_length)
+
+    # Compute average tail noise ratio
+    avg_tail_ratio_1 = tail_avg_1 / pga_1
+    avg_tail_noise_ratio_1 = avg_tail_ratio_1 / avg_pn_1
+
+    avg_tail_ratio_2 = tail_avg_2 / pga_2
+    avg_tail_noise_ratio_2 = avg_tail_ratio_2 / avg_pn_2
+
+    avg_tail_ratio_v = tail_avg_v / pga_v
+    avg_tail_noise_ratio_v = avg_tail_ratio_v / avg_pn_v
+
+    tail_ratio_avg_gm = np.sqrt(avg_tail_ratio_1 * avg_tail_ratio_2)
+    tail_noise_ratio_gm = tail_ratio_avg_gm / avg_pn_gm
 
     # Compute Maximum Tail Ratio and Maximum Tail Noise Ratio
     max_tail_duration = min(2.0, 0.1 * t[-1])
     max_tail_length = int(max_tail_duration * sample_rate)
-    tail_max1 = np.max(np.abs(acc1[-max_tail_length:]))
-    tail_max2 = np.max(np.abs(acc2[-max_tail_length:]))
-    tail_maxv = np.max(np.abs(accv[-max_tail_length:]))
-    if PGA1 != 0 and PGA2 != 0:
-        max_tail_ratio1 = tail_max1 / PGA1
-        max_tail_ratio2 = tail_max2 / PGA2
-        max_tail_ratiov = tail_maxv / PGAv
-        max_tail_ratio = np.sqrt(max_tail_ratio1 * max_tail_ratio2)
-        max_tail_noise_ratio = max_tail_ratio / pn
-    else:
-        max_tail_ratio1 = 1.0
-        max_tail_ratio2 = 1.0
-        max_tail_ratiov = 1.0
-        max_tail_ratio = 1.0
+
+    tail_max_1 = compute_tail_max(acc_1, max_tail_length)
+    max_tail_ratio_1 = tail_max_1 / pga_1
+    max_tail_noise_ratio_1 = max_tail_ratio_1 / max_pn_1
+
+    tail_max_2 = compute_tail_max(acc_2, max_tail_length)
+    max_tail_ratio_2 = tail_max_2 / pga_2
+    max_tail_noise_ratio_2 = max_tail_ratio_2 / max_pn_2
+
+    tail_max_v = compute_tail_max(acc_v, max_tail_length)
+    max_tail_ratio_v = tail_max_v / pga_v
+    max_tail_noise_ratio_v = max_tail_ratio_v / max_pn_v
+
+    max_tail_ratio_gm = np.sqrt(max_tail_ratio_1 * max_tail_ratio_2)
+    max_tail_noise_ratio_gm = max_tail_ratio_gm / max_pn_gm
 
     # Compute Maximum Head Ratio
     head_duration = 1.0
     head_length = int(head_duration * sample_rate)
-    head_average1 = np.max(np.abs(acc1[0:head_length]))
-    head_average2 = np.max(np.abs(acc2[0:head_length]))
-    head_averagev = np.max(np.abs(accv[0:head_length]))
-    if PGA1 != 0 and PGA2 != 0:
-        max_head_ratio1 = head_average1 / PGA1
-        max_head_ratio2 = head_average2 / PGA2
-        max_head_ratiov = head_averagev / PGAv
-        max_head_ratio = np.sqrt(max_head_ratio1 * max_head_ratio2)
-    else:
-        max_head_ratio1 = 1.0
-        max_head_ratio2 = 1.0
-        max_head_ratiov = 1.0
-        max_head_ratio = 1.0
 
-    # Bracketed durations between 10%, 20%, 30%, 40% and 50% of PGA
-    # First get all vector indices where abs max acc is greater than or equal,
-    # and less than or equal to x*PGA
-    hindex1_10 = np.flatnonzero(np.abs(acc1) >= (0.10 * np.max(np.abs(acc1))))
-    hindex2_10 = np.flatnonzero(np.abs(acc2) >= (0.10 * np.max(np.abs(acc2))))
-    hindex1_20 = np.flatnonzero(np.abs(acc1) >= (0.20 * np.max(np.abs(acc1))))
-    hindex2_20 = np.flatnonzero(np.abs(acc2) >= (0.20 * np.max(np.abs(acc2))))
+    head_average_1 = compute_head_avg(acc_1, head_length)
+    max_head_ratio_1 = head_average_1 / pga_1
 
-    # Get bracketed duration (from last and first time the index is exceeded)
-    if len(hindex1_10) != 0 and len(hindex2_10) != 0:
-        bracketed_pga_10 = np.sqrt(
-            ((max(hindex1_10) - min(hindex1_10)) * gf.comp_1st.delta_t)
-            * ((max(hindex2_10) - min(hindex2_10)) * gf.comp_1st.delta_t)
-        )
-    else:
-        bracketed_pga_10 = 9999.0
+    head_average_2 = compute_head_avg(acc_2, head_length)
+    max_head_ratio_2 = head_average_2 / pga_2
 
-    if len(hindex1_20) != 0 and len(hindex2_20) != 0:
-        bracketed_pga_20 = np.sqrt(
-            ((max(hindex1_20) - min(hindex1_20)) * gf.comp_1st.delta_t)
-            * ((max(hindex2_20) - min(hindex2_20)) * gf.comp_1st.delta_t)
-        )
-    else:
-        bracketed_pga_20 = 9999.0
+    head_average_v = compute_head_avg(acc_v, head_length)
+    max_head_ratio_v = head_average_v / pga_v
 
-    bracketed_pga_10_20 = bracketed_pga_10 / bracketed_pga_20
+    max_head_ratio_gm = np.sqrt(max_head_ratio_1 * max_head_ratio_2)
+
+    # Bracketed durations between 10%, 20% of PGA
+    bracketed_pga_0p1_1 = compute_bracketed_pga_dur(
+        acc_1, pga_1, 0.1, gf.comp_1st.delta_t
+    )
+    bracketed_pga_0p2_1 = compute_bracketed_pga_dur(
+        acc_1, pga_2, 0.2, gf.comp_1st.delta_t
+    )
+    bracketed_pga_0p1_0p2_1 = bracketed_pga_0p1_1 / bracketed_pga_0p2_1
+
+    bracketed_pga_0p1_2 = compute_bracketed_pga_dur(
+        acc_2, pga_2, 0.1, gf.comp_2nd.delta_t
+    )
+    bracketed_pga_0p2_2 = compute_bracketed_pga_dur(
+        acc_2, pga_2, 0.2, gf.comp_2nd.delta_t
+    )
+    bracketed_pga_0p1_0p2_2 = bracketed_pga_0p1_2 / bracketed_pga_0p2_2
+
+    bracketed_pga_0p1_v = compute_bracketed_pga_dur(
+        acc_v, pga_v, 0.1, gf.comp_up.delta_t
+    )
+    bracketed_pga_0p2_v = compute_bracketed_pga_dur(
+        acc_v, pga_v, 0.2, gf.comp_up.delta_t
+    )
+    bracketed_pga_0p1_0p2_v = bracketed_pga_0p1_v / bracketed_pga_0p2_v
+
+    bracketed_pga_0p1 = np.sqrt(bracketed_pga_0p1_1 * bracketed_pga_0p1_2)
+    bracketed_pga_0p2 = np.sqrt(bracketed_pga_0p2_1 * bracketed_pga_0p2_2)
+    bracketed_pga_0p1_0p2_gm = bracketed_pga_0p1 / bracketed_pga_0p2
 
     # Calculate Ds575 and Ds595
-    ds_575 = np.sqrt(
-        ((husid_index1_75 - husid_index1_5) * gf.comp_1st.delta_t)
-        * ((husid_index2_75 - husid_index2_5) * gf.comp_1st.delta_t)
-    )
-    ds_595 = np.sqrt(
-        ((husid_index1_95 - husid_index1_5) * gf.comp_1st.delta_t)
-        * ((husid_index2_95 - husid_index2_5) * gf.comp_1st.delta_t)
-    )
+    ds_575_1 = compute_sig_duration(husid_5_ix_1, husid_75_ix_1, gf.comp_1st.delta_t)
+    ds_595_1 = compute_sig_duration(husid_5_ix_1, husid_95_ix_1, gf.comp_1st.delta_t)
 
+    ds_575_2 = compute_sig_duration(husid_5_ix_2, husid_75_ix_2, gf.comp_2nd.delta_t)
+    ds_595_2 = compute_sig_duration(husid_5_ix_2, husid_95_ix_2, gf.comp_2nd.delta_t)
+
+    ds_575_v = compute_sig_duration(husid_5_ix_v, husid_75_ix_v, gf.comp_up.delta_t)
+    ds_595_v = compute_sig_duration(husid_5_ix_v, husid_95_ix_v, gf.comp_up.delta_t)
+
+    ds_575_gm = np.sqrt(ds_575_1 * ds_575_2)
+    ds_595_gm = np.sqrt(ds_595_1 * ds_595_2)
+
+    # Compute the fourier transform
     ft_data_1, smooth_matrix = comp_fourier_data(
-        np.copy(acc1), t, gf.comp_1st.delta_t, index, ko_matrices
+        np.copy(acc_1), t, gf.comp_1st.delta_t, p_wave_ix, ko_matrices
     )
     ft_data_2, smooth_matrix = comp_fourier_data(
-        np.copy(acc2), t, gf.comp_2nd.delta_t, index, ko_matrices
+        np.copy(acc_2), t, gf.comp_2nd.delta_t, p_wave_ix, ko_matrices
     )
     ft_data_v, smooth_matrix = comp_fourier_data(
-        np.copy(accv), t, gf.comp_up.delta_t, index, ko_matrices
+        np.copy(acc_v), t, gf.comp_up.delta_t, p_wave_ix, ko_matrices
     )
 
     # Compute geomean of fourier spectra
-    gm_ft = np.sqrt(np.multiply(np.abs(ft_data_1.ft), np.abs(ft_data_2.ft)))
-    gm_ft_pe = np.sqrt(np.multiply(np.abs(ft_data_1.ft_pe), np.abs(ft_data_2.ft_pe)))
-    smooth_gm_ft = np.dot(gm_ft, smooth_matrix)
-    smooth_gm_ft_pe = np.dot(gm_ft_pe, smooth_matrix)
+    ft_gm = np.sqrt(np.abs(ft_data_1.ft) * np.abs(ft_data_2.ft))
+    ft_pe_gm = np.sqrt(np.abs(ft_data_1.ft_pe) * np.abs(ft_data_2.ft_pe))
+    ft_smooth_gm = np.dot(ft_gm, smooth_matrix)
+    ft_smooth_pe_gm = np.dot(ft_pe_gm, smooth_matrix)
 
     # Same for all components
     ft_freq = ft_data_1.ft_freq
@@ -445,146 +576,223 @@ def get_features(
         np.isclose(ft_data_1.ft_freq, ft_data_v.ft_freq)
     )
 
-    # snr metrics - min, max and averages
+    # SNR metrics - min, max and averages
     lower_index, upper_index = get_freq_ix(ft_freq, 0.1, 20)
-    snrgm = np.divide(smooth_gm_ft, smooth_gm_ft_pe)
-    snr_min = np.round(np.min(snrgm[lower_index:upper_index]), 5)
-    snr_max = np.round(np.max(snrgm), 5)
+    snr_1 = ft_data_1.smooth_ft / ft_data_1.smooth_ft_pe
+    snr_min_1 = compute_snr_min(snr_1, lower_index, upper_index)
+    snr_max_1 = compute_snr_max(snr_1)
 
-    fmin = 1.0
+    snr_2 = ft_data_2.smooth_ft / ft_data_2.smooth_ft_pe
+    snr_min_2 = compute_snr_min(snr_2, lower_index, upper_index)
+    snr_max_2 = compute_snr_max(snr_2)
 
-    # Compute SNR average across all FT frequencies
-    lower_index_average, upper_index_average = get_freq_ix(ft_freq, 0.1, 10)
-    snr_average = np.round(
-        np.trapz(
-            snrgm[lower_index_average:upper_index_average],
-            ft_freq[lower_index_average:upper_index_average],
-        )
-        / (ft_freq[upper_index_average] - ft_freq[lower_index_average]),
-        5,
-    )
+    snr_v = ft_data_v.smooth_ft / ft_data_v.smooth_ft_pe
+    snr_min_v = compute_snr_min(snr_v, lower_index, upper_index)
+    snr_max_v = compute_snr_max(snr_v)
+
+    snr_gm = np.divide(ft_smooth_gm, ft_smooth_pe_gm)
+    snr_min = compute_snr_min(snr_gm, lower_index, upper_index)
+    snr_max = compute_snr_max(snr_gm)
+
+    # results = {"comp_1": {}, "comp_2": {}, "comp_v": {}, "gm": {}}
 
     # Compute the Fourier amplitude ratio
-    lower_index_average, upper_index_average = get_freq_ix(ft_freq, 0.1, 0.5)
-    fas_0p1_0p5 = np.round(
-        np.trapz(
-            smooth_gm_ft[lower_index_average:upper_index_average],
-            ft_freq[lower_index_average:upper_index_average],
-        )
-        / (ft_freq[upper_index_average] - ft_freq[lower_index_average]),
-        5,
-    )
-    ft_s1 = (smooth_gm_ft[upper_index_average] - smooth_gm_ft[lower_index_average]) / (
-        ft_freq[upper_index_average] / ft_freq[lower_index_average]
-    )
+    fas_0p1_0p5_1, ft_s1_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.1, 10)
+    fas_0p1_0p5_2, ft_s1_2 = compute_fas(ft_data_2.smooth_ft, ft_freq, 0.1, 10)
+    fas_0p1_0p5_v, ft_s1_v = compute_fas(ft_data_v.smooth_ft, ft_freq, 0.1, 10)
+    fas_0p1_0p5_gm, ft_s1_gm = compute_fas(ft_smooth_gm, ft_freq, 0.1, 10)
 
-    lower_index_average, upper_index_average = get_freq_ix(ft_freq, 0.5, 1.0)
-    fas_0p5_1p0 = np.round(
-        np.trapz(
-            smooth_gm_ft[lower_index_average:upper_index_average],
-            ft_freq[lower_index_average:upper_index_average],
-        )
-        / (ft_freq[upper_index_average] - ft_freq[lower_index_average]),
-        5,
-    )
-    ft_s2 = (smooth_gm_ft[upper_index_average] - smooth_gm_ft[lower_index_average]) / (
-        ft_freq[upper_index_average] / ft_freq[lower_index_average]
-    )
+    fas_0p5_1p0_1, ft_s2_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.5, 1.0)
+    fas_0p5_1p0_2, ft_s2_2 = compute_fas(ft_data_2.smooth_ft, ft_freq, 0.5, 1.0)
+    fas_0p5_1p0_v, ft_s2_v = compute_fas(ft_data_v.smooth_ft, ft_freq, 0.5, 1.0)
+    fas_0p5_1p0_gm, ft_s2_gm = compute_fas(ft_smooth_gm, ft_freq, 0.5, 1.0)
 
-    fas_ratio = fas_0p1_0p5 / fas_0p5_1p0
-    ft_s1_s2 = ft_s1 / ft_s2
+    fas_ratio_1 = fas_0p1_0p5_1 / fas_0p5_1p0_1
+    fas_ratio_2 = fas_0p1_0p5_2 / fas_0p5_1p0_2
+    fas_ratio_v = fas_0p1_0p5_v / fas_0p5_1p0_v
+    fas_ratio_gm = fas_0p1_0p5_gm / fas_0p5_1p0_gm
+
+    # What is this?
+    ft_s1_s2_1 = ft_s1_1 / ft_s2_1
+    ft_s1_s2_2 = ft_s1_2 / ft_s2_2
+    ft_s1_s2_v = ft_s1_v / ft_s2_v
+    ft_s1_s2_gm = ft_s1_gm / ft_s2_gm
+
+    # Compute SNR average across all FT frequencies
+    snr_avg_1 = compute_snr_avg(snr_1, ft_freq, 0.1, 10)
+    snr_avg_2 = compute_snr_avg(snr_2, ft_freq, 0.1, 10)
+    snr_avg_v = compute_snr_avg(snr_2, ft_freq, 0.1, 10)
+    snr_avg_gm = compute_snr_avg(snr_gm, ft_freq, 0.1, 10)
 
     # Computing SNR for the different frequency ranges
     snr_freq_ranges = [(0.1, 0.5), (0.5, 1.0), (1.0, 2.0), (2.0, 5.0), (5.0, 10.0)]
-    snr_values = []
-    for freq_min, freq_max in snr_freq_ranges:
-        cur_lower_index, cur_upper_index = get_freq_ix(ft_freq, freq_min, freq_max)
-        cur_snr = np.round(
-            np.trapz(
-                snrgm[cur_lower_index:cur_upper_index],
-                ft_freq[cur_lower_index:cur_upper_index],
-            )
-            / (ft_freq[cur_upper_index] - ft_freq[cur_lower_index]),
-            5,
-        )
-        snr_values.append(cur_snr)
+    snr_values_1, snr_values_2 = [], []
+    snr_values_v, snr_values_gm = [], []
+    for lower_freq, upper_freq in snr_freq_ranges:
+        snr_values_1.append(compute_snr(snr_1, ft_freq, lower_freq, upper_freq))
+        snr_values_2.append(compute_snr(snr_2, ft_freq, lower_freq, upper_freq))
+        snr_values_v.append(compute_snr(snr_v, ft_freq, lower_freq, upper_freq))
+        snr_values_gm.append(compute_snr(snr_gm, ft_freq, lower_freq, upper_freq))
 
     # Compute low frequency (both event & pre-event) FAS to maximum signal FAS ratio
-    signal1_max = np.max(ft_data_1.smooth_ft)
-    lf1 = np.round(
-        np.trapz(ft_data_1.smooth_ft[1:lower_index], ft_freq[1:lower_index])
-        / (ft_freq[lower_index] - ft_freq[1]),
-        5,
-    )
-    lf1_pe = np.round(
-        np.trapz(ft_data_1.smooth_ft_pe[1:lower_index], ft_freq[1:lower_index])
-        / (ft_freq[lower_index] - ft_freq[1]),
-        5,
-    )
+    signal_max_1 = np.max(ft_data_1.smooth_ft)
+    lf_fas_1 = compute_low_freq_fas(ft_data_1.smooth_ft, ft_freq, 0.1)
+    lf_pe_fas_1 = compute_low_freq_fas(ft_data_1.smooth_ft_pe, ft_freq, 0.1)
 
-    signal2_max = np.max(ft_data_2.smooth_ft)
-    lf2 = np.round(
-        np.trapz(ft_data_2.smooth_ft[1:lower_index], ft_freq[1:lower_index])
-        / (ft_freq[lower_index] - ft_freq[1]),
-        5,
-    )
-    lf2_pe = np.round(
-        np.trapz(ft_data_2.smooth_ft_pe[1:lower_index], ft_freq[1:lower_index])
-        / (ft_freq[lower_index] - ft_freq[1]),
-        5,
-    )
+    signal_max_2 = np.max(ft_data_2.smooth_ft)
+    lf_fas_2 = compute_low_freq_fas(ft_data_2.smooth_ft, ft_freq, 0.1)
+    lf_pe_fas_2 = compute_low_freq_fas(ft_data_2.smooth_ft_pe, ft_freq, 0.1)
 
-    signalv_max = np.max(ft_data_v.smooth_ft)
-    lfv = np.round(
-        np.trapz(ft_data_v.smooth_ft[1:lower_index], ft_freq[1:lower_index])
-        / (ft_freq[lower_index] - ft_freq[1]),
-        5,
-    )
-    lfv_pe = np.round(
-        np.trapz(ft_data_v.smooth_ft_pe[1:lower_index], ft_freq[1:lower_index])
-        / (ft_freq[lower_index] - ft_freq[1]),
-        5,
-    )
+    signal_max_v = np.max(ft_data_v.smooth_ft)
+    lf_fas_v = compute_low_freq_fas(ft_data_v.smooth_ft, ft_freq, 0.1)
+    lf_pe_fas_v = compute_low_freq_fas(ft_data_v.smooth_ft_pe, ft_freq, 0.1)
 
-    signal_ratio_max = max([lf1 / signal1_max, lf2 / signal2_max])
-    signal_pe_ratio_max = max([lf1_pe / signal1_max, lf2_pe / signal2_max])
 
+    signal_ratio_max_1 = lf_fas_1 / signal_max_1
+    signal_ratio_max_2 = lf_fas_2 / signal_max_2
+    signal_ratio_max_v = lf_fas_v / signal_max_v
+    signal_ratio_max = max([lf_fas_1 / signal_max_1, lf_fas_2 / signal_max_2])
+
+    signal_pe_ratio_max_1 = lf_pe_fas_1 / signal_max_1
+    signal_pe_ratio_max_2 = lf_pe_fas_2 / signal_max_2
+    signal_pe_ratio_max_v = lf_pe_fas_v / signal_max_v
+    signal_pe_ratio_max = max([lf_pe_fas_1 / signal_max_1, lf_pe_fas_2 / signal_max_2])
+
+    # TODO: Do this better at some point...
     features_dict = {
-        "pn_pga_ratio": pn_pga_ratio,
-        "average_tail_ratio": average_tail_ratio,
-        "max_tail_ratio": max_tail_ratio,
-        "average_tail_noise_ratio": average_tail_noise_ratio,
-        "max_tail_noise_ratio": max_tail_noise_ratio,
-        "max_head_ratio": max_head_ratio,
-        "bracketed_pga_10_20": bracketed_pga_10_20,
-        "ds_575": ds_575,
-        "ds_595": ds_595,
-        "signal_pe_ratio_max": signal_pe_ratio_max,
-        "signal_ratio_max": signal_ratio_max,
-        "fas_ratio": fas_ratio,
-        "snr_min": snr_min,
-        "snr_max": snr_max,
-        "snr_average": snr_average,
-        "snr_average_0.1_0.5": snr_values[0],
-        "snr_average_0.5_1.0": snr_values[1],
-        "snr_average_1.0_2.0": snr_values[2],
-        "snr_average_2.0_5.0": snr_values[3],
-        "snr_average_5.0_10.0": snr_values[4],
+        "1": {
+            "pn_pga_ratio": pn_pga_ratio_1,
+            "average_tail_ratio": avg_tail_ratio_1,
+            "max_tail_ratio": max_tail_ratio_1,
+            "average_tail_noise_ratio": avg_tail_noise_ratio_1,
+            "max_tail_noise_ratio": max_tail_noise_ratio_1,
+            "max_head_ratio": max_head_ratio_1,
+            "bracketed_pga_10_20": bracketed_pga_0p1_0p2_1,
+            "ds_575": ds_575_1,
+            "ds_595": ds_595_1,
+            "signal_pe_ratio_max": signal_pe_ratio_max_1,
+            "signal_ratio_max": signal_ratio_max_1,
+            "fas_ratio": fas_ratio_1,
+            "snr_min": snr_min_1,
+            "snr_max": snr_max_1,
+            "snr_average": snr_avg_1,
+            "snr_average_0.1_0.5": snr_values_1[0],
+            "snr_average_0.5_1.0": snr_values_1[1],
+            "snr_average_1.0_2.0": snr_values_1[2],
+            "snr_average_2.0_5.0": snr_values_1[3],
+            "snr_average_5.0_10.0": snr_values_1[4],
+        },
+        "2": {
+            "pn_pga_ratio": pn_pga_ratio_2,
+            "average_tail_ratio": avg_tail_ratio_2,
+            "max_tail_ratio": max_tail_ratio_2,
+            "average_tail_noise_ratio": avg_tail_noise_ratio_2,
+            "max_tail_noise_ratio": max_tail_noise_ratio_2,
+            "max_head_ratio": max_head_ratio_2,
+            "bracketed_pga_10_20": bracketed_pga_0p1_0p2_2,
+            "ds_575": ds_575_2,
+            "ds_595": ds_595_2,
+            "signal_pe_ratio_max": signal_pe_ratio_max_2,
+            "signal_ratio_max": signal_ratio_max_2,
+            "fas_ratio": fas_ratio_2,
+            "snr_min": snr_min_2,
+            "snr_max": snr_max_2,
+            "snr_average": snr_avg_2,
+            "snr_average_0.1_0.5": snr_values_2[0],
+            "snr_average_0.5_1.0": snr_values_2[1],
+            "snr_average_1.0_2.0": snr_values_2[2],
+            "snr_average_2.0_5.0": snr_values_2[3],
+            "snr_average_5.0_10.0": snr_values_2[4],
+        },
+        "v": {
+            "pn_pga_ratio": pn_pga_ratio_v,
+            "average_tail_ratio": avg_tail_ratio_v,
+            "max_tail_ratio": max_tail_ratio_v,
+            "average_tail_noise_ratio": avg_tail_noise_ratio_v,
+            "max_tail_noise_ratio": max_tail_noise_ratio_v,
+            "max_head_ratio": max_head_ratio_v,
+            "bracketed_pga_10_20": bracketed_pga_0p1_0p2_v,
+            "ds_575": ds_575_v,
+            "ds_595": ds_595_v,
+            "signal_pe_ratio_max": signal_pe_ratio_max_v,
+            "signal_ratio_max": signal_ratio_max_v,
+            "fas_ratio": fas_ratio_v,
+            "snr_min": snr_min_v,
+            "snr_max": snr_max_v,
+            "snr_average": snr_avg_v,
+            "snr_average_0.1_0.5": snr_values_v[0],
+            "snr_average_0.5_1.0": snr_values_v[1],
+            "snr_average_1.0_2.0": snr_values_v[2],
+            "snr_average_2.0_5.0": snr_values_v[3],
+            "snr_average_5.0_10.0": snr_values_v[4],
+        },
+        "gm": {
+            "pn_pga_ratio": pn_pga_ratio_gm,
+            "average_tail_ratio": tail_ratio_avg_gm,
+            "max_tail_ratio": max_tail_ratio_gm,
+            "average_tail_noise_ratio": tail_noise_ratio_gm,
+            "max_tail_noise_ratio": max_tail_noise_ratio_gm,
+            "max_head_ratio": max_head_ratio_gm,
+            "bracketed_pga_10_20": bracketed_pga_0p1_0p2_gm,
+            "ds_575": ds_575_gm,
+            "ds_595": ds_595_gm,
+            "signal_pe_ratio_max": signal_pe_ratio_max,
+            "signal_ratio_max": signal_ratio_max,
+            "fas_ratio": fas_ratio_gm,
+            "snr_min": snr_min,
+            "snr_max": snr_max,
+            "snr_average": snr_avg_gm,
+            "snr_average_0.1_0.5": snr_values_gm[0],
+            "snr_average_0.5_1.0": snr_values_gm[1],
+            "snr_average_1.0_2.0": snr_values_gm[2],
+            "snr_average_2.0_5.0": snr_values_gm[3],
+            "snr_average_5.0_10.0": snr_values_gm[4],
+        }
     }
 
     additional_data = {
         "p_pick": p_pick,
         "s_pick": s_pick,
-        "fmin": fmin,
-        "fas_0p1_0p5": fas_0p1_0p5,
-        "fas_0p5_1p0": fas_0p5_1p0,
-        "ft_s1": ft_s1,
-        "ft_s2": ft_s2,
-        "ft_s1_s2": ft_s1_s2,
-        "pga": pga,
-        "pn": pn,
-        "arias": arias,
-        "zeroc": zeroc,
+        "gm": {
+            "fas_0p1_0p5": fas_0p1_0p5_gm,
+            "fas_0p5_1p0": fas_0p5_1p0_gm,
+            "ft_s1": ft_s1_gm,
+            "ft_s2": ft_s2_gm,
+            "ft_s1_s2": ft_s1_s2_gm,
+            "pga": pga_gm,
+            "pn": max_pn_gm,
+            "arias": arias_gm,
+        },
+        "1": {
+            "fas_0p1_0p5": fas_0p1_0p5_1,
+            "fas_0p5_1p0": fas_0p5_1p0_1,
+            "ft_s1": ft_s1_1,
+            "ft_s2": ft_s2_1,
+            "ft_s1_s2": ft_s1_s2_1,
+            "pga": pga_1,
+            "pn": max_pn_1,
+            "arias": arias_1,
+        },
+        "2": {
+            "fas_0p1_0p5": fas_0p1_0p5_2,
+            "fas_0p5_1p0": fas_0p5_1p0_2,
+            "ft_s1": ft_s1_2,
+            "ft_s2": ft_s2_2,
+            "ft_s1_s2": ft_s1_s2_2,
+            "pga": pga_2,
+            "pn": max_pn_2,
+            "arias": arias_2,
+        },
+        "v": {
+            "fas_0p1_0p5": fas_0p1_0p5_v,
+            "fas_0p5_1p0": fas_0p5_1p0_v,
+            "ft_s1": ft_s1_v,
+            "ft_s2": ft_s2_v,
+            "ft_s1_s2": ft_s1_s2_v,
+            "pga": pga_v,
+            "pn": max_pn_v,
+            "arias": arias_v,
+        }
     }
 
     return features_dict, additional_data

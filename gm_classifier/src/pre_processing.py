@@ -232,6 +232,7 @@ def apply(
 def apply_pre_original(
     model_name: str, X: np.ndarray, mu: np.ndarray, sigma: np.ndarray, W: np.ndarray
 ):
+    """Applies pre-processing for an original model"""
     if model_name == "canterbury":
         X = deskew_canterbury(X)
     elif model_name == "canterbury_wellington":

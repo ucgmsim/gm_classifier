@@ -7,3 +7,4 @@ from . import classify
 from . import records
 from . import training
 from . import validation
+from . import dim_reduction

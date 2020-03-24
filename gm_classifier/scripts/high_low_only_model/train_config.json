@@ -1,0 +1,19 @@
+{
+  "model": {
+    "units": [15, 15],
+    "act_funcs": "relu",
+    "output_act_func": "sigmoid"
+  },
+  "training": {
+    "optimizer": "Adam",
+    "loss": "binary_crossentropy",
+    "n_epochs": 30,
+    "batch_size": 32,
+    "dropout": 0.5
+  },
+  "preprocessing":{
+    "deskew": "canterbury_wellington",
+    "standardise": true,
+    "whiten": true
+  }
+}

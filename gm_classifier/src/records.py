@@ -4,6 +4,7 @@ import os
 import math
 import glob
 from enum import Enum
+from pathlib import Path
 from typing import Union, Tuple, Dict, Any, List
 
 import numpy as np
@@ -38,6 +39,8 @@ class RecordError(Exception):
 
 
 def get_event_id(record_ffp: str) -> Union[str, None]:
+    """Attempts to get the event ID from the record path.
+    Might not always be correct"""
     event_id = None
     for part in record_ffp.split("/"):
         if "p" in part:
@@ -54,10 +57,12 @@ def get_event_id(record_ffp: str) -> Union[str, None]:
 
 
 def get_record_id(record_ffp: str) -> str:
+    """Gets the record id from the record file name"""
     return str(os.path.basename(record_ffp).split(".")[0])
 
 
 def get_station(record_ffp: str) -> Union[str, None]:
+    """Gets the station name from the record file name"""
     filename = os.path.basename(record_ffp)
     split_fname = filename.split("_")
     if len(split_fname) == 3:
@@ -84,30 +89,10 @@ def get_record_ids_filter(record_list_ffp: str) -> np.ndarray:
     )
 
 
-def process_record(
-    record_ffp: str, konno_matrices: Union[str, Dict[int, np.ndarray]]
-) -> Union[Tuple[None, None], Tuple[Dict[str, Any], Dict[str, Any]]]:
-    """Extracts the features from a GeoNet record file
-
-    Parameters
-    ----------
-    record_ffp: string
-        Path to the record file
-    konno_matrices: string or dictionary
-        Either a path to a directory containing the Konno matrices files
-        or a dictionary of the Konno matrices in memory
-
-    Returns
-    -------
-    features: dictionary
-        Contains all 20 features (quality metrics)
-    add_data: dictionary
-        Additional data
-    """
-    # Load the file
-    record_filename = os.path.basename(record_ffp)
-
-    gf = GeoNet_File(record_ffp)
+def record_preprocesing(gf: GeoNet_File) -> GeoNet_File:
+    """Performs some checks on the record and de-means and de-trends
+    the acceleration time-series"""
+    record_filename = os.path.basename(gf.record_ffp)
 
     # Check that record is more than 5 seconds
     if gf.comp_1st.acc.size < 5.0 / gf.comp_1st.delta_t:
@@ -144,16 +129,59 @@ def process_record(
     gf.comp_2nd.acc = signal.detrend(gf.comp_2nd.acc, type="linear")
     gf.comp_up.acc = signal.detrend(gf.comp_up.acc, type="linear")
 
-    input_data, add_data = features.get_features(gf, ko_matrices=konno_matrices)
+    # Check number of zero crossings by
+    zeroc_1 = np.count_nonzero(
+        np.multiply(gf.comp_1st.acc[0:-2], gf.comp_1st.acc[1:-1]) < 0
+    )
+    zeroc_2 = np.count_nonzero(
+        np.multiply(gf.comp_2nd.acc[0:-2], gf.comp_2nd.acc[1:-1]) < 0
+    )
+    zeroc_3 = np.count_nonzero(
+        np.multiply(gf.comp_up.acc[0:-2], gf.comp_up.acc[1:-1]) < 0
+    )
+
+    zeroc = (
+        10
+        * np.min([zeroc_1, zeroc_2, zeroc_3])
+        / (gf.comp_1st.acc.size * gf.comp_1st.delta_t)
+    )
 
     # Number of zero crossings per 10 seconds less than 10 equals
     # means malfunctioned record
-    if add_data is None or add_data["zeroc"] < 10:
+    if zeroc < 10:
         raise RecordError(
             f"Record {record_filename} - Number of zero crossings per 10 seconds "
             f"less than 10 -> malfunctioned record",
             RecordErrorType.ZeroCrossings,
         )
+
+    return gf
+
+
+def process_record(
+    record_ffp: str, konno_matrices: Union[str, Dict[int, np.ndarray]]
+) -> Union[Tuple[None, None], Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Extracts the features from a GeoNet record file
+
+    Parameters
+    ----------
+    record_ffp: string
+        Path to the record file
+    konno_matrices: string or dictionary
+        Either a path to a directory containing the Konno matrices files
+        or a dictionary of the Konno matrices in memory
+
+    Returns
+    -------
+    features: dictionary
+        Contains all 20 features (quality metrics)
+    add_data: dictionary
+        Additional data
+    """
+    gf = GeoNet_File(record_ffp)
+    record_preprocesing(gf)
+
+    input_data, add_data = features.get_features(gf, ko_matrices=konno_matrices)
 
     input_data["record_id"] = get_record_id(record_ffp)
     input_data["event_id"] = get_event_id(record_ffp)
@@ -168,7 +196,8 @@ def process_records(
     record_list_ffp: str = None,
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
-    output_ffp: str = None,
+    output_dir: str = None,
+    output_prefix: str = "features",
 ) -> Tuple[pd.DataFrame, Dict]:
     """Processes a set of record files, allows filtering of which
     records to process
@@ -193,9 +222,10 @@ def process_records(
         If true, then Konno matrices are loaded on-the-fly
         versus loading all into memory initially. This will result in
         a performance drop when processing a large number of records
-    output_ffp: string, optional
-        Output path, file is regularly backed up to this file during processing,
-        all records already existing in this file are skipped
+    output_dir: string, optional
+        Output directory, features are regularly saved to this location
+    output_prefix: string, optional
+        Prefix for the output files
 
     Returns
     -------
@@ -205,31 +235,252 @@ def process_records(
         The names of the failed records, where the keys are the different
         error types
     """
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_comp_1_ffp = output_dir / f"{output_prefix}_comp_1.csv"
+        output_comp_2_ffp = output_dir / f"{output_prefix}_comp_2.csv"
+        output_comp_v_ffp = output_dir / f"{output_prefix}_comp_v.csv"
+        output_gm_ffp = output_dir / f"{output_prefix}_gm.csv"
+    else:
+        print(f"No output directory, results are not saved and only returned")
 
-    def write(feature_df: pd.DataFrame, feature_rows: List):
+    def write(write_data: List[Tuple[pd.DataFrame, List, str]], record_ids: List[str]):
         print("Writing results..")
-        cur_feature_df = pd.DataFrame(feature_rows)
-        cur_feature_df.set_index("record_id", drop=True, inplace=True)
+        results = []
+        for cur_feature_df, cur_feature_rows, cur_output_ffp in write_data:
+            cur_feature_df = pd.DataFrame(cur_feature_rows)
+            cur_feature_df.index = record_ids
 
-        feature_df = (
-            pd.concat([feature_df, cur_feature_df])
-            if feature_df is not None
-            else cur_feature_df
-        )
-        feature_df.to_csv(output_ffp)
+            cur_feature_df = (
+                pd.concat([cur_feature_df, cur_feature_df])
+                if cur_feature_df is not None
+                else cur_feature_df
+            )
+            cur_feature_df.to_csv(cur_output_ffp)
 
-        return feature_df
+            results.append(cur_feature_df)
+
+        return results
 
     print(f"Searching for record files")
     record_files = np.asarray(
         glob.glob(os.path.join(record_dir, "**/*.V1A"), recursive=True), dtype=str
     )
 
+    # Record files filtering
+    if event_list_ffp is not None or record_list_ffp is not None:
+        record_files = filter_record_files(
+            record_files, event_list_ffp=event_list_ffp, record_list_ffp=record_list_ffp
+        )
+
     # Hack that (partially) allows getting around obspy issue, when running this
     # function on a loop...
     np.random.seed(int(time.time()))
     shuffle_ind = np.random.randint(0, record_files.size, record_files.size)
     record_files = record_files[shuffle_ind]
+
+    # Load the Konno matrices into memory
+    if ko_matrices_dir is not None and not low_mem_usage:
+        print(f"Loading Konno matrices into memory")
+        konno_matrices = {
+            matrix_id: np.load(os.path.join(ko_matrices_dir, f"konno_{matrix_id}.npy"))
+            for matrix_id in [1024, 2048, 4096, 8192, 16384, 32768]
+        }
+    # Calculate the matrices and load into memory
+    elif not low_mem_usage and ko_matrices_dir is None:
+        print(f"Computing and loading Konno matrices into memory")
+        konno_matrices = {
+            matrix_id: features.get_konno_matrix(matrix_id * 2, dt=0.005)
+            for matrix_id in [1024, 2048, 4096, 8192, 16384, 32768]
+        }
+    # Load them on the fly for each record
+    elif low_mem_usage and ko_matrices_dir is not None:
+        print(f"Loading Konno matrices as required")
+        konno_matrices = ko_matrices_dir
+    else:
+        raise ValueError(
+            "If the --low_mem_usage option is used, "
+            "then the --ko_matrices_dir has to be specified"
+        )
+
+    print(f"Starting processing of {record_files.size} record files")
+
+    feature_df_1, feature_df_2 = None, None
+    feature_df_v, feature_df_gm = None, None
+
+    # Load existing results if they exists
+    if (
+        output_dir is not None
+        and output_dir.is_dir()
+        and all(
+            [
+                ffp.is_file()
+                for ffp in [
+                    output_comp_1_ffp,
+                    output_comp_2_ffp,
+                    output_comp_v_ffp,
+                    output_gm_ffp,
+                ]
+            ]
+        )
+    ):
+        print(
+            "Output directory and files already exist, existing results will be used "
+            "(and already processed records will be ignored)"
+        )
+        feature_df_1 = pd.read_csv(output_comp_1_ffp, index_col="record_id")
+        feature_df_2 = pd.read_csv(output_comp_2_ffp, index_col="record_id")
+        feature_df_v = pd.read_csv(output_comp_v_ffp, index_col="record_id")
+        feature_df_gm = pd.read_csv(output_gm_ffp, index_col="record_id")
+
+        # Ensure all the existing results are consistent
+        assert (
+            np.all(feature_df_1.index.values == feature_df_2.index.values)
+            and np.all(feature_df_1.index.values == feature_df_v.index.values)
+            and np.all(feature_df_1.index.values == feature_df_gm.index.values)
+        )
+
+        # Filter, as to not process already processed records
+        record_ids = [get_record_id(record_ffp) for record_ffp in record_files]
+        record_files = record_files[~np.isin(record_ids, feature_df_gm.index.values)]
+    elif output_dir.is_dir() == False:
+        output_dir.mkdir()
+
+    feature_rows_1, feature_rows_2 = [], []
+    feature_rows_v, feature_rows_gm = [], []
+    failed_records = {
+        RecordError: {err_type: [] for err_type in RecordErrorType},
+        features.FeatureError: {err_type: [] for err_type in features.FeatureErrorType},
+        "empty_file": [],
+        "other": [],
+    }
+    record_ids, event_ids, stations = [], [], []
+    for ix, record_ffp in enumerate(record_files):
+        record_name = os.path.basename(record_ffp)
+        try:
+            print(f"Processing record {record_name}, {ix + 1}/{record_files.size}")
+            cur_features, cur_add_data = process_record(
+                record_ffp, konno_matrices=konno_matrices
+            )
+            record_ids.append(cur_features["record_id"])
+            event_ids.append(cur_features["event_id"])
+            stations.append(cur_features["station"])
+        except RecordError as ex:
+            failed_records[RecordError][ex.error_type].append(record_name)
+            cur_features, cur_add_data = None, None
+        except features.FeatureError as ex:
+            failed_records[features.FeatureError][features.FeatureErrorType].append(
+                record_name
+            )
+            cur_features, cur_add_data = None, None
+        except EmptyFile as ex:
+            failed_records["empty_file"].append(record_name)
+            cur_features, cur_add_data = None, None
+        except Exception as ex:
+            failed_records["other"].append(record_name)
+            cur_features, cur_add_data = None, None
+
+        if cur_features is not None:
+            feature_rows_1.append(cur_features["1"])
+            feature_rows_2.append(cur_features["2"])
+            feature_rows_v.append(cur_features["v"])
+            feature_rows_gm.append(cur_features["gm"])
+        if (
+            output_dir is not None
+            and ix % 100 == 0
+            and ix > 0
+            and len(feature_rows_gm) > 0
+        ):
+            feature_df_1, feature_df_2, feature_df_v, feature_df_gm = write(
+                [
+                    (feature_df_1, feature_rows_1, output_comp_1_ffp),
+                    (feature_df_2, feature_rows_2, output_comp_2_ffp),
+                    (feature_df_v, feature_rows_v, output_comp_v_ffp),
+                    (feature_df_gm, feature_rows_gm, output_gm_ffp),
+                ], record_ids
+            )
+            record_ids, event_ids, stations = [], [], []
+            feature_rows_1, feature_rows_2 = [], []
+            feature_rows_v, feature_rows_gm = [], []
+
+    # Save
+    if output_dir is not None:
+        feature_df_1, feature_df_2, feature_df_v, feature_df_gm = write(
+            [
+                (feature_df_1, feature_rows_1, output_comp_1_ffp),
+                (feature_df_2, feature_rows_2, output_comp_2_ffp),
+                (feature_df_v, feature_rows_v, output_comp_v_ffp),
+                (feature_df_gm, feature_rows_gm, output_gm_ffp),
+            ], record_ids
+        )
+    # Just return the results
+    else:
+        feature_df_gm = pd.DataFrame(feature_rows_gm)
+        feature_df_gm.index = record_ids
+
+    return feature_df_gm, failed_records
+
+
+def print_errors(failed_records: Dict[Any, Dict[Any, List]]):
+    feature_erros = failed_records[features.FeatureError]
+    record_erros = failed_records[RecordError]
+    if len(record_erros[RecordErrorType.TotalTime]) > 0:
+        print(
+            "The following records failed processing due to "
+            "the record length < 5 seconds:\n {}".format(
+                "\n".join(record_erros[RecordErrorType.TotalTime])
+            )
+        )
+    if len(record_erros[RecordErrorType.CompsNotMatching]) > 0:
+        print(
+            "The following records failed processing due to the "
+            "acceleration timeseries of the components having"
+            "different length:\n{}".format(
+                "\n".join(record_erros[RecordErrorType.CompsNotMatching])
+            )
+        )
+    if len(record_erros[RecordErrorType.NQuakePoints]) > 0:
+        print(
+            "The following records failed processing due to the "
+            "time delay adjusted timeseries having less than "
+            "10 datapoints:\n{}".format(
+                "\n".join(record_erros[RecordErrorType.NQuakePoints])
+            )
+        )
+    if len(record_erros[RecordErrorType.ZeroCrossings]) > 0:
+        print(
+            "The following records failed processing due to"
+            "not meeting the required number of "
+            "zero crossings:\n{}".format(
+                "\n".join(record_erros[RecordErrorType.ZeroCrossings])
+            )
+        )
+    if len(failed_records["empty_file"]) > 0:
+        print(
+            "The following records failed processing due to the "
+            "geoNet file not containing any data:\n{}".format(
+                "\n".join(record_erros["empty_file"])
+            )
+        )
+    if len(failed_records["other"]):
+        print(
+            "The following records failed processing due to "
+            "an unknown exception:\n{}".format("\n".join(failed_records["other"]))
+        )
+    if len(feature_erros[features.FeatureErrorType.PGA_zero]) > 0:
+        print(
+            "The following records failed processing due to "
+            "one PGA being zero for one (or more) of the components:\n{}".format(
+                "\n".join(feature_erros["other"])
+            )
+        )
+
+
+def filter_record_files(
+    record_files: np.ndarray, event_list_ffp: str = None, record_list_ffp: str = None
+):
+    """Filters the given record files by either event or record ID"""
+    assert event_list_ffp is not None and record_list_ffp is not None
 
     # Filter record files
     if event_list_ffp is not None:
@@ -277,129 +528,4 @@ def process_records(
                 )
             )
 
-    # Load the Konno matrices into memory
-    if ko_matrices_dir is not None and not low_mem_usage:
-        print(f"Loading Konno matrices into memory")
-        konno_matrices = {
-            matrix_id: np.load(os.path.join(ko_matrices_dir, f"konno_{matrix_id}.npy"))
-            for matrix_id in [1024, 2048, 4096, 8192, 16384, 32768]
-        }
-    # Calculate the matrices and load into memory
-    elif not low_mem_usage and ko_matrices_dir is None:
-        print(f"Computing and loading Konno matrices into memory")
-        konno_matrices = {
-            matrix_id: features.get_konno_matrix(matrix_id * 2, dt=0.005)
-            for matrix_id in [1024, 2048, 4096, 8192, 16384, 32768]
-        }
-    # Load them on the fly for each record
-    elif low_mem_usage and ko_matrices_dir is not None:
-        print(f"Loading Konno matrices as required")
-        konno_matrices = ko_matrices_dir
-    else:
-        raise ValueError(
-            "If the --low_mem_usage option is used, "
-            "then the --ko_matrices_dir has to be specified"
-        )
-
-    print(f"Starting processing of {record_files.size} record files")
-
-    feature_df = None
-    if output_ffp is not None and os.path.isfile(output_ffp):
-        print(
-            "Output file already exists, filtering out record files that "
-            "have already been processed"
-        )
-        feature_df = pd.read_csv(output_ffp, index_col="record_id")
-
-        # Filter, as to not process already processed records
-        record_ids = [get_record_id(record_ffp) for record_ffp in record_files]
-        record_files = record_files[~np.isin(record_ids, feature_df.index.values)]
-
-    feature_rows = []
-    failed_records = {err_type: [] for err_type in RecordErrorType}
-    failed_records["empty_file"] = []
-    failed_records["other"] = []
-    for ix, record_ffp in enumerate(record_files):
-        record_name = os.path.basename(record_ffp)
-        try:
-            print(f"Processing record {record_name}, {ix + 1}/{record_files.size}")
-            cur_features, cur_add_data = process_record(
-                record_ffp, konno_matrices=konno_matrices
-            )
-        except RecordError as ex:
-            failed_records[ex.error_type].append(record_name)
-            cur_features, cur_add_data = None, None
-        except EmptyFile as ex:
-            failed_records["empty_file"].append(record_name)
-            cur_features, cur_add_data = None, None
-        except Exception as ex:
-            failed_records["other"].append(record_name)
-            cur_features, cur_add_data = None, None
-
-        if cur_features is not None:
-            feature_rows.append(cur_features)
-
-        if (
-            output_ffp is not None
-            and ix % 100 == 0
-            and ix > 0
-            and len(feature_rows) > 0
-        ):
-            feature_df = write(feature_df, feature_rows)
-            feature_rows = []
-
-    # Save
-    if feature_df is not None:
-        feature_df = write(feature_df, feature_rows)
-    # Just return the results
-    else:
-        feature_df = pd.DataFrame(feature_rows)
-        feature_df.set_index("record_id", drop=True, inplace=True)
-
-    return feature_df, failed_records
-
-
-def print_errors(failed_records: Dict[Any, List]):
-    if len(failed_records[RecordErrorType.TotalTime]) > 0:
-        print(
-            "The following records failed processing due to "
-            "the record length < 5 seconds:\n {}".format(
-                "\n".join(failed_records[RecordErrorType.TotalTime])
-            )
-        )
-    if len(failed_records[RecordErrorType.CompsNotMatching]):
-        print(
-            "The following records failed processing due to the "
-            "acceleration timeseries of the components having"
-            "different length:\n{}".format(
-                "\n".join(failed_records[RecordErrorType.CompsNotMatching])
-            )
-        )
-    if len(failed_records[RecordErrorType.NQuakePoints]):
-        print(
-            "The following records failed processing due to the "
-            "time delay adjusted timeseries having less than "
-            "10 datapoints:\n{}".format(
-                "\n".join(failed_records[RecordErrorType.NQuakePoints])
-            )
-        )
-    if len(failed_records[RecordErrorType.ZeroCrossings]):
-        print(
-            "The following records failed processing due to"
-            "not meeting the required number of "
-            "zero crossings:\n{}".format(
-                "\n".join(failed_records[RecordErrorType.ZeroCrossings])
-            )
-        )
-    if len(failed_records["empty_file"]):
-        print(
-            "The following records failed processing due to the "
-            "geoNet file not containing any data:\n{}".format(
-                "\n".join(failed_records["empty_file"])
-            )
-        )
-    if len(failed_records["other"]):
-        print(
-            "The following records failed processing due to "
-            "an unknown exception:\n{}".format("\n".join(failed_records["other"]))
-        )
+    return record_files

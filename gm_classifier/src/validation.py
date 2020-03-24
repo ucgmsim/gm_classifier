@@ -27,6 +27,8 @@ def k_fold(
     ] = None,
     verbose: int = 0,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict]:
+    """Runs k-fold validation for the given labelled data, evaluation is
+    done using the provided evaluation function"""
     output_dir = Path(output_dir)
 
     train_df = pd.merge(features_df, label_df, left_index=True, right_index=True)
@@ -124,6 +126,7 @@ def eval(
 
 
 def label_from_prob(prob: np.ndarray, threshold: float = 0.5):
+    """Gets the low-high quality label from NN result"""
     y = np.zeros(prob.shape[0], dtype=int)
     y[prob > threshold] = 1
 
@@ -131,6 +134,7 @@ def label_from_prob(prob: np.ndarray, threshold: float = 0.5):
 
 
 def plot_multi_loss(loss_dict: Dict, ax: plt.Axes = None, colour_char: str = "b"):
+    """Plots multiple losses (and their average) on a single plot"""
     if ax is None:
         fig, ax = plt.subplots()
 
@@ -162,12 +166,14 @@ def plot_multi_loss(loss_dict: Dict, ax: plt.Axes = None, colour_char: str = "b"
 
 
 def compute_multi_mean_min_loss(loss_dict: Dict):
+    """Computes the mean minimum loss across multiple trainings"""
     min_train_loss_values = np.asarray([np.min(cur_values["train"]) for cur_values in loss_dict.values()])
     min_val_losss_values = np.asarray([np.min(cur_values["val"]) for cur_values in loss_dict.values()])
 
     return min_train_loss_values.mean(), min_val_losss_values.mean()
 
 def plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, ax: plt.Axes = None, title: str = None):
+    """Plots the confusion matrix for the high-low label"""
     cm_train = metrics.confusion_matrix(y_true, y_pred)
     cm_train = pd.DataFrame(data=cm_train, index=["Low", "High"],
                             columns=["Low", "High"])
@@ -181,6 +187,7 @@ def plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, ax: plt.Axes =
     ax.set_title(title)
 
 def plot_loss(history: Dict, **kwargs):
+    """Plots the loss"""
     plt.figure(**kwargs)
     epochs = np.arange(len(history["loss"]))
     plt.plot(epochs, history["loss"], "k-", label="Training")

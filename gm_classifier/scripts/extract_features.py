@@ -4,8 +4,9 @@ import gm_classifier as gm
 
 
 def main(
-    output_ffp: str,
+    output_dir: str,
     record_dir: str,
+    output_prefix: str = "features",
     event_list_ffp: str = None,
     record_list_ffp: str = None,
     ko_matrices_dir: str = None,
@@ -17,7 +18,8 @@ def main(
         record_list_ffp=record_list_ffp,
         ko_matrices_dir=ko_matrices_dir,
         low_mem_usage=low_mem_usage,
-        output_ffp=output_ffp
+        output_dir=output_dir,
+        output_prefix=output_prefix
     )
 
     gm.records.print_errors(failed_records)
@@ -27,7 +29,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "output_ffp", type=str, help="File path for the resulting csv file"
+        "output_dir", type=str, help="Path to the output directory"
     )
     parser.add_argument(
         "record_dir",
@@ -35,6 +37,7 @@ if __name__ == "__main__":
         help="Root directory for the records, "
         "will search for records recursively from here",
     )
+    parser.add_argument("--output_prefix", type=str, help="Prefix for the output files", default="features")
     parser.add_argument(
         "--event_list_ffp",
         type=str,
@@ -69,8 +72,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(
-        args.output_ffp,
+        args.output_dir,
         args.record_dir,
+        output_prefix=args.output_prefix,
         event_list_ffp=args.event_list_ffp,
         record_list_ffp=args.record_list_ffp,
         ko_matrices_dir=args.ko_matrices_dir,
