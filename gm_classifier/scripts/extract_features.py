@@ -19,7 +19,7 @@ def main(
         ko_matrices_dir=ko_matrices_dir,
         low_mem_usage=low_mem_usage,
         output_dir=output_dir,
-        output_prefix=output_prefix
+        output_prefix=output_prefix,
     )
 
     gm.records.print_errors(failed_records)
@@ -28,16 +28,19 @@ def main(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        "output_dir", type=str, help="Path to the output directory"
-    )
+    parser.add_argument("output_dir", type=str, help="Path to the output directory")
     parser.add_argument(
         "record_dir",
         type=str,
         help="Root directory for the records, "
         "will search for records recursively from here",
     )
-    parser.add_argument("--output_prefix", type=str, help="Prefix for the output files", default="features")
+    parser.add_argument(
+        "--output_prefix",
+        type=str,
+        help="Prefix for the output files",
+        default="features",
+    )
     parser.add_argument(
         "--event_list_ffp",
         type=str,

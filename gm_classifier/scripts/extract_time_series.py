@@ -98,7 +98,11 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
 
 
 def main(
-    record_dir: str, output_dir: str, ko_matrices_dir: str, low_mem_usage: bool = False
+    record_dir: str,
+    output_dir: str,
+    ko_matrices_dir: str,
+    low_mem_usage: bool = False,
+    skip_existing: bool = False,
 ):
     output_dir = Path(output_dir)
 
@@ -130,7 +134,13 @@ def main(
     meta_data = {}
     for ix, record_ffp in enumerate(record_files):
         record_id = gm.records.get_record_id(record_ffp)
+        cur_out_dir = output_dir / f"{record_id}"
+
         print(f"Processing record {record_id}, {ix + 1}/{record_files.size}")
+        if cur_out_dir.is_dir() and skip_existing:
+            print(f"Result directory already exists, skipping record.")
+            continue
+
         try:
             cur_acc, cur_ft, cur_smooth_ft, cur_meta_data = get_series_data(
                 record_ffp, ko_matrices
@@ -139,8 +149,8 @@ def main(
             failed_records[gm.records.RecordError][ex.error_type].append(record_id)
         except gm.records.EmptyFile as ex:
             failed_records["empty_file"].append(record_id)
-        # except Exception as ex:
-        #     failed_records["other"].append(record_id)
+        except Exception as ex:
+            failed_records["other"].append(record_id)
         else:
             meta_data[record_id] = cur_meta_data
 
@@ -179,6 +189,12 @@ if __name__ == "__main__":
         "Requires --ko_matrices_dir to be specified. ",
         default=False,
     )
+    parser.add_argument(
+        "--no_overwrite",
+        action="store_true",
+        help="If specified, existing results will not be overwritten",
+        default=False,
+    )
 
     args = parser.parse_args()
 
@@ -187,4 +203,5 @@ if __name__ == "__main__":
         args.output_dir,
         args.ko_matrices_dir,
         low_mem_usage=args.low_memory,
+        skip_existing=args.no_overwrite
     )

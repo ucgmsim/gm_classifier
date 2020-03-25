@@ -386,7 +386,7 @@ def get_features(
     tr2 = acc_2 * 9806.7 * 10.0
     tr3 = np.multiply(np.abs(acc_v), acc_v) * np.power(9806.7 * 10.0, 2)
     dt = gf.comp_1st.delta_t
-    sample_rate = 1.0 / gf.comp_1st.delta_t
+    sample_rate = 1.0 / dt
 
     # Sanity check
     assert np.isclose(gf.comp_1st.delta_t, gf.comp_2nd.delta_t) and np.isclose(
