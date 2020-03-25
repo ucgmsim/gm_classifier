@@ -459,7 +459,7 @@ def print_errors(failed_records: Dict[Any, Dict[Any, List]]):
         print(
             "The following records failed processing due to the "
             "geoNet file not containing any data:\n{}".format(
-                "\n".join(record_erros["empty_file"])
+                "\n".join(failed_records["empty_file"])
             )
         )
     if len(failed_records["other"]):
