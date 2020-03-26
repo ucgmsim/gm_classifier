@@ -244,19 +244,26 @@ def process_records(
     else:
         print(f"No output directory, results are not saved and only returned")
 
-    def write(write_data: List[Tuple[pd.DataFrame, List, str]], record_ids: List[str]):
+    def write(
+        write_data: List[Tuple[pd.DataFrame, List, str]],
+        record_ids: List[str],
+        event_ids: List[str],
+        station: List[str],
+    ):
         print("Writing results..")
         results = []
         for cur_feature_df, cur_feature_rows, cur_output_ffp in write_data:
-            cur_feature_df = pd.DataFrame(cur_feature_rows)
-            cur_feature_df.index = record_ids
+            new_feature_df = pd.DataFrame(cur_feature_rows)
+            new_feature_df.index = record_ids
+            new_feature_df["event_id"] = event_ids
+            new_feature_df["station"] = stations
 
             cur_feature_df = (
-                pd.concat([cur_feature_df, cur_feature_df])
+                pd.concat([cur_feature_df, new_feature_df])
                 if cur_feature_df is not None
-                else cur_feature_df
+                else new_feature_df
             )
-            cur_feature_df.to_csv(cur_output_ffp)
+            cur_feature_df.to_csv(cur_output_ffp, index_label="record_id")
 
             results.append(cur_feature_df)
 
@@ -276,8 +283,7 @@ def process_records(
     # Hack that (partially) allows getting around obspy issue, when running this
     # function on a loop...
     np.random.seed(int(time.time()))
-    shuffle_ind = np.random.randint(0, record_files.size, record_files.size)
-    record_files = record_files[shuffle_ind]
+    np.random.shuffle(record_files)
 
     # Load the Konno matrices into memory
     if ko_matrices_dir is not None and not low_mem_usage:
@@ -397,7 +403,8 @@ def process_records(
                     (feature_df_2, feature_rows_2, output_comp_2_ffp),
                     (feature_df_v, feature_rows_v, output_comp_v_ffp),
                     (feature_df_gm, feature_rows_gm, output_gm_ffp),
-                ], record_ids
+                ],
+                record_ids, event_ids, stations
             )
             record_ids, event_ids, stations = [], [], []
             feature_rows_1, feature_rows_2 = [], []
@@ -411,7 +418,8 @@ def process_records(
                 (feature_df_2, feature_rows_2, output_comp_2_ffp),
                 (feature_df_v, feature_rows_v, output_comp_v_ffp),
                 (feature_df_gm, feature_rows_gm, output_gm_ffp),
-            ], record_ids
+            ],
+            record_ids, event_ids, stations
         )
     # Just return the results
     else:

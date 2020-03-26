@@ -31,28 +31,27 @@ class FeatureError(Exception):
         self.error_type = error_type
 
 
-# Note: the order of these is important!
+# Default feature set
 FEATURE_NAMES = [
     "signal_pe_ratio_max",
     "signal_ratio_max",
     "snr_min",
     "snr_max",
     "snr_average",
-    "average_tail_ratio",
     "max_tail_ratio",
-    "max_tail_noise_ratio",
     "average_tail_noise_ratio",
     "max_head_ratio",
-    "snr_average_0.1_0.5",
+    "snr_average_0.1_0.2",
+    "snr_average_0.2_0.5",
     "snr_average_0.5_1.0",
     "snr_average_1.0_2.0",
     "snr_average_2.0_5.0",
     "snr_average_5.0_10.0",
-    "fas_ratio",
+    "fas_ratio_low",
+    "fas_ratio_high",
     "pn_pga_ratio",
-    "bracketed_pga_10_20",
-    "ds_575",
-    "ds_595",
+    # "ds_575",
+    # "ds_595",
 ]
 
 KONNO_MATRIX_FILENAME_TEMPLATE = "konno_{}.npy"
@@ -293,39 +292,38 @@ def compute_sig_duration(husid_ix_low: int, husid_ix_high: int, dt: float):
     return (husid_ix_high - husid_ix_low) * dt
 
 
-def compute_snr_min(snr: np.ndarray, lower_ix: int, upper_ix: int):
-    """Computes SNR min"""
-    return np.round(np.min(snr[lower_ix:upper_ix]), 5)
+def compute_snr_min(
+    snr: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float
+):
+    """Computes SNR min over the specified frequency range"""
+    lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
+    return np.min(snr[lower_ix:upper_ix])
 
 
-def compute_snr_max(snr: np.ndarray):
-    """Computes SNR max"""
-    return np.round(np.max(snr), 5)
+def compute_snr_max(
+    snr: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float
+):
+    """Computes SNR max over the specified frequency range"""
+    lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
+    return np.max(snr[lower_ix:upper_ix])
 
-def compute_snr_avg(snr: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float):
+
+def compute_snr_avg(
+    snr: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float
+):
     """Computes the SNR average"""
     lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
-    return np.round(
-        np.trapz(
-            snr[lower_ix:upper_ix],
-            ft_freq[lower_ix:upper_ix],
-        )
-        / (ft_freq[upper_ix] - ft_freq[lower_ix]),
-        5,
+    return np.trapz(snr[lower_ix:upper_ix], ft_freq[lower_ix:upper_ix]) / (
+        ft_freq[upper_ix] - ft_freq[lower_ix]
     )
 
-def compute_snr(snr: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float):
+
+def compute_snr(
+    snr: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float
+):
     """Computes the SNR for the specified frequency range"""
     lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
-    return np.round(
-        np.trapz(
-            snr[lower_ix:upper_ix],
-            ft_freq[lower_ix:upper_ix],
-        )
-        / (ft_freq[upper_ix] - ft_freq[lower_ix]),
-        5,
-    )
-
+    return np.trapz(snr[lower_ix:upper_ix], ft_freq[lower_ix:upper_ix])/ (ft_freq[upper_ix] - ft_freq[lower_ix])
 
 def compute_fas(
     ft_smooth: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float
@@ -334,26 +332,25 @@ def compute_fas(
     Not sure, what ft_s actually is?
     """
     lower_index, upper_index_average = get_freq_ix(ft_freq, lower_freq, upper_freq)
-    fas = np.round(
-        np.trapz(
-            ft_smooth[lower_index:upper_index_average],
-            ft_freq[lower_index:upper_index_average],
-        )
-        / (ft_freq[upper_index_average] - ft_freq[lower_index]),
-        5,
-    )
+    fas = np.trapz(
+        ft_smooth[lower_index:upper_index_average],
+        ft_freq[lower_index:upper_index_average],
+    ) / (ft_freq[upper_index_average] - ft_freq[lower_index])
     ft_s = (ft_smooth[upper_index_average] - ft_smooth[lower_index]) / (
         ft_freq[upper_index_average] / ft_freq[lower_index]
     )
 
     return fas, ft_s
 
-def compute_low_freq_fas(smooth_ft: np.ndarray, ft_freq: np.ndarray, low_freq: float) -> float:
+
+def compute_low_freq_fas(
+    smooth_ft: np.ndarray, ft_freq: np.ndarray, low_freq: float
+) -> float:
     """Computes the low frequency FAS"""
     low_ix = min(np.flatnonzero(ft_freq > low_freq))
-    return np.trapz(smooth_ft[1:low_ix], ft_freq[1:low_ix]) / (ft_freq[low_ix] - ft_freq[1])
-
-
+    return np.trapz(smooth_ft[1:low_ix], ft_freq[1:low_ix]) / (
+        ft_freq[low_ix] - ft_freq[1]
+    )
 
 
 def get_features(
@@ -451,94 +448,32 @@ def get_features(
     pn_pga_ratio_v = max_pn_v / pga_v
     pn_pga_ratio_gm = max_pn_gm / pga_gm
 
-    # Compute horizontal average PGA and Peak Noise (PN)
-    avg_pn_1 = compute_avg_pn(acc_1, p_wave_ix)
-    avg_pn_2 = compute_avg_pn(acc_2, p_wave_ix)
-    avg_pn_v = compute_avg_pn(acc_v, p_wave_ix)
-    avg_pn_gm = np.sqrt(np.average(avg_pn_1 * avg_pn_2))
-
-    # Compute tail average
+    # Compute average tail ratio
     tail_duration = min(5.0, 0.1 * t[-1])
     tail_length = int(tail_duration * sample_rate)
-    tail_avg_1 = compute_tail_avg(acc_1, tail_length)
-    tail_avg_2 = compute_tail_avg(acc_2, tail_length)
-    tail_avg_v = compute_tail_avg(acc_v, tail_length)
 
-    # Compute average tail noise ratio
-    avg_tail_ratio_1 = tail_avg_1 / pga_1
-    avg_tail_noise_ratio_1 = avg_tail_ratio_1 / avg_pn_1
-
-    avg_tail_ratio_2 = tail_avg_2 / pga_2
-    avg_tail_noise_ratio_2 = avg_tail_ratio_2 / avg_pn_2
-
-    avg_tail_ratio_v = tail_avg_v / pga_v
-    avg_tail_noise_ratio_v = avg_tail_ratio_v / avg_pn_v
-
+    avg_tail_ratio_1 = compute_tail_avg(acc_1, tail_length) / pga_1
+    avg_tail_ratio_2 = compute_tail_avg(acc_2, tail_length) / pga_2
+    avg_tail_ratio_v = compute_tail_avg(acc_v, tail_length) / pga_v
     tail_ratio_avg_gm = np.sqrt(avg_tail_ratio_1 * avg_tail_ratio_2)
-    tail_noise_ratio_gm = tail_ratio_avg_gm / avg_pn_gm
 
-    # Compute Maximum Tail Ratio and Maximum Tail Noise Ratio
+    # Compute Maximum Tail Ratio
     max_tail_duration = min(2.0, 0.1 * t[-1])
     max_tail_length = int(max_tail_duration * sample_rate)
 
-    tail_max_1 = compute_tail_max(acc_1, max_tail_length)
-    max_tail_ratio_1 = tail_max_1 / pga_1
-    max_tail_noise_ratio_1 = max_tail_ratio_1 / max_pn_1
-
-    tail_max_2 = compute_tail_max(acc_2, max_tail_length)
-    max_tail_ratio_2 = tail_max_2 / pga_2
-    max_tail_noise_ratio_2 = max_tail_ratio_2 / max_pn_2
-
-    tail_max_v = compute_tail_max(acc_v, max_tail_length)
-    max_tail_ratio_v = tail_max_v / pga_v
-    max_tail_noise_ratio_v = max_tail_ratio_v / max_pn_v
-
+    max_tail_ratio_1 = compute_tail_max(acc_1, max_tail_length) / pga_1
+    max_tail_ratio_2 = compute_tail_max(acc_2, max_tail_length) / pga_2
+    max_tail_ratio_v = compute_tail_max(acc_v, max_tail_length) / pga_v
     max_tail_ratio_gm = np.sqrt(max_tail_ratio_1 * max_tail_ratio_2)
-    max_tail_noise_ratio_gm = max_tail_ratio_gm / max_pn_gm
 
     # Compute Maximum Head Ratio
     head_duration = 1.0
     head_length = int(head_duration * sample_rate)
 
-    head_average_1 = compute_head_avg(acc_1, head_length)
-    max_head_ratio_1 = head_average_1 / pga_1
-
-    head_average_2 = compute_head_avg(acc_2, head_length)
-    max_head_ratio_2 = head_average_2 / pga_2
-
-    head_average_v = compute_head_avg(acc_v, head_length)
-    max_head_ratio_v = head_average_v / pga_v
-
+    max_head_ratio_1 = compute_head_avg(acc_1, head_length) / pga_1
+    max_head_ratio_2 = compute_head_avg(acc_2, head_length) / pga_2
+    max_head_ratio_v = compute_head_avg(acc_v, head_length) / pga_v
     max_head_ratio_gm = np.sqrt(max_head_ratio_1 * max_head_ratio_2)
-
-    # Bracketed durations between 10%, 20% of PGA
-    bracketed_pga_0p1_1 = compute_bracketed_pga_dur(
-        acc_1, pga_1, 0.1, gf.comp_1st.delta_t
-    )
-    bracketed_pga_0p2_1 = compute_bracketed_pga_dur(
-        acc_1, pga_2, 0.2, gf.comp_1st.delta_t
-    )
-    bracketed_pga_0p1_0p2_1 = bracketed_pga_0p1_1 / bracketed_pga_0p2_1
-
-    bracketed_pga_0p1_2 = compute_bracketed_pga_dur(
-        acc_2, pga_2, 0.1, gf.comp_2nd.delta_t
-    )
-    bracketed_pga_0p2_2 = compute_bracketed_pga_dur(
-        acc_2, pga_2, 0.2, gf.comp_2nd.delta_t
-    )
-    bracketed_pga_0p1_0p2_2 = bracketed_pga_0p1_2 / bracketed_pga_0p2_2
-
-    bracketed_pga_0p1_v = compute_bracketed_pga_dur(
-        acc_v, pga_v, 0.1, gf.comp_up.delta_t
-    )
-    bracketed_pga_0p2_v = compute_bracketed_pga_dur(
-        acc_v, pga_v, 0.2, gf.comp_up.delta_t
-    )
-    bracketed_pga_0p1_0p2_v = bracketed_pga_0p1_v / bracketed_pga_0p2_v
-
-    bracketed_pga_0p1 = np.sqrt(bracketed_pga_0p1_1 * bracketed_pga_0p1_2)
-    bracketed_pga_0p2 = np.sqrt(bracketed_pga_0p2_1 * bracketed_pga_0p2_2)
-    bracketed_pga_0p1_0p2_gm = bracketed_pga_0p1 / bracketed_pga_0p2
 
     # Calculate Ds575 and Ds595
     ds_575_1 = compute_sig_duration(husid_5_ix_1, husid_75_ix_1, gf.comp_1st.delta_t)
@@ -577,55 +512,28 @@ def get_features(
     )
 
     # SNR metrics - min, max and averages
-    lower_index, upper_index = get_freq_ix(ft_freq, 0.1, 20)
     snr_1 = ft_data_1.smooth_ft / ft_data_1.smooth_ft_pe
-    snr_min_1 = compute_snr_min(snr_1, lower_index, upper_index)
-    snr_max_1 = compute_snr_max(snr_1)
+    snr_min_1 = compute_snr_min(snr_1, ft_freq, 0.1, 20)
+    snr_max_1 = compute_snr_max(snr_1, ft_freq, 0.1, 20)
+    snr_avg_1 = compute_snr_avg(snr_1, ft_freq, 0.1, 20)
 
     snr_2 = ft_data_2.smooth_ft / ft_data_2.smooth_ft_pe
-    snr_min_2 = compute_snr_min(snr_2, lower_index, upper_index)
-    snr_max_2 = compute_snr_max(snr_2)
+    snr_min_2 = compute_snr_min(snr_2, ft_freq, 0.1, 20)
+    snr_max_2 = compute_snr_max(snr_2, ft_freq, 0.1, 20)
+    snr_avg_2 = compute_snr_avg(snr_2, ft_freq, 0.1, 20)
 
     snr_v = ft_data_v.smooth_ft / ft_data_v.smooth_ft_pe
-    snr_min_v = compute_snr_min(snr_v, lower_index, upper_index)
-    snr_max_v = compute_snr_max(snr_v)
+    snr_min_v = compute_snr_min(snr_v, ft_freq, 0.1, 20)
+    snr_max_v = compute_snr_max(snr_v, ft_freq, 0.1, 20)
+    snr_avg_v = compute_snr_avg(snr_2, ft_freq, 0.1, 10)
 
     snr_gm = np.divide(ft_smooth_gm, ft_smooth_pe_gm)
-    snr_min = compute_snr_min(snr_gm, lower_index, upper_index)
-    snr_max = compute_snr_max(snr_gm)
+    snr_min = compute_snr_min(snr_gm, ft_freq, 0.1, 20)
+    snr_max = compute_snr_max(snr_gm, ft_freq, 0.1, 20)
+    snr_avg_gm = compute_snr_avg(snr_gm, ft_freq, 0.1, 20)
 
-    # results = {"comp_1": {}, "comp_2": {}, "comp_v": {}, "gm": {}}
-
-    # Compute the Fourier amplitude ratio
-    fas_0p1_0p5_1, ft_s1_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.1, 10)
-    fas_0p1_0p5_2, ft_s1_2 = compute_fas(ft_data_2.smooth_ft, ft_freq, 0.1, 10)
-    fas_0p1_0p5_v, ft_s1_v = compute_fas(ft_data_v.smooth_ft, ft_freq, 0.1, 10)
-    fas_0p1_0p5_gm, ft_s1_gm = compute_fas(ft_smooth_gm, ft_freq, 0.1, 10)
-
-    fas_0p5_1p0_1, ft_s2_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.5, 1.0)
-    fas_0p5_1p0_2, ft_s2_2 = compute_fas(ft_data_2.smooth_ft, ft_freq, 0.5, 1.0)
-    fas_0p5_1p0_v, ft_s2_v = compute_fas(ft_data_v.smooth_ft, ft_freq, 0.5, 1.0)
-    fas_0p5_1p0_gm, ft_s2_gm = compute_fas(ft_smooth_gm, ft_freq, 0.5, 1.0)
-
-    fas_ratio_1 = fas_0p1_0p5_1 / fas_0p5_1p0_1
-    fas_ratio_2 = fas_0p1_0p5_2 / fas_0p5_1p0_2
-    fas_ratio_v = fas_0p1_0p5_v / fas_0p5_1p0_v
-    fas_ratio_gm = fas_0p1_0p5_gm / fas_0p5_1p0_gm
-
-    # What is this?
-    ft_s1_s2_1 = ft_s1_1 / ft_s2_1
-    ft_s1_s2_2 = ft_s1_2 / ft_s2_2
-    ft_s1_s2_v = ft_s1_v / ft_s2_v
-    ft_s1_s2_gm = ft_s1_gm / ft_s2_gm
-
-    # Compute SNR average across all FT frequencies
-    snr_avg_1 = compute_snr_avg(snr_1, ft_freq, 0.1, 10)
-    snr_avg_2 = compute_snr_avg(snr_2, ft_freq, 0.1, 10)
-    snr_avg_v = compute_snr_avg(snr_2, ft_freq, 0.1, 10)
-    snr_avg_gm = compute_snr_avg(snr_gm, ft_freq, 0.1, 10)
-
-    # Computing SNR for the different frequency ranges
-    snr_freq_ranges = [(0.1, 0.5), (0.5, 1.0), (1.0, 2.0), (2.0, 5.0), (5.0, 10.0)]
+    # Computing average SNR for the different frequency ranges
+    snr_freq_ranges = [(0.1, 0.2), (0.2, 0.5), (0.5, 1.0), (1.0, 2.0), (2.0, 5.0), (5.0, 10.0)]
     snr_values_1, snr_values_2 = [], []
     snr_values_v, snr_values_gm = [], []
     for lower_freq, upper_freq in snr_freq_ranges:
@@ -634,29 +542,65 @@ def get_features(
         snr_values_v.append(compute_snr(snr_v, ft_freq, lower_freq, upper_freq))
         snr_values_gm.append(compute_snr(snr_gm, ft_freq, lower_freq, upper_freq))
 
+    # Compute the Fourier amplitude ratio
+    fas_0p1_0p2_1, ft_s1_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.1, 0.2)
+    fas_0p1_0p2_2, ft_s1_2 = compute_fas(ft_data_2.smooth_ft, ft_freq, 0.1, 0.2)
+    fas_0p1_0p2_v, ft_s1_v = compute_fas(ft_data_v.smooth_ft, ft_freq, 0.1, 0.2)
+    fas_0p1_0p2_gm, ft_s1_gm = compute_fas(ft_smooth_gm, ft_freq, 0.1, 0.2)
+
+    fas_0p2_0p5_1, ft_s2_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.2, 0.5)
+    fas_0p2_0p5_2, ft_s2_2 = compute_fas(ft_data_2.smooth_ft, ft_freq, 0.2, 0.5)
+    fas_0p2_0p5_v, ft_s2_v = compute_fas(ft_data_v.smooth_ft, ft_freq, 0.2, 0.5)
+    fas_0p2_0p5_gm, ft_s2_gm = compute_fas(ft_smooth_gm, ft_freq, 0.2, 0.5)
+
+    fas_0p5_1p0_1, ft_s3_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.5, 1.0)
+    fas_0p5_1p0_2, ft_s3_2 = compute_fas(ft_data_2.smooth_ft, ft_freq, 0.5, 1.0)
+    fas_0p5_1p0_v, ft_s3_v = compute_fas(ft_data_v.smooth_ft, ft_freq, 0.5, 1.0)
+    fas_0p5_1p0_gm, ft_s3_gm = compute_fas(ft_smooth_gm, ft_freq, 0.5, 1.0)
+
+    fas_ratio_low_1 = fas_0p1_0p2_1 / fas_0p2_0p5_1
+    fas_ratio_low_2 = fas_0p1_0p2_2 / fas_0p2_0p5_2
+    fas_ratio_low_v = fas_0p1_0p2_v / fas_0p2_0p5_v
+    fas_ratio_low_gm = fas_0p1_0p2_gm / fas_0p2_0p5_gm
+
+    fas_ratio_high_1 = fas_0p2_0p5_1 / fas_0p5_1p0_1
+    fas_ratio_high_2 = fas_0p2_0p5_2 / fas_0p5_1p0_2
+    fas_ratio_high_v = fas_0p2_0p5_v / fas_0p5_1p0_v
+    fas_ratio_high_gm = fas_0p2_0p5_gm / fas_0p5_1p0_gm
+
+    # What is this?
+    ft_s1_s2_1 = ft_s1_1 / ft_s2_1
+    ft_s1_s2_2 = ft_s1_2 / ft_s2_2
+    ft_s1_s2_v = ft_s1_v / ft_s2_v
+    ft_s1_s2_gm = ft_s1_gm / ft_s2_gm
+
+    ft_s2_s3_1 = ft_s1_1 / ft_s2_1
+    ft_s2_s3_2 = ft_s1_2 / ft_s2_2
+    ft_s2_s3_v = ft_s1_v / ft_s2_v
+    ft_s2_s3_gm = ft_s1_gm / ft_s2_gm
+
     # Compute low frequency (both event & pre-event) FAS to maximum signal FAS ratio
-    signal_max_1 = np.max(ft_data_1.smooth_ft)
+    fas_max_1 = np.max(ft_data_1.smooth_ft)
     lf_fas_1 = compute_low_freq_fas(ft_data_1.smooth_ft, ft_freq, 0.1)
     lf_pe_fas_1 = compute_low_freq_fas(ft_data_1.smooth_ft_pe, ft_freq, 0.1)
 
-    signal_max_2 = np.max(ft_data_2.smooth_ft)
+    fas_max_2 = np.max(ft_data_2.smooth_ft)
     lf_fas_2 = compute_low_freq_fas(ft_data_2.smooth_ft, ft_freq, 0.1)
     lf_pe_fas_2 = compute_low_freq_fas(ft_data_2.smooth_ft_pe, ft_freq, 0.1)
 
-    signal_max_v = np.max(ft_data_v.smooth_ft)
+    fas_max_v = np.max(ft_data_v.smooth_ft)
     lf_fas_v = compute_low_freq_fas(ft_data_v.smooth_ft, ft_freq, 0.1)
     lf_pe_fas_v = compute_low_freq_fas(ft_data_v.smooth_ft_pe, ft_freq, 0.1)
 
+    signal_ratio_max_1 = lf_fas_1 / fas_max_1
+    signal_ratio_max_2 = lf_fas_2 / fas_max_2
+    signal_ratio_max_v = lf_fas_v / fas_max_v
+    signal_ratio_max = max([lf_fas_1 / fas_max_1, lf_fas_2 / fas_max_2])
 
-    signal_ratio_max_1 = lf_fas_1 / signal_max_1
-    signal_ratio_max_2 = lf_fas_2 / signal_max_2
-    signal_ratio_max_v = lf_fas_v / signal_max_v
-    signal_ratio_max = max([lf_fas_1 / signal_max_1, lf_fas_2 / signal_max_2])
-
-    signal_pe_ratio_max_1 = lf_pe_fas_1 / signal_max_1
-    signal_pe_ratio_max_2 = lf_pe_fas_2 / signal_max_2
-    signal_pe_ratio_max_v = lf_pe_fas_v / signal_max_v
-    signal_pe_ratio_max = max([lf_pe_fas_1 / signal_max_1, lf_pe_fas_2 / signal_max_2])
+    signal_pe_ratio_max_1 = lf_pe_fas_1 / fas_max_1
+    signal_pe_ratio_max_2 = lf_pe_fas_2 / fas_max_2
+    signal_pe_ratio_max_v = lf_pe_fas_v / fas_max_v
+    signal_pe_ratio_max = max([lf_pe_fas_1 / fas_max_1, lf_pe_fas_2 / fas_max_2])
 
     # TODO: Do this better at some point...
     features_dict = {
@@ -664,135 +608,143 @@ def get_features(
             "pn_pga_ratio": pn_pga_ratio_1,
             "average_tail_ratio": avg_tail_ratio_1,
             "max_tail_ratio": max_tail_ratio_1,
-            "average_tail_noise_ratio": avg_tail_noise_ratio_1,
-            "max_tail_noise_ratio": max_tail_noise_ratio_1,
             "max_head_ratio": max_head_ratio_1,
-            "bracketed_pga_10_20": bracketed_pga_0p1_0p2_1,
             "ds_575": ds_575_1,
             "ds_595": ds_595_1,
             "signal_pe_ratio_max": signal_pe_ratio_max_1,
             "signal_ratio_max": signal_ratio_max_1,
-            "fas_ratio": fas_ratio_1,
+            "fas_ratio_low": fas_ratio_low_1,
+            "fas_ratio_high": fas_ratio_high_1,
             "snr_min": snr_min_1,
             "snr_max": snr_max_1,
             "snr_average": snr_avg_1,
-            "snr_average_0.1_0.5": snr_values_1[0],
-            "snr_average_0.5_1.0": snr_values_1[1],
-            "snr_average_1.0_2.0": snr_values_1[2],
-            "snr_average_2.0_5.0": snr_values_1[3],
-            "snr_average_5.0_10.0": snr_values_1[4],
+            "snr_average_0.1_0.2": snr_values_1[0],
+            "snr_average_0.2_0.5": snr_values_1[1],
+            "snr_average_0.5_1.0": snr_values_1[2],
+            "snr_average_1.0_2.0": snr_values_1[3],
+            "snr_average_2.0_5.0": snr_values_1[4],
+            "snr_average_5.0_10.0": snr_values_1[5],
         },
         "2": {
             "pn_pga_ratio": pn_pga_ratio_2,
             "average_tail_ratio": avg_tail_ratio_2,
             "max_tail_ratio": max_tail_ratio_2,
-            "average_tail_noise_ratio": avg_tail_noise_ratio_2,
-            "max_tail_noise_ratio": max_tail_noise_ratio_2,
             "max_head_ratio": max_head_ratio_2,
-            "bracketed_pga_10_20": bracketed_pga_0p1_0p2_2,
             "ds_575": ds_575_2,
             "ds_595": ds_595_2,
             "signal_pe_ratio_max": signal_pe_ratio_max_2,
             "signal_ratio_max": signal_ratio_max_2,
-            "fas_ratio": fas_ratio_2,
+            "fas_ratio_low": fas_ratio_low_2,
+            "fas_ratio_high": fas_ratio_high_2,
             "snr_min": snr_min_2,
             "snr_max": snr_max_2,
             "snr_average": snr_avg_2,
-            "snr_average_0.1_0.5": snr_values_2[0],
-            "snr_average_0.5_1.0": snr_values_2[1],
-            "snr_average_1.0_2.0": snr_values_2[2],
-            "snr_average_2.0_5.0": snr_values_2[3],
-            "snr_average_5.0_10.0": snr_values_2[4],
+            "snr_average_0.1_0.2": snr_values_2[0],
+            "snr_average_0.2_0.5": snr_values_2[1],
+            "snr_average_0.5_1.0": snr_values_2[2],
+            "snr_average_1.0_2.0": snr_values_2[3],
+            "snr_average_2.0_5.0": snr_values_2[4],
+            "snr_average_5.0_10.0": snr_values_2[5],
         },
         "v": {
             "pn_pga_ratio": pn_pga_ratio_v,
             "average_tail_ratio": avg_tail_ratio_v,
             "max_tail_ratio": max_tail_ratio_v,
-            "average_tail_noise_ratio": avg_tail_noise_ratio_v,
-            "max_tail_noise_ratio": max_tail_noise_ratio_v,
             "max_head_ratio": max_head_ratio_v,
-            "bracketed_pga_10_20": bracketed_pga_0p1_0p2_v,
             "ds_575": ds_575_v,
             "ds_595": ds_595_v,
             "signal_pe_ratio_max": signal_pe_ratio_max_v,
             "signal_ratio_max": signal_ratio_max_v,
-            "fas_ratio": fas_ratio_v,
+            "fas_ratio_low": fas_ratio_low_v,
+            "fas_ratio_high": fas_ratio_high_v,
             "snr_min": snr_min_v,
             "snr_max": snr_max_v,
             "snr_average": snr_avg_v,
-            "snr_average_0.1_0.5": snr_values_v[0],
-            "snr_average_0.5_1.0": snr_values_v[1],
-            "snr_average_1.0_2.0": snr_values_v[2],
-            "snr_average_2.0_5.0": snr_values_v[3],
-            "snr_average_5.0_10.0": snr_values_v[4],
+            "snr_average_0.1_0.2": snr_values_v[0],
+            "snr_average_0.2_0.5": snr_values_v[1],
+            "snr_average_0.5_1.0": snr_values_v[2],
+            "snr_average_1.0_2.0": snr_values_v[3],
+            "snr_average_2.0_5.0": snr_values_v[4],
+            "snr_average_5.0_10.0": snr_values_v[5],
         },
         "gm": {
             "pn_pga_ratio": pn_pga_ratio_gm,
             "average_tail_ratio": tail_ratio_avg_gm,
             "max_tail_ratio": max_tail_ratio_gm,
-            "average_tail_noise_ratio": tail_noise_ratio_gm,
-            "max_tail_noise_ratio": max_tail_noise_ratio_gm,
             "max_head_ratio": max_head_ratio_gm,
-            "bracketed_pga_10_20": bracketed_pga_0p1_0p2_gm,
             "ds_575": ds_575_gm,
             "ds_595": ds_595_gm,
             "signal_pe_ratio_max": signal_pe_ratio_max,
             "signal_ratio_max": signal_ratio_max,
-            "fas_ratio": fas_ratio_gm,
+            "fas_ratio_low": fas_ratio_low_gm,
+            "fas_ratio_high": fas_ratio_high_gm,
             "snr_min": snr_min,
             "snr_max": snr_max,
             "snr_average": snr_avg_gm,
-            "snr_average_0.1_0.5": snr_values_gm[0],
-            "snr_average_0.5_1.0": snr_values_gm[1],
-            "snr_average_1.0_2.0": snr_values_gm[2],
-            "snr_average_2.0_5.0": snr_values_gm[3],
-            "snr_average_5.0_10.0": snr_values_gm[4],
-        }
+            "snr_average_0.1_0.2": snr_values_gm[0],
+            "snr_average_0.2_0.5": snr_values_gm[1],
+            "snr_average_0.5_1.0": snr_values_gm[2],
+            "snr_average_1.0_2.0": snr_values_gm[3],
+            "snr_average_2.0_5.0": snr_values_gm[4],
+            "snr_average_5.0_10.0": snr_values_gm[5],
+        },
     }
 
     additional_data = {
         "p_pick": p_pick,
         "s_pick": s_pick,
         "gm": {
-            "fas_0p1_0p5": fas_0p1_0p5_gm,
+            "fas_0p1_0p2": fas_0p1_0p2_gm,
+            "fas_0p2_0p5": fas_0p2_0p5_gm,
             "fas_0p5_1p0": fas_0p5_1p0_gm,
             "ft_s1": ft_s1_gm,
             "ft_s2": ft_s2_gm,
+            "ft_s3": ft_s3_gm,
             "ft_s1_s2": ft_s1_s2_gm,
+            "ft_s2_s3": ft_s2_s3_gm,
             "pga": pga_gm,
             "pn": max_pn_gm,
             "arias": arias_gm,
         },
         "1": {
-            "fas_0p1_0p5": fas_0p1_0p5_1,
+            "fas_0p1_0p2": fas_0p1_0p2_1,
+            "fas_0p2_0p5": fas_0p2_0p5_1,
             "fas_0p5_1p0": fas_0p5_1p0_1,
             "ft_s1": ft_s1_1,
             "ft_s2": ft_s2_1,
+            "ft_s3": ft_s3_1,
             "ft_s1_s2": ft_s1_s2_1,
+            "ft_s2_s3": ft_s2_s3_1,
             "pga": pga_1,
             "pn": max_pn_1,
             "arias": arias_1,
         },
         "2": {
-            "fas_0p1_0p5": fas_0p1_0p5_2,
+            "fas_0p1_0p2": fas_0p1_0p2_2,
+            "fas_0p2_0p5": fas_0p2_0p5_2,
             "fas_0p5_1p0": fas_0p5_1p0_2,
             "ft_s1": ft_s1_2,
             "ft_s2": ft_s2_2,
+            "ft_s3": ft_s3_2,
             "ft_s1_s2": ft_s1_s2_2,
+            "ft_s2_s3": ft_s2_s3_2,
             "pga": pga_2,
             "pn": max_pn_2,
             "arias": arias_2,
         },
         "v": {
-            "fas_0p1_0p5": fas_0p1_0p5_v,
+            "fas_0p1_0p2": fas_0p1_0p2_v,
+            "fas_0p2_0p5": fas_0p2_0p5_v,
             "fas_0p5_1p0": fas_0p5_1p0_v,
             "ft_s1": ft_s1_v,
             "ft_s2": ft_s2_v,
+            "ft_s3": ft_s3_v,
             "ft_s1_s2": ft_s1_s2_v,
+            "ft_s2_s3": ft_s2_s3_v,
             "pga": pga_v,
             "pn": max_pn_v,
             "arias": arias_v,
-        }
+        },
     }
 
     return features_dict, additional_data
