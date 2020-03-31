@@ -248,7 +248,7 @@ def process_records(
         write_data: List[Tuple[pd.DataFrame, List, str]],
         record_ids: List[str],
         event_ids: List[str],
-        station: List[str],
+        stations: List[str],
     ):
         print("Writing results..")
         results = []

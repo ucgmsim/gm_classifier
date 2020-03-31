@@ -172,25 +172,3 @@ def compute_multi_mean_min_loss(loss_dict: Dict):
 
     return min_train_loss_values.mean(), min_val_losss_values.mean()
 
-def plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, ax: plt.Axes = None, title: str = None):
-    """Plots the confusion matrix for the high-low label"""
-    cm_train = metrics.confusion_matrix(y_true, y_pred)
-    cm_train = pd.DataFrame(data=cm_train, index=["Low", "High"],
-                            columns=["Low", "High"])
-
-    if ax is None:
-        fig, ax = plt.subplots()
-    sns.heatmap(cm_train, annot=True, fmt="d", cbar=False, cmap="Blues", ax=ax)
-    ax.set_xlabel("Predicted")
-    ax.set_ylabel("True")
-
-    ax.set_title(title)
-
-def plot_loss(history: Dict, **kwargs):
-    """Plots the loss"""
-    plt.figure(**kwargs)
-    epochs = np.arange(len(history["loss"]))
-    plt.plot(epochs, history["loss"], "k-", label="Training")
-    plt.plot(epochs, history["val_loss"], "k--", label="Validation")
-    plt.legend()
-    plt.show()

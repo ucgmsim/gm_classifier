@@ -30,30 +30,6 @@ class FeatureError(Exception):
 
         self.error_type = error_type
 
-
-# Default feature set
-FEATURE_NAMES = [
-    "signal_pe_ratio_max",
-    "signal_ratio_max",
-    "snr_min",
-    "snr_max",
-    "snr_average",
-    "max_tail_ratio",
-    "average_tail_noise_ratio",
-    "max_head_ratio",
-    "snr_average_0.1_0.2",
-    "snr_average_0.2_0.5",
-    "snr_average_0.5_1.0",
-    "snr_average_1.0_2.0",
-    "snr_average_2.0_5.0",
-    "snr_average_5.0_10.0",
-    "fas_ratio_low",
-    "fas_ratio_high",
-    "pn_pga_ratio",
-    # "ds_575",
-    # "ds_595",
-]
-
 KONNO_MATRIX_FILENAME_TEMPLATE = "konno_{}.npy"
 
 FourierData = namedtuple(
