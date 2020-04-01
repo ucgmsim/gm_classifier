@@ -13,6 +13,7 @@ from functools import partial
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import cumtrapz
+from scipy.interpolate import interp1d
 from obspy.signal.trigger import ar_pick
 from obspy.signal.konnoohmachismoothing import calculate_smoothing_matrix
 
@@ -329,6 +330,11 @@ def compute_low_freq_fas(
     )
 
 
+def log_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray):
+    """Performs log interpolation"""
+    ln_x, ln_y, ln_x_new = np.log(x), np.log(y), np.log(x_new)
+    return np.exp(interp1d(ln_x, ln_y, kind="linear", bounds_error=True)(ln_x_new))
+
 def get_features(
     gf: GeoNet_File, ko_matrices: Dict[int, np.ndarray] = None
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -509,14 +515,22 @@ def get_features(
     snr_avg_gm = compute_snr_avg(snr_gm, ft_freq, 0.1, 20)
 
     # Computing average SNR for the different frequency ranges
-    snr_freq_ranges = [(0.1, 0.2), (0.2, 0.5), (0.5, 1.0), (1.0, 2.0), (2.0, 5.0), (5.0, 10.0)]
+    snr_freq_bins = [(0.1, 0.2), (0.2, 0.5), (0.5, 1.0), (1.0, 2.0), (2.0, 5.0), (5.0, 10.0)]
     snr_values_1, snr_values_2 = [], []
     snr_values_v, snr_values_gm = [], []
-    for lower_freq, upper_freq in snr_freq_ranges:
+    for lower_freq, upper_freq in snr_freq_bins:
         snr_values_1.append(compute_snr(snr_1, ft_freq, lower_freq, upper_freq))
         snr_values_2.append(compute_snr(snr_2, ft_freq, lower_freq, upper_freq))
         snr_values_v.append(compute_snr(snr_v, ft_freq, lower_freq, upper_freq))
         snr_values_gm.append(compute_snr(snr_gm, ft_freq, lower_freq, upper_freq))
+
+
+
+    # Compute SNR for a range of different frequency values
+    snr_freq = np.logspace(np.log(0.05), np.log(20), 50, base=np.e)
+    snr_values_1 = log_interpolate(ft_freq + 1e-17, snr_1, snr_freq)
+    snr_values_2 = log_interpolate(ft_freq + 1e-17, snr_2, snr_freq)
+    snr_values_v = log_interpolate(ft_freq + 1e-17, snr_v, snr_freq)
 
     # Compute the Fourier amplitude ratio
     fas_0p1_0p2_1, ft_s1_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.1, 0.2)
@@ -600,6 +614,7 @@ def get_features(
             "snr_average_1.0_2.0": snr_values_1[3],
             "snr_average_2.0_5.0": snr_values_1[4],
             "snr_average_5.0_10.0": snr_values_1[5],
+            "is_vertical": 0,
         },
         "2": {
             "pn_pga_ratio": pn_pga_ratio_2,
@@ -621,6 +636,7 @@ def get_features(
             "snr_average_1.0_2.0": snr_values_2[3],
             "snr_average_2.0_5.0": snr_values_2[4],
             "snr_average_5.0_10.0": snr_values_2[5],
+            "is_vertical": 0,
         },
         "v": {
             "pn_pga_ratio": pn_pga_ratio_v,
@@ -642,6 +658,7 @@ def get_features(
             "snr_average_1.0_2.0": snr_values_v[3],
             "snr_average_2.0_5.0": snr_values_v[4],
             "snr_average_5.0_10.0": snr_values_v[5],
+            "is_vertical": 1,
         },
         "gm": {
             "pn_pga_ratio": pn_pga_ratio_gm,
@@ -665,6 +682,11 @@ def get_features(
             "snr_average_5.0_10.0": snr_values_gm[5],
         },
     }
+
+    # Add the SNR values
+    features_dict["1"] = {**features_dict["1"], **{f"snr_value_{freq:.3f}": val for freq, val in zip(snr_freq, snr_values_1)}}
+    features_dict["2"] = {**features_dict["2"], **{f"snr_value_{freq:.3f}": val for freq, val in zip(snr_freq, snr_values_2)}}
+    features_dict["v"] = {**features_dict["v"], **{f"snr_value_{freq:.3f}": val for freq, val in zip(snr_freq, snr_values_v)}}
 
     additional_data = {
         "p_pick": p_pick,
