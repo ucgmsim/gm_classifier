@@ -9,3 +9,4 @@ from . import validation
 from . import dim_reduction
 from . import utils
 from . import plots
+from . import predict

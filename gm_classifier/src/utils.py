@@ -86,7 +86,6 @@ def load_labels_from_dir(label_dir: str, glob_filter: str = "labels_*.csv", drop
     dfs = [pd.read_csv(cur_file, index_col="Record_ID") for cur_file in label_files]
     df = pd.concat(dfs)
 
-
     # Generate record-component based labels
     df = gen_comp_labels(df)
 
@@ -95,8 +94,6 @@ def load_labels_from_dir(label_dir: str, glob_filter: str = "labels_*.csv", drop
         df = df.loc[~inv_mask]
 
     return df
-
-
 
 
 def gen_comp_labels(df: pd.DataFrame):

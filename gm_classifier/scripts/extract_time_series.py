@@ -162,6 +162,9 @@ def main(
             np.save(cur_out_dir / f"{record_id}_ft.npy", cur_ft)
             np.save(cur_out_dir / f"{record_id}_smooth_ft.npy", cur_ft)
 
+    meta_df = pd.DataFrame.from_dict(meta_data, orient="index", columns=["acc_length", "acc_dt", "acc_duration", "ft_length"])
+    meta_df.to_csv(output_dir / "meta_data.csv")
+
     gm.records.print_errors(failed_records)
 
 

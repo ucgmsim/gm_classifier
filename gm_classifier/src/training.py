@@ -46,13 +46,16 @@ def get_multi_output_y(
 
 def train(
     output_dir: Path,
-    pre_config: Dict[str, Any],
+    feature_pre_config: Dict[str, Any],
     model_config: Dict[str, Any],
-    training_data: Tuple[np.ndarray, Union[Dict, np.ndarray], np.ndarray],
-    val_data: Union[None, Tuple[np.ndarray, Union[Dict, np.ndarray], np.ndarray]] = None,
+    training_data: Tuple[np.ndarray, np.ndarray, np.ndarray],
+    val_data: Union[
+        None, Tuple[np.ndarray, np.ndarray, np.ndarray]
+    ] = None,
+    label_pre_config: Dict[str, Any] = None,
     compile_kwargs: Dict[str, Any] = None,
     fit_kwargs: Dict[str, Any] = None,
-) -> Tuple[Dict, np.ndarray, np.ndarray]:
+) -> Tuple[Dict, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Performs the training for the specified
     training and validation data
@@ -61,8 +64,8 @@ def train(
     ----------
     output_dir: str
         Path to directory where results are saved
-    pre_config: dictionary with string keys
-        Dictionary that contains preprocessing details
+    feature_pre_config: dictionary with string keys
+        Dictionary that contains preprocessing details for features
     model_config: dictionary with string keys
         Dictionary that contains model details
     training_data: triplet of numpy arrays
@@ -71,6 +74,8 @@ def train(
     val_data: triplet of numpy arrays, optional
         Validation data, expected tuple data:
         (X_train, y_train, ids_train)
+    label_pre_config: dictionary with string keys
+        Dictionary that contains preprocessing details for labels
     compile_kwargs: dictionary
         Keyword arguments for the model compile,
         see https://www.tensorflow.org/api_docs/python/tf/keras/Model#compile
@@ -86,6 +91,11 @@ def train(
         The pre-precossed training data
     X_val: numpy array of floats
         The pre-precossed validation data
+    y_train: numpy array of floats
+    y_val: numpy array of floats
+        If label pre-processing is specified, then these
+        are the pre-processed training & validation labels.
+        Otherwise just the passed labels
     """
     # Unroll training & validation data
     X_train, y_train, ids_train = training_data
@@ -97,7 +107,13 @@ def train(
         np.save(output_dir / "val_ids.npy", ids_val)
 
     # Apply the pre-processing
-    X_train, X_val = _apply_pre(X_train, pre_config, output_dir, X_val)
+    X_train, X_val = _apply_pre(
+        X_train, feature_pre_config, output_dir, val_data=X_val, output_prefix="feature"
+    )
+    if label_pre_config is not None:
+        y_train, y_val = _apply_pre(
+            y_train, label_pre_config, output_dir, val_data=y_val, output_prefix="label"
+        )
 
     # Build the model architecture
     model_arch = model.ModelArchitecture.from_dict(X_train.shape[1], model_config)
@@ -127,59 +143,74 @@ def train(
 
     # Save the config
     config = {
-        "pre_config": pre_config,
+        "pre_config": feature_pre_config,
         "model_config": model_config,
-        "compiler_kwargs": compile_kwargs,
+        "compiler_kwargs": str(compile_kwargs),
         "fit_kwargs": fit_kwargs,
     }
     with open(output_dir / "config.json", "w") as f:
         json.dump(config, f)
 
-    return history.history, X_train, X_val
+    return history.history, X_train, X_val, y_train, y_val
 
 
 def _apply_pre(
-    X_train: np.ndarray, pre_config: Dict, output_dir: Path, X_val: np.ndarray = None
+    train_data: np.ndarray,
+    pre_config: Dict,
+    output_dir: Path,
+    val_data: np.ndarray = None,
+    output_prefix: str = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Applies the pre-processing as per the given config"""
-    n_features = X_train.shape[1]
+    n_features = train_data.shape[1]
+    output_prefix = "" if output_prefix is None else f"{output_prefix}_"
 
     # Pre-processing
-    standardise = pre_config["standardise"]
+    standardise = pre_config.get("standardise")
     if standardise is True:
         # Compute mean and std from training data
-        mu, sigma = np.mean(X_train, axis=0), np.std(X_train, axis=0)
+        mu, sigma = np.mean(train_data, axis=0), np.std(train_data, axis=0)
 
         # Apply to both train and val data
-        X_train = pre.standardise(X_train, mu, sigma)
-        X_val = pre.standardise(X_val, mu, sigma) if X_val is not None else X_val
+        train_data = pre.standardise(train_data, mu, sigma)
+        val_data = (
+            pre.standardise(val_data, mu, sigma) if val_data is not None else val_data
+        )
 
         # Sanity check
-        assert np.all(np.isclose(np.mean(X_train, axis=0), np.zeros(n_features)))
-        assert np.all(np.isclose(np.std(X_train), np.ones(n_features)))
+        assert np.all(np.isclose(np.mean(train_data, axis=0), np.zeros(n_features)))
+        assert np.all(np.isclose(np.std(train_data), np.ones(n_features)))
 
         # Save mu and sigma
-        np.save(output_dir / "mu.npy", mu)
-        np.save(output_dir / "sigma.npy", sigma)
+        np.save(output_dir / f"{output_prefix}mu.npy", mu)
+        np.save(output_dir / f"{output_prefix}sigma.npy", sigma)
 
-    whiten = pre_config["whiten"]
+    whiten = pre_config.get("whiten")
     if whiten is True:
         # Compute whitening matrix
-        W = pre.compute_W_ZCA(X_train)
+        W = pre.compute_W_ZCA(train_data)
 
         # Apply
-        X_train = pre.whiten(X_train, W)
-        X_val = pre.whiten(X_val, W) if X_val is not None else X_val
+        train_data = pre.whiten(train_data, W)
+        val_data = pre.whiten(val_data, W) if val_data is not None else val_data
 
         # Sanity check
         assert np.all(
-            np.isclose(np.cov(X_train, rowvar=False), np.identity(n_features))
+            np.isclose(np.cov(train_data, rowvar=False), np.identity(n_features))
         )
 
         # Save whitening matrix
-        np.save(output_dir / "W.npy", W)
+        np.save(output_dir / f"{output_prefix}W.npy", W)
 
-    return X_train, X_val
+    shift = pre_config.get("shift")
+    if shift is not None:
+        assert len(shift) == train_data.shape[1]
+        shift = np.asarray(shift)
+
+        train_data = train_data + shift
+        val_data = val_data + shift
+
+    return train_data, val_data
 
 
 def __old_run_training(

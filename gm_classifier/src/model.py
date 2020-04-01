@@ -56,22 +56,22 @@ class ModelArchitecture:
                 x = layers.Dropout(cur_dropout)(x)
 
         # Output
-        if self.n_outputs == 1:
-            output = layers.Dense(1, activation=self.output_act_func)(x)
-            return keras.Model(inputs=inputs, outputs=output)
-        else:
-            self.output_act_func = (
-                self.output_act_func
-                if isinstance(self.output_act_func, list)
-                else [self.output_act_func for ix in range(self.n_outputs)]
-            )
-            outputs = [
-                layers.Dense(1, activation=cur_act_func, name=cur_name)(x)
-                for cur_act_func, cur_name in zip(
-                    self.output_act_func, self.output_names
-                )
-            ]
-            return keras.Model(inputs=inputs, outputs=outputs)
+        output = layers.Dense(self.n_outputs, activation=self.output_act_func)(x)
+        return keras.Model(inputs=inputs, outputs=output)
+
+        # else:
+        #     self.output_act_func = (
+        #         self.output_act_func
+        #         if isinstance(self.output_act_func, list)
+        #         else [self.output_act_func for ix in range(self.n_outputs)]
+        #     )
+        #     outputs = [
+        #         layers.Dense(1, activation=cur_act_func, name=cur_name)(x)
+        #         for cur_act_func, cur_name in zip(
+        #             self.output_act_func, self.output_names
+        #         )
+        #     ]
+        #     return keras.Model(inputs=inputs, outputs=outputs)
 
     @classmethod
     def from_dict(cls, n_inputs: int, model_dict: Dict) -> "ModelArchitecture":

@@ -33,6 +33,15 @@ def standardise(
     return (data - mu) / sigma
 
 
+def reverse_standardise(
+    data: np.ndarray, mu: Union[float, np.ndarray], sigma: Union[float, np.ndarray]
+):
+    """Transforms the standardised data back to its original values,
+    paramers are the same as for standardise function, except that data is the
+    standardised data"""
+    return (data * sigma) + mu
+
+
 def whiten(X: np.ndarray, W: np.ndarray):
     """Decorrolates the data using the
     Mahalanobis transform
@@ -110,3 +119,4 @@ def apply(
         X = whiten(X, W)
 
     return X
+
