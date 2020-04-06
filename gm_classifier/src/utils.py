@@ -6,7 +6,75 @@ import pandas as pd
 import numpy as np
 
 
-def load_features_from_dir(feature_dir: str, glob_filter: str = "*comp*.csv"):
+def load_features_from_dir(
+    feature_dir: str,
+    glob_filter: str = "*comp*.csv",
+    merge: bool = True,
+    drop_duplicates: bool = True,
+    drop_nan: bool = True,
+):
+    """
+    Loads the features dataframes for each component, does not combine them
+
+    Parameters
+    ----------
+    feature_dir: string
+        The component feature files are expected to have the
+        format *_X.csv (extension can be something else as well)
+    glob_filter: string, optional
+        Glob filter that allows filtering which files to use
+        (in the specified directory)
+
+    Returns
+    -------
+    single dataframe or triplet of dataframes:
+        If merged:
+            Single dataframe of shape [n_records, 3 x n_features]
+        Else:
+            In the order _X, _Y, _Z
+    """
+    feature_files = glob.glob(os.path.join(feature_dir, glob_filter))
+
+    assert (
+        len(feature_files) == 3
+    ), f"Expected 3 feature files, found {len(feature_files)} instead"
+
+    result_ix = {"X": 0, "Y": 1, "Z": 2}
+    result = [None, None, None]
+    for cur_ffp in feature_files:
+        print(f"Processing file {os.path.basename(cur_ffp)}")
+        cur_comp = os.path.basename(cur_ffp).split(".")[0].split("_")[-1]
+
+        cur_df = pd.read_csv(cur_ffp, index_col="record_id")
+
+        if drop_duplicates:
+            dup_mask = cur_df.index.duplicated(keep=False)
+            cur_df = cur_df.loc[~dup_mask]
+            print(f"Dropped {np.count_nonzero(dup_mask)} duplicates")
+
+        if drop_nan:
+            nan_mask = np.any(cur_df.isna(), axis=1)
+            cur_df = cur_df.loc[~nan_mask]
+            print(f"Dropped {np.count_nonzero(nan_mask)} samples due to nan-values")
+
+        if merge:
+            cur_df.columns = [f"{cur_col}_{cur_comp}" for cur_col in cur_df.columns]
+
+        result[result_ix[cur_comp]] = cur_df
+
+    if merge:
+        result_df = result[0].merge(
+            result[1], left_index=True, right_index=True, suffixes=(False, False)
+        )
+        result_df = result_df.merge(
+            result[2], left_index=True, right_index=True, suffixes=(False, False)
+        )
+        return result_df
+
+    return result
+
+
+def load_comp_features_from_dir(feature_dir: str, glob_filter: str = "*comp*.csv"):
     """Loads all features for each component and generates a single
     component based dataframe
 
@@ -59,7 +127,76 @@ def load_features_from_dir(feature_dir: str, glob_filter: str = "*comp*.csv"):
     return df
 
 
-def load_labels_from_dir(label_dir: str, glob_filter: str = "labels_*.csv", drop_invalid: bool = True):
+def load_labels_from_dir(
+    label_dir: str, glob_filter: str = "labels_*.csv", drop_invalid: bool = True
+):
+    """
+    Loads all labels, single row per record
+
+    Parameters
+    ----------
+    label_dir: str
+        Directory that contains the label files
+    glob_filter: str, optional
+        Glob filter that allows filtering which files to use
+        (in the specified label_dir)
+    drop_invalid: bool, optional
+        If true, drops samples with invalid/bad scores or f_fmin
+
+    Returns
+    -------
+    dataframe
+    """
+    # Load and combine
+    label_files = glob.glob(os.path.join(label_dir, glob_filter))
+    dfs = [pd.read_csv(cur_file, index_col="Record_ID") for cur_file in label_files]
+    df = pd.concat(dfs)
+
+    # Rename
+    df = df.rename(
+        columns={
+            "Record_ID": "record_id",
+            "Source_ID": "source_id",
+            "Site_ID": "station",
+            "Man_Score_X": "score_X",
+            "Man_Score_Y": "score_Y",
+            "Man_Score_Z": "score_Z",
+            "Min_Freq_X": "f_min_X",
+            "Min_Freq_Y": "f_min_Y",
+            "Min_Freq_Z": "f_min_Z",
+        }
+    )
+    df.index.name = "record_id"
+
+    # For components with f_min == 100, set this to 20
+    # df.loc[df.f_min_X == 100, "f_min_X"] = 20
+    # df.loc[df.f_min_Y == 100, "f_min_Y"] = 20
+    # df.loc[df.f_min_Z == 100, "f_min_Z"] = 20
+
+    # Drop invalid
+    if drop_invalid:
+        inv_mask = (
+            (df.score_X > 1.0)
+            | df.score_X.isna()
+            | (df.f_min_X >= 100.0)
+            | df.f_min_X.isna()
+            | (df.score_Y > 1.0)
+            | df.score_Y.isna()
+            | (df.f_min_Y >= 100.0)
+            | df.f_min_Y.isna()
+            | (df.score_Z > 1.0)
+            | df.score_Z.isna()
+            | (df.f_min_Z >= 100.0)
+            | df.f_min_Z.isna()
+        )
+        df = df.loc[~inv_mask]
+
+    return df
+
+
+def load_comp_labels_from_dir(
+    label_dir: str, glob_filter: str = "labels_*.csv", drop_invalid: bool = True
+):
     """Loads all labels into a single dataframe and creates
     component based sample labels
 
@@ -76,6 +213,8 @@ def load_labels_from_dir(label_dir: str, glob_filter: str = "labels_*.csv", drop
     glob_filter: str, optional
         Glob filter that allows filtering which files to use
         (in the specified label_dir)
+    drop_invalid: bool, optional
+        If true, drops samples with invalid/bad scores or f_fmin
 
     Returns
     -------
@@ -90,7 +229,9 @@ def load_labels_from_dir(label_dir: str, glob_filter: str = "labels_*.csv", drop
     df = gen_comp_labels(df)
 
     if drop_invalid:
-        inv_mask = (df.score > 1.0) | df.score.isna() | (df.f_min >= 100.0) | df.f_min.isna()
+        inv_mask = (
+            (df.score > 1.0) | df.score.isna() | (df.f_min >= 100.0) | df.f_min.isna()
+        )
         df = df.loc[~inv_mask]
 
     return df

@@ -237,9 +237,9 @@ def process_records(
     """
     if output_dir is not None:
         output_dir = Path(output_dir)
-        output_comp_1_ffp = output_dir / f"{output_prefix}_comp_1.csv"
-        output_comp_2_ffp = output_dir / f"{output_prefix}_comp_2.csv"
-        output_comp_v_ffp = output_dir / f"{output_prefix}_comp_v.csv"
+        output_comp_1_ffp = output_dir / f"{output_prefix}_comp_X.csv"
+        output_comp_2_ffp = output_dir / f"{output_prefix}_comp_Y.csv"
+        output_comp_v_ffp = output_dir / f"{output_prefix}_comp_Z.csv"
         output_gm_ffp = output_dir / f"{output_prefix}_gm.csv"
     else:
         print(f"No output directory, results are not saved and only returned")

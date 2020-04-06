@@ -1,10 +1,11 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, Tuple, Union, Callable, Any, Iterable
+from typing import Dict, Tuple, Union, Callable, Any, Iterable, List
 
 import pandas as pd
 import numpy as np
+import tensorflow as tf
 import tensorflow.keras as keras
 from sklearn.model_selection import train_test_split
 
@@ -42,6 +43,30 @@ def get_multi_output_y(
         y[cur_label_name] = data
 
     return y
+
+
+def train_val_split(train_df: pd.DataFrame, feature_names: List[str], label_names: List[str], val_size: float =0.25):
+    """Performs the training & validation data split for the given dataframe
+    Also only retrieves the features/labels of interest"""
+    # Get indices for splitting into training & validation set
+    train_ind, val_ind = train_test_split(
+        np.arange(train_df.shape[0], dtype=int), test_size=val_size
+    )
+
+    # Create training and validation datasets
+    X_train = train_df.loc[:, feature_names].iloc[train_ind].values
+    X_val = train_df.loc[:, feature_names].iloc[val_ind].values
+
+    y_train = train_df.loc[:, label_names].iloc[train_ind].values
+    y_val = train_df.loc[:, label_names].iloc[val_ind].values
+
+    ids_train = train_df.index.values[train_ind]
+    ids_val = train_df.index.values[val_ind]
+
+    train_data = (X_train, y_train, ids_train)
+    val_data = (X_val, y_val, ids_val)
+
+    return train_data, val_data
 
 
 def train(
@@ -190,14 +215,17 @@ def _apply_pre(
         # Compute whitening matrix
         W = pre.compute_W_ZCA(train_data)
 
+        # No idea if this is legit...
+        W = W.astype(float)
+
         # Apply
         train_data = pre.whiten(train_data, W)
         val_data = pre.whiten(val_data, W) if val_data is not None else val_data
 
         # Sanity check
-        assert np.all(
-            np.isclose(np.cov(train_data, rowvar=False), np.identity(n_features))
-        )
+        # assert np.all(
+        #     np.isclose(np.cov(train_data, rowvar=False), np.identity(n_features))
+        # )
 
         # Save whitening matrix
         np.save(output_dir / f"{output_prefix}W.npy", W)
@@ -213,121 +241,6 @@ def _apply_pre(
     return train_data, val_data
 
 
-def __old_run_training(
-    output_dir: Path,
-    features_df: pd.DataFrame,
-    label_df: pd.DataFrame,
-    config: Dict,
-    record_ids_filter: np.ndarray = None,
-    val_split: float = 0.1,
-    sample_weight_fn: Callable[
-        [pd.DataFrame, np.ndarray, np.ndarray, np.ndarray], np.ndarray
-    ] = None,
-    verbose: int = 2,
-) -> Tuple[
-    pd.DataFrame,
-    Dict,
-    Tuple[np.ndarray, np.ndarray, np.ndarray],
-    Tuple[np.ndarray, np.ndarray, np.ndarray],
-]:
-    """Trains a model and saves the results
-    in the specified output directory
-
-    Parameters
-    ----------
-    output_dir: str
-        Path to directory where results are saved
-    features_df: DataFrame
-        Features for each sample, requires columns as
-        specified in the provided config
-        The index has to be the record_id
-    label_df: DataFrame
-        Labels for each sample, can be more than one
-        label for a single sample (i.e. multi-output NN)
-        All columns in this dataframe are considered labels!
-    config: dictionary with string keys
-        Dictionary that contains the model architecture,
-        pre-processing & training details
-        See train_config.json for an example
-    record_ids_filter: numpy array of strings, optional
-        All records that should be used for training & validation
-        If not specified then all labelled data is used
-    val_split: float, optional
-        The proportion of data to use for validation (default 0.1)
-    sample_weight_fn: callable
-        Function that computes the weight for each training sample, must take
-        the following inputs: training_df, X_train, y_train, ids_train
-        and return a 1-D array of size: X_train.shape[0]
-    verbose: int, optional
-        Verbosity level for keras training,
-        see verbose parameter for
-        https://www.tensorflow.org/api_docs/python/tf/keras/Model#fit
-    """
-    # Get the training data
-    labels = label_df.columns.values.astype(str)
-    train_df = pd.merge(features_df, label_df, left_index=True, right_index=True)
-    train_df.to_csv(output_dir / "training_data.csv")
-
-    # Some sanity checks
-    feature_names = config["features"]
-    assert np.all(
-        np.isin(feature_names, features_df.columns.values)
-    ), "Not all features are in the feature dataframe"
-
-    if record_ids_filter is not None:
-        # Apply the filter
-        filter_mask = np.isin(train_df.record_id.values, record_ids_filter)
-        train_df = train_df.loc[filter_mask, :]
-
-        # Print out any records for which data is missing
-        missing_records = record_ids_filter[
-            ~np.isin(record_ids_filter, train_df.record_id.values)
-        ]
-        if missing_records.size > 0:
-            print(
-                "No training data was found for the following records:\n{}".format(
-                    "\n".join([record for record in missing_records])
-                )
-            )
-
-    # Get training data
-    y = train_df.loc[:, labels].values
-    X = train_df.loc[:, feature_names].values
-    ids = train_df.index.values[:].astype(str)
-
-    # Sanity check
-    assert (
-        y.shape[0] == X.shape[0] == ids.shape[0]
-    ), "Shapes of X, y and ids have to match!"
-    print(f"Number of total labelled samples - {y.shape[0]}")
-
-    # Training & validation data split
-    if val_split > 0:
-        X_train, X_val, y_train, y_val, ids_train, ids_val = train_test_split(
-            X, y, ids, test_size=val_split
-        )
-        print(
-            f"Labelled data split into {X_train.shape[0]} training "
-            f"and {X_val.shape[0]} validation samples"
-        )
-    else:
-        print("No validation data used")
-        X_train, y_train, ids_train = X, y, ids
-        X_val, y_val, ids_val = None, None, None
-
-    sample_weights = (
-        None
-        if sample_weight_fn is None
-        else sample_weight_fn(train_df, X_train, y_train, ids_train)
-    )
-
-    history, X_train, X_val = train(
-        output_dir,
-        config,
-        (X_train, y_train, ids_train),
-        val_data=(X_val, y_val, ids_val),
-        sample_weights=sample_weights,
-        verbose=verbose,
-    )
-
-    return train_df, history, (X_train, y_train, ids_train), (X_val, y_val, ids_val)
+def mape(y_true, y_pred):
+    """Mean absolute percentage error"""
+    return tf.reduce_sum(tf.abs(y_true - y_pred) / y_true, axis=1)

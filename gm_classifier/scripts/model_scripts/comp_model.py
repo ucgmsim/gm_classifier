@@ -18,9 +18,9 @@ import gm_classifier as gm
 
 # ----- Config -----
 label_dir = "/Users/Clus/code/work/gm_classifier/data/records/training_data/iter"
-features_dir = "/Users/Clus/code/work/gm_classifier/data/records/training_data/all_records_features"
+features_dir = "/Users/Clus/code/work/gm_classifier/data/records/training_data/all_records_features/200401"
 
-output_dir = "/Users/Clus/code/work/tmp/gm_classifier/tmp_3"
+output_dir = "/Users/Clus/code/work/tmp/gm_classifier/tmp_2"
 
 label_names = ["score", "f_min"]
 
@@ -43,39 +43,37 @@ feature_names = [
     "fas_ratio_high",
     "pn_pga_ratio",
 ]
+snr_features = [f"snr_value_{freq:.3f}" for freq in np.logspace(np.log(0.05), np.log(20), 50, base=np.e)]
+feature_names = feature_names + snr_features
 
 # Model details
 model_config = {
-    "units": [30, 30],
+    "units": [120, 60, 30],
     "act_funcs": "relu",
     "n_outputs": 2,
-    "output_act_func": "relu",
+    "output_act_func": "linear",
     "output_names": ["score", "f_min"],
-    "dropout": 0.25,
+    "dropout": 0.5,
 }
 
 feature_pre_config = {"standardise": True, "whiten": True}
 label_pre_config = {"shift": [1, 0]}
 
-def mape(y_true, y_pred):
-    """Mean absolute percentage error"""
-    return tf.reduce_sum(tf.abs(y_true - y_pred) / y_true)
-
 # Training details
 optimizer = "Adam"
-loss = mape
-val_size = 0.001
-n_epochs = 100
+loss = "mse"
+val_size = 0.2
+n_epochs = 300
 batch_size = 32
 
 output_dir = Path(output_dir)
 
 # ---- Training ----
-label_df = gm.utils.load_labels_from_dir(
-    "/Users/Clus/code/work/gm_classifier/data/records/training_data/iter"
+label_df = gm.utils.load_comp_labels_from_dir(
+    label_dir
 )
-feature_df = gm.utils.load_features_from_dir(
-    "/Users/Clus/code/work/gm_classifier/data/records/training_data/all_records_features"
+feature_df = gm.utils.load_comp_features_from_dir(
+    features_dir
 )
 
 train_df = pd.merge(
@@ -114,7 +112,7 @@ history, X_train, X_val, y_train_proc, y_val_proc = gm.training.train(
     train_data,
     val_data=val_data,
     label_pre_config=label_pre_config,
-    compile_kwargs={"optimizer": optimizer, "loss": loss, "loss_weights": loss_weights},
+    compile_kwargs={"optimizer": optimizer, "loss": loss},
     fit_kwargs={"batch_size": batch_size, "epochs": n_epochs, "verbose": 2},
 )
 
