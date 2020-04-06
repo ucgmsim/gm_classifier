@@ -111,7 +111,7 @@ history, X_train, X_val, y_train_proc, y_val_proc = gm.training.train(
     model_config,
     train_data,
     val_data=val_data,
-    label_pre_config=label_pre_config,
+    label_config=label_pre_config,
     compile_kwargs={"optimizer": optimizer, "loss": loss},
     fit_kwargs={"batch_size": batch_size, "epochs": n_epochs, "verbose": 2},
 )
@@ -127,8 +127,8 @@ fig, ax = gm.plots.plot_loss(
 model = keras.models.load_model(output_dir / "model.h5")
 
 # Predict (also does the reverse transform)
-y_train_est = gm.predict.predict(output_dir, X_train, feature_pre_config=None, label_pre_config=label_pre_config)
-y_val_est = gm.predict.predict(output_dir, X_val, feature_pre_config=None, label_pre_config=label_pre_config)
+y_train_est = gm.predict.predict(output_dir, X_train, feature_config=None, label_config=label_pre_config)
+y_val_est = gm.predict.predict(output_dir, X_val, feature_config=None, label_config=label_pre_config)
 
 # Plot true vs estimated
 score_min, score_max = np.min(train_df.score), np.max(train_df.score)

@@ -3,6 +3,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
+from sklearn.neighbors import KDTree
 from sklearn.model_selection import KFold
 from sklearn.manifold import LocallyLinearEmbedding
 
@@ -110,7 +111,7 @@ for ix, (train_ind, val_ind) in enumerate(kf.split(X)):
         model_config,
         (X_train, y_train, ids_train),
         val_data=(X_val, y_val, ids_val),
-        label_pre_config=None,
+        label_config=None,
         compile_kwargs={"optimizer": optimizer, "loss": loss},
         fit_kwargs={"batch_size": batch_size, "epochs": n_epochs, "verbose": 2},
     )
@@ -135,7 +136,7 @@ df = pd.DataFrame(
 df["res_X"] = r_y_val[:, 0] - r_y_val_est[:, 0]
 df["res_Y"] = r_y_val[:, 1] - r_y_val_est[:, 1]
 df["res_Z"] = r_y_val[:, 2] - r_y_val_est[:, 2]
-df["res_total"] = df.res_X + df.res_Y + df.res_Z
+df["res_total"] = np.abs(df.res_X) + np.abs(df.res_Y) + np.abs(df.res_Z)
 
 df_full = feature_df.loc[:, feature_names].copy()
 X_full = df_full.values
@@ -143,12 +144,18 @@ X_full = df_full.values
 # Scale the features
 X_full = gm.pre.standardise(X_full, X_full.mean(axis=0), X_full.std(axis=0))
 
-# Apply LLE
-print(f"Running LLE")
-lle = LocallyLinearEmbedding(n_neighbors=5, n_jobs=-1)
-X_full_trans = lle.fit_transform(X_full)
-df_full["X_1"] = X_full_trans[:, 0]
-df_full["X_2"] = X_full_trans[:, 2]
+# Apply LLE or load LLE
+# print(f"Running LLE")
+# lle = LocallyLinearEmbedding(n_neighbors=5, n_jobs=-1)
+# X_full_trans = lle.fit_transform(X_full)
+# df_full["X_1"] = X_full_trans[:, 0]
+# df_full["X_2"] = X_full_trans[:, 2]
+
+
+# Select the X-nearest neighbours of the datapoints with the worst residuals
+X_sel = X_full
+
+kd_tree = KDTree(X_sel)
 
 
 exit()

@@ -1,10 +1,10 @@
-from typing import Union, Tuple
+from typing import Union, Tuple, Dict
 
+import pandas as pd
 import numpy as np
 
-
 def standardise(
-    data: np.ndarray, mu: Union[float, np.ndarray], sigma: [float, np.ndarray]
+    data: np.ndarray, mu: Union[float, pd.Series, np.ndarray], sigma: [float, pd.Series, np.ndarray]
 ):
     """Standardises the data
 
@@ -86,24 +86,22 @@ def compute_W_ZCA(X: np.ndarray) -> np.ndarray:
 
 
 def apply(
-    X: np.ndarray, mu: np.ndarray = None, sigma: np.ndarray = None, W: np.ndarray = None
+    X: pd.DataFrame, config: Dict = None, mu: pd.Series = None, sigma: pd.Series = None, W: np.ndarray = None
 ):
     """Applies the pre-processing
 
     Parameters
     ----------
-    X: numpy array of floats
+    X: dataframe
         Input data
         Shape: [n_samples, n_features]
-    deskew: str or bool, optional
-        Applies either 'canterbury' or 'canterbury_wellington' if specified
-    mu: numpy array of floats
-    sigma: numpy array of floats
+    mu: dataframe
+    sigma: dataframe
         Standardises the data (i.e. zero mean and standard dev of one) (per feature)
         Shape: [n_features]
     W: numpy array of floats
         Whitening matrix, applies whitening if specified
-        Shape: [n_feature, n_features]
+        Shape: [n_wth_feature, n_wth_features]
 
     Returns
     -------
@@ -112,7 +110,8 @@ def apply(
     """
     if mu is not None and sigma is not None:
         print("Standardising input data")
-        X = standardise(X, mu, sigma)
+        std_features = get_standard_keys(config)
+        X.loc[:, std_features] = standardise(X.loc[:, std_features], mu, sigma)
 
     if W is not None:
         print("Whitening input data")
@@ -120,3 +119,17 @@ def apply(
 
     return X
 
+
+def get_whiten_keys(config: Dict):
+    return [
+        key
+        for key, val in config.items()
+        if val is not None and "whiten" in val
+    ]
+
+def get_standard_keys(config: Dict):
+    return [
+        key
+        for key, val in config.items()
+        if val is not None and "standard" in val
+    ]

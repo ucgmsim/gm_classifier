@@ -47,9 +47,11 @@ X_full = gm.pre.standardise(X_full, X_full.mean(axis=0), X_full.std(axis=0))
 
 # Apply LLE
 print(f"Running LLE")
-lle = LocallyLinearEmbedding(n_neighbors=5, n_jobs=-1)
+lle = LocallyLinearEmbedding(n_neighbors=5, n_jobs=-1, neighbors_algorithm="kd_tree")
 X_full_trans = lle.fit_transform(X_full)
 df["X_1"] = X_full_trans[:, 0]
-df["X_2"] = X_full_trans[:, 2]
+df["X_2"] = X_full_trans[:, 1]
 
 df.to_save(output_ffp)
+
+exit()
