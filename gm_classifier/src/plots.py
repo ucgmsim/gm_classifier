@@ -2,6 +2,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 
 def plot_loss(
@@ -168,3 +169,9 @@ def plot_residual(
         return None, None
 
     return fig, ax
+
+def get_color_marker_comb():
+    colours = mcolors.TABLEAU_COLORS
+    markers = ["o", "x", "v", "^", ">", "<", "s", "+", "d", "p"]
+
+    return [(c, m) for c in colours for m in markers]

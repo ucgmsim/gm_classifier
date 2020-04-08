@@ -17,6 +17,13 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
     # Error checking & pre-processing
     gf = gm.records.record_preprocesing(gf)
 
+    p_wave_ix = gm.features.get_p_wave_ix(gf.comp_1st.acc, gf.comp_2nd.acc, gf.comp_up.acc, gf.comp_1st.dt)
+
+    t = np.arange(gf.comp_1st.acc.shape[0]) * gf.comp_1st.delta_t
+    ft_data_X = gm.features.comp_fourier_data(gf.comp_1st.acc, t, gf.comp_1st.delta_t, p_wave_ix, ko_matrices)
+    ft_data_Y = gm.features.comp_fourier_data(gf.comp_2nd.acc, t, gf.comp_2nd.delta_t, p_wave_ix, ko_matrices)
+    ft_data_Z = gm.features.comp_fourier_data(gf.comp_up.acc, t, gf.comp_up.delta_t, p_wave_ix, ko_matrices)
+
     # Combine acceleration time-series, shape [n_timesteps, 3 components]
     acc = np.concatenate(
         (
@@ -27,74 +34,35 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
         axis=1,
     )
 
-    # Compute fourier transform
-    duration = gf.comp_1st.acc.size * gf.comp_1st.delta_t
-    ft_1, ft_freq_1 = gm.features.compute_fourier(
-        gf.comp_1st.acc, gf.comp_1st.delta_t, duration
-    )
-    ft_2, ft_freq_2 = gm.features.compute_fourier(
-        gf.comp_2nd.acc, gf.comp_2nd.delta_t, duration
-    )
-    ft_v, ft_freq_v = gm.features.compute_fourier(
-        gf.comp_up.acc, gf.comp_up.delta_t, duration
-    )
-
-    # Combine fourier transform data, shape [n_frequencies, 3 components, 2]
-    # Where the last axis is [ft, ft_freq]
+    # Combine fourier transform data, shape [n_frequencies, 3 components]
     ft = np.concatenate(
-        (ft_1[:, np.newaxis], ft_2[:, np.newaxis], ft_v[:, np.newaxis]), axis=1
+        (ft_data_X.ft[:, np.newaxis], ft_data_Y.ft[:, np.newaxis], ft_data_Z.ft[:, np.newaxis]), axis=1
     )
-    ft_freq = np.concatenate(
-        (ft_freq_1[:, np.newaxis], ft_freq_2[:, np.newaxis], ft_freq_v[:, np.newaxis]),
-        axis=1,
+    ft_smooth = np.concatenate(
+        (ft_data_X.smooth_ft[:, np.newaxis], ft_data_Y.smooth_ft[:, np.newaxis], ft_data_Z.smooth_ft[:, np.newaxis]), axis=1
     )
 
-    ft_comb = np.concatenate((ft[:, :, np.newaxis], ft_freq[:, :, np.newaxis]), axis=2)
-
-    # Get appropriate smoothing matrix
-    if isinstance(ko_matrices, dict):
-        smooth_matrix = ko_matrices[ft_freq_1.size - 1]
-    elif isinstance(ko_matrices, str) and os.path.isdir(ko_matrices):
-        smooth_matrix = np.load(
-            os.path.join(
-                ko_matrices,
-                gm.features.KONNO_MATRIX_FILENAME_TEMPLATE.format(ft_freq_1.size - 1),
-            )
-        )
-    else:
-        raise ValueError(
-            "The ko_matrices parameter has to either be a "
-            "dictionary with the Konno matrices or a directory "
-            "path that contains the Konno matrices files."
-        )
-
-    # Apply smoothing
-    smooth_ft_1 = np.dot(np.abs(ft_1), smooth_matrix)
-    smooth_ft_2 = np.dot(np.abs(ft_2), smooth_matrix)
-    smooth_ft_v = np.dot(np.abs(ft_v), smooth_matrix)
-
-    # Combine smoothed fourier transform data, same shape as non-smoothed ft
-    smooth_ft = np.concatenate(
-        (
-            smooth_ft_1[:, np.newaxis],
-            smooth_ft_2[:, np.newaxis],
-            smooth_ft_v[:, np.newaxis],
-        ),
-        axis=1,
+    snr = np.concatenate(
+        (ft_data_X.snr[:, np.newaxis], ft_data_Y.snr[:, np.newaxis], ft_data_Z.snr[:, np.newaxis]), axis=1
     )
-    smooth_ft_comp = np.concatenate(
-        (smooth_ft[:, :, np.newaxis], ft_freq[:, :, np.newaxis]), axis=2
-    )
+
+    ft_freq = ft_data_X.fr_freq
+    ft_fre_pe = ft_data_Y.ft_freq_pe
+
+    assert np.isclose(np.isclose(ft_data_X.fr_freq, ft_data_Y.fr_freq) & np.isclose(ft_data_X.fr_freq, ft_data_Z.fr_freq))
+    assert np.isclose(np.isclose(ft_data_X.ft_freq_pe, ft_data_Y.ft_freq_pe) & np.isclose(ft_data_X.ft_freq_pe, ft_data_Z.ft_freq_pe))
+
 
     # Collect some meta data
     meta_data = {
         "acc_length": gf.comp_1st.acc.size,
         "acc_dt": gf.comp_1st.delta_t,
-        "acc_duration": duration,
+        "acc_duration": gf.comp_1st.acc.size * gf.comp_1st.delta_t,
         "ft_length": ft.shape[0],
+        "snr_length": snr.shape[0]
     }
 
-    return acc, ft_comb, smooth_ft_comp, meta_data
+    return acc, ft, ft_smooth, snr, ft_freq, ft_fre_pe, meta_data
 
 
 def main(
@@ -142,7 +110,7 @@ def main(
             continue
 
         try:
-            cur_acc, cur_ft, cur_smooth_ft, cur_meta_data = get_series_data(
+            cur_acc, cur_ft, cur_smooth_ft, cur_snr, cur_ft_freq, cur_ft_freq_pe, cur_meta_data = get_series_data(
                 record_ffp, ko_matrices
             )
         except gm.records.RecordError as ex:
@@ -158,11 +126,14 @@ def main(
             if not cur_out_dir.is_dir():
                 cur_out_dir.mkdir()
 
-            np.save(cur_out_dir / f"{record_id}_acc.npy", cur_acc)
-            np.save(cur_out_dir / f"{record_id}_ft.npy", cur_ft)
-            np.save(cur_out_dir / f"{record_id}_smooth_ft.npy", cur_ft)
+            np.save(cur_out_dir / f"{record_id}_acc.npy", cur_acc.astype(np.float32))
+            np.save(cur_out_dir / f"{record_id}_raw_ft.npy", cur_ft.astype(np.float32))
+            np.save(cur_out_dir / f"{record_id}_smooth_ft.npy", cur_smooth_ft.astype(np.float32))
+            np.save(cur_out_dir / f"{record_id}_snr.npy", cur_snr.astype(np.float32))
+            np.save(cur_out_dir / f"{record_id}_ft_freq.npy", cur_ft_freq.astype(np.float32))
+            np.save(cur_out_dir / f"{record_id}_ft_pe_freq.npy", cur_ft_freq_pe.astype(np.float32))
 
-    meta_df = pd.DataFrame.from_dict(meta_data, orient="index", columns=["acc_length", "acc_dt", "acc_duration", "ft_length"])
+    meta_df = pd.DataFrame.from_dict(meta_data, orient="index", columns=["acc_length", "acc_dt", "acc_duration", "ft_length", "snr_length"])
     meta_df.to_csv(output_dir / "meta_data.csv")
 
     gm.records.print_errors(failed_records)

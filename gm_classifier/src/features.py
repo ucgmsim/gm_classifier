@@ -335,44 +335,17 @@ def log_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray):
     ln_x, ln_y, ln_x_new = np.log(x), np.log(y), np.log(x_new)
     return np.exp(interp1d(ln_x, ln_y, kind="linear", bounds_error=True)(ln_x_new))
 
-def get_features(
-    gf: GeoNet_File, ko_matrices: Dict[int, np.ndarray] = None
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-
-    # Create the time vector
-    t = np.arange(gf.comp_1st.acc.size) * gf.comp_1st.delta_t
-
-    # Get acceleration time series
-    acc_1, acc_2 = gf.comp_1st.acc, gf.comp_2nd.acc
-    acc_v = gf.comp_up.acc
-
-    # Compute husid and Arias intensities
-    husid_1, AI_1, arias_1, husid_5_ix_1, husid_75_ix_1, husid_95_ix_1 = compute_husid(
-        acc_1, t
-    )
-    husid_2, AI_2, arias_2, husid_5_ix_2, husid_75_ix_2, husid_95_ix_2 = compute_husid(
-        acc_2, t
-    )
-    husid_v, AI_v, arias_v, husid_5_ix_v, husid_75_ix_v, husid_95_ix_v = compute_husid(
-        acc_v, t
-    )
-    arias_gm = np.sqrt(arias_1 * arias_2)
-
+def get_p_wave_ix(acc_X, acc_Y, acc_Z, dt):
     # Set up some modified time series for p- and s-wave picking.
     # These are multiplied by an additional 10 because it seems to make the P-wave picking better
     # Also better if the vertical component is sign squared (apparently better)
-    tr1 = acc_1 * 9806.7 * 10.0
-    tr2 = acc_2 * 9806.7 * 10.0
-    tr3 = np.multiply(np.abs(acc_v), acc_v) * np.power(9806.7 * 10.0, 2)
-    dt = gf.comp_1st.delta_t
+    tr1 = acc_X * 9806.7 * 10.0
+    tr2 = acc_Y * 9806.7 * 10.0
+    tr3 = np.multiply(np.abs(acc_Z), acc_Z) * np.power(9806.7 * 10.0, 2)
+
     sample_rate = 1.0 / dt
 
-    # Sanity check
-    assert np.isclose(gf.comp_1st.delta_t, gf.comp_2nd.delta_t) and np.isclose(
-        gf.comp_1st.delta_t, gf.comp_up.delta_t
-    )
-
-    low_pass = gf.comp_1st.delta_t * 20.0
+    low_pass = dt * 20.0
     high_pass = sample_rate / 20.0
 
     p_s_pick = partial(
@@ -396,15 +369,45 @@ def get_features(
 
     if p_pick < 5.0:
         # NEXT THING TO DO IS TO TEST CHANGING THE PARAMETERS FOR THE FAKE PICK
-        tr3_fake1 = np.multiply(np.abs(acc_1), acc_v) * np.power(9806.7 * 10.0, 2)
+        tr3_fake1 = np.multiply(np.abs(acc_X), acc_Z) * np.power(9806.7 * 10.0, 2)
         p_pick_fake1, s_pick_fake1 = p_s_pick(tr3_fake1, tr1, tr2)
 
-        tr3_fake2 = np.multiply(np.abs(acc_2), acc_v) * np.power(9806.7 * 10.0, 2)
+        tr3_fake2 = np.multiply(np.abs(acc_Y), acc_Z) * np.power(9806.7 * 10.0, 2)
         p_pick_fake2, s_pick_fake2 = p_s_pick(tr3_fake2, tr1, tr2)
 
         p_pick = np.max([p_pick_fake1, p_pick_fake2, p_pick])
         s_pick = np.max([s_pick_fake1, s_pick_fake2, s_pick])
     p_wave_ix = int(np.floor(np.multiply(p_pick, sample_rate)))
+    return p_wave_ix
+
+def get_features(
+    gf: GeoNet_File, ko_matrices: Dict[int, np.ndarray] = None
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+
+    # Create the time vector
+    t = np.arange(gf.comp_1st.acc.size) * gf.comp_1st.delta_t
+
+    # Get acceleration time series
+    acc_1, acc_2 = gf.comp_1st.acc, gf.comp_2nd.acc
+    acc_v = gf.comp_up.acc
+
+    # Compute husid and Arias intensities
+    husid_1, AI_1, arias_1, husid_5_ix_1, husid_75_ix_1, husid_95_ix_1 = compute_husid(
+        acc_1, t
+    )
+    husid_2, AI_2, arias_2, husid_5_ix_2, husid_75_ix_2, husid_95_ix_2 = compute_husid(
+        acc_2, t
+    )
+    husid_v, AI_v, arias_v, husid_5_ix_v, husid_75_ix_v, husid_95_ix_v = compute_husid(
+        acc_v, t
+    )
+    arias_gm = np.sqrt(arias_1 * arias_2)
+
+    assert np.isclose(gf.comp_1st.delta_t, gf.comp_2nd.delta_t) and np.isclose(
+        gf.comp_1st.delta_t, gf.comp_up.delta_t
+    )
+
+    p_wave_ix = get_p_wave_ix(acc_1, acc_2, acc_v, gf.comp_1st.delta_t)
 
     # Calculate max amplitudes of acc time series
     pga_1, pga_2 = compute_pga(acc_1), compute_pga(acc_2)
@@ -523,7 +526,6 @@ def get_features(
         snr_values_2.append(compute_snr(snr_2, ft_freq, lower_freq, upper_freq))
         snr_values_v.append(compute_snr(snr_v, ft_freq, lower_freq, upper_freq))
         snr_values_gm.append(compute_snr(snr_gm, ft_freq, lower_freq, upper_freq))
-
 
 
     # Compute SNR for a range of different frequency values

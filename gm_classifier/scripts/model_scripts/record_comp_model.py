@@ -52,17 +52,19 @@ feature_config = {
     "fas_ratio_high": ["standard", "whiten"],
     "pn_pga_ratio": ["standard", "whiten"],
     "is_vertical": None,
+    "snr_value_*": gm.pre.scale_snr_values
 }
 feature_config_X = {f"{key}_X": val for key, val in feature_config.items()}
 feature_config_Y = {f"{key}_Y": val for key, val in feature_config.items()}
 feature_config_Z = {f"{key}_Z": val for key, val in feature_config.items()}
 feature_config = {**feature_config_X, **{**feature_config_Y, **feature_config_Z}}
-feature_names = list(feature_config.keys())
+feature_names = [key for key in feature_config.keys() if not "*" in key]
 
-# snr_features = [f"snr_value_{freq:.3f}" for freq in np.logspace(np.log(0.05), np.log(20), 50, base=np.e)]
+snr_features = [f"snr_value_{freq:.3f}" for freq in np.logspace(np.log(0.05), np.log(20), 50, base=np.e)]
 # snr_features = snr_features[::3]
-# feature_names = feature_names + snr_features
-# feature_names = list(np.concatenate((np.char.add(feature_names, "_X"), np.char.add(feature_names, "_Y"), np.char.add(feature_names, "_Z"))))
+snr_features = list(np.concatenate((np.char.add(snr_features, "_X"), np.char.add(snr_features, "_Y"), np.char.add(snr_features, "_Z"))))
+
+feature_names = feature_names + snr_features
 
 # Model details
 model_config = {
@@ -80,7 +82,7 @@ optimizer = "Adam"
 # loss = gm.training.mape
 loss = "mse"
 val_size = 0.1
-n_epochs = 250
+n_epochs = 1000
 batch_size = 32
 
 output_dir = Path(output_dir)
@@ -124,9 +126,12 @@ fig_size = (16, 10)
 
 fig, ax = gm.plots.plot_loss(
     history,
-    output_ffp=str(output_dir / "loss_plot.png"),
+    # output_ffp=str(output_dir / "loss_plot.png"),
     fig_kwargs={"figsize": fig_size},
 )
+ax.set_ylim((0, 1))
+plt.savefig(str(output_dir / "loss_plot.png"))
+
 
 # Load the best model
 model = keras.models.load_model(output_dir / "model.h5")

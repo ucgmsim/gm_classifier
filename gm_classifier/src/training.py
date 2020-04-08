@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import os
 from pathlib import Path
@@ -59,11 +60,11 @@ def train_val_split(
     )
 
     # Create training and validation datasets
-    X_train = train_df.loc[:, feature_names].iloc[train_ind]
-    X_val = train_df.loc[:, feature_names].iloc[val_ind]
+    X_train = train_df.loc[:, feature_names].iloc[train_ind].copy()
+    X_val = train_df.loc[:, feature_names].iloc[val_ind].copy()
 
-    y_train = train_df.loc[:, label_names].iloc[train_ind]
-    y_val = train_df.loc[:, label_names].iloc[val_ind]
+    y_train = train_df.loc[:, label_names].iloc[train_ind].copy()
+    y_val = train_df.loc[:, label_names].iloc[val_ind].copy()
 
     ids_train = train_df.iloc[train_ind].index.values
     ids_val = train_df.iloc[val_ind].index.values
@@ -174,7 +175,7 @@ def train(
 
     # Save the config
     config = {
-        "feature_config": feature_config,
+        "feature_config": str(feature_config),
         "model_config": model_config,
         "compiler_kwargs": str(compile_kwargs),
         "fit_kwargs": fit_kwargs,
@@ -205,8 +206,8 @@ def _apply_pre(
         )
 
         # Apply to both train and val data
-        train_data = pre.standardise(train_data.loc[:, std_keys], mu, sigma)
-        val_data = (
+        train_data.loc[:, std_keys] = pre.standardise(train_data.loc[:, std_keys], mu, sigma)
+        val_data.loc[:, std_keys] = (
             pre.standardise(val_data.loc[:, std_keys], mu, sigma)
             if val_data is not None
             else val_data
@@ -245,12 +246,20 @@ def _apply_pre(
         )
 
         # Sanity check
-        # assert np.all(
-        #     np.isclose(np.cov(train_data, rowvar=False), np.identity(n_features))
-        # )
+        assert np.all(
+            np.isclose(np.cov(train_data.loc[:, whiten_keys], rowvar=False), np.identity(len(whiten_keys)))
+        )
 
         # Save whitening matrix
         np.save(output_dir / f"{output_prefix}W.npy", W)
+
+    cust_func_keys = pre.get_custom_fn_keys(feature_config)
+    if len(whiten_keys) > 0:
+        for cur_key in cust_func_keys:
+            cur_fn = feature_config[cur_key]
+            cur_key = _match_keys(cur_key, train_data.columns) if "*" in cur_key else cur_key
+            train_data.loc[:, cur_key] = cur_fn(train_data.loc[:, cur_key].values)
+            val_data.loc[:, cur_key] = cur_fn(val_data.loc[:, cur_key].values)
 
     # shift = feature_config.get("shift")
     # if shift is not None:
@@ -262,6 +271,8 @@ def _apply_pre(
 
     return train_data, val_data
 
+def _match_keys(key_filter: str, columns: np.ndarray):
+    return fnmatch.filter(columns, key_filter)
 
 def mape(y_true, y_pred):
     """Mean absolute percentage error"""

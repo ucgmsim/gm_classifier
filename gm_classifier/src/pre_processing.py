@@ -2,9 +2,12 @@ from typing import Union, Tuple, Dict
 
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import minmax_scale
 
 def standardise(
-    data: np.ndarray, mu: Union[float, pd.Series, np.ndarray], sigma: [float, pd.Series, np.ndarray]
+    data: np.ndarray,
+    mu: Union[float, pd.Series, np.ndarray],
+    sigma: [float, pd.Series, np.ndarray],
 ):
     """Standardises the data
 
@@ -84,9 +87,17 @@ def compute_W_ZCA(X: np.ndarray) -> np.ndarray:
     # Compute inverse
     return np.linalg.inv(cov_X_sqrt)
 
+def scale_snr_values(X: np.ndarray, **kwargs):
+    """Min-max scales the SNR values along the frequency axis"""
+    return minmax_scale(X, axis=1)
+
 
 def apply(
-    X: pd.DataFrame, config: Dict = None, mu: pd.Series = None, sigma: pd.Series = None, W: np.ndarray = None
+    X: pd.DataFrame,
+    config: Dict = None,
+    mu: pd.Series = None,
+    sigma: pd.Series = None,
+    W: np.ndarray = None,
 ):
     """Applies the pre-processing
 
@@ -120,16 +131,16 @@ def apply(
     return X
 
 
+
+
+
 def get_whiten_keys(config: Dict):
-    return [
-        key
-        for key, val in config.items()
-        if val is not None and "whiten" in val
-    ]
+    return [key for key, val in config.items() if (isinstance(val, str) or isinstance(val, list)) and "whiten" in val]
+
 
 def get_standard_keys(config: Dict):
-    return [
-        key
-        for key, val in config.items()
-        if val is not None and "standard" in val
-    ]
+    return [key for key, val in config.items() if (isinstance(val, str) or isinstance(val, list)) and "standard" in val]
+
+
+def get_custom_fn_keys(config: Dict):
+    return [key for key, val in config.items() if val is not None and callable(config[key])]
