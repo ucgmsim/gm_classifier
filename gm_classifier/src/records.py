@@ -488,7 +488,7 @@ def filter_record_files(
     record_files: np.ndarray, event_list_ffp: str = None, record_list_ffp: str = None
 ):
     """Filters the given record files by either event or record ID"""
-    assert event_list_ffp is not None and record_list_ffp is not None
+    assert event_list_ffp is not None or record_list_ffp is not None
 
     # Filter record files
     if event_list_ffp is not None:

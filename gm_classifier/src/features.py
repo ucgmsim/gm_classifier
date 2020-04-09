@@ -407,6 +407,7 @@ def get_features(
         gf.comp_1st.delta_t, gf.comp_up.delta_t
     )
 
+    sample_rate = 1.0 / gf.comp_1st.delta_t
     p_wave_ix = get_p_wave_ix(acc_1, acc_2, acc_v, gf.comp_1st.delta_t)
 
     # Calculate max amplitudes of acc time series

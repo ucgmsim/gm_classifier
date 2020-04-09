@@ -17,12 +17,20 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
     # Error checking & pre-processing
     gf = gm.records.record_preprocesing(gf)
 
-    p_wave_ix = gm.features.get_p_wave_ix(gf.comp_1st.acc, gf.comp_2nd.acc, gf.comp_up.acc, gf.comp_1st.dt)
+    p_wave_ix = gm.features.get_p_wave_ix(
+        gf.comp_1st.acc, gf.comp_2nd.acc, gf.comp_up.acc, gf.comp_1st.delta_t
+    )
 
     t = np.arange(gf.comp_1st.acc.shape[0]) * gf.comp_1st.delta_t
-    ft_data_X = gm.features.comp_fourier_data(gf.comp_1st.acc, t, gf.comp_1st.delta_t, p_wave_ix, ko_matrices)
-    ft_data_Y = gm.features.comp_fourier_data(gf.comp_2nd.acc, t, gf.comp_2nd.delta_t, p_wave_ix, ko_matrices)
-    ft_data_Z = gm.features.comp_fourier_data(gf.comp_up.acc, t, gf.comp_up.delta_t, p_wave_ix, ko_matrices)
+    ft_data_X, _ = gm.features.comp_fourier_data(
+        gf.comp_1st.acc, t, gf.comp_1st.delta_t, p_wave_ix, ko_matrices
+    )
+    ft_data_Y, _ = gm.features.comp_fourier_data(
+        gf.comp_2nd.acc, t, gf.comp_2nd.delta_t, p_wave_ix, ko_matrices
+    )
+    ft_data_Z, _ = gm.features.comp_fourier_data(
+        gf.comp_up.acc, t, gf.comp_up.delta_t, p_wave_ix, ko_matrices
+    )
 
     # Combine acceleration time-series, shape [n_timesteps, 3 components]
     acc = np.concatenate(
@@ -36,22 +44,42 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
 
     # Combine fourier transform data, shape [n_frequencies, 3 components]
     ft = np.concatenate(
-        (ft_data_X.ft[:, np.newaxis], ft_data_Y.ft[:, np.newaxis], ft_data_Z.ft[:, np.newaxis]), axis=1
+        (
+            ft_data_X.ft[:, np.newaxis],
+            ft_data_Y.ft[:, np.newaxis],
+            ft_data_Z.ft[:, np.newaxis],
+        ),
+        axis=1,
     )
     ft_smooth = np.concatenate(
-        (ft_data_X.smooth_ft[:, np.newaxis], ft_data_Y.smooth_ft[:, np.newaxis], ft_data_Z.smooth_ft[:, np.newaxis]), axis=1
+        (
+            ft_data_X.smooth_ft[:, np.newaxis],
+            ft_data_Y.smooth_ft[:, np.newaxis],
+            ft_data_Z.smooth_ft[:, np.newaxis],
+        ),
+        axis=1,
     )
 
     snr = np.concatenate(
-        (ft_data_X.snr[:, np.newaxis], ft_data_Y.snr[:, np.newaxis], ft_data_Z.snr[:, np.newaxis]), axis=1
+        (
+            ft_data_X.snr[:, np.newaxis],
+            ft_data_Y.snr[:, np.newaxis],
+            ft_data_Z.snr[:, np.newaxis],
+        ),
+        axis=1,
     )
 
-    ft_freq = ft_data_X.fr_freq
+    ft_freq = ft_data_X.ft_freq
     ft_fre_pe = ft_data_Y.ft_freq_pe
 
-    assert np.isclose(np.isclose(ft_data_X.fr_freq, ft_data_Y.fr_freq) & np.isclose(ft_data_X.fr_freq, ft_data_Z.fr_freq))
-    assert np.isclose(np.isclose(ft_data_X.ft_freq_pe, ft_data_Y.ft_freq_pe) & np.isclose(ft_data_X.ft_freq_pe, ft_data_Z.ft_freq_pe))
-
+    assert np.all(
+        np.isclose(ft_data_X.ft_freq, ft_data_Y.ft_freq)
+        & np.isclose(ft_data_X.ft_freq, ft_data_Z.ft_freq)
+    )
+    assert np.all(
+        np.isclose(ft_data_X.ft_freq_pe, ft_data_Y.ft_freq_pe)
+        & np.isclose(ft_data_X.ft_freq_pe, ft_data_Z.ft_freq_pe)
+    )
 
     # Collect some meta data
     meta_data = {
@@ -59,7 +87,8 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
         "acc_dt": gf.comp_1st.delta_t,
         "acc_duration": gf.comp_1st.acc.size * gf.comp_1st.delta_t,
         "ft_length": ft.shape[0],
-        "snr_length": snr.shape[0]
+        "snr_length": snr.shape[0],
+        "p_wave_ix": p_wave_ix,
     }
 
     return acc, ft, ft_smooth, snr, ft_freq, ft_fre_pe, meta_data
@@ -71,6 +100,7 @@ def main(
     ko_matrices_dir: str,
     low_mem_usage: bool = False,
     skip_existing: bool = False,
+    record_list_ffp: str = None
 ):
     output_dir = Path(output_dir)
 
@@ -78,6 +108,12 @@ def main(
     record_files = np.asarray(
         glob.glob(os.path.join(record_dir, "**/*.V1A"), recursive=True), dtype=str
     )
+    print(f"Found {len(record_files)} record files")
+
+    if record_list_ffp is not None:
+        print(f"Filtering records")
+        record_files = gm.records.filter_record_files(record_files, record_list_ffp=record_list_ffp)
+        print(f"Number of records after filter - {len(record_files)}")
 
     # Load the Konno matrices into memory
     if ko_matrices_dir is not None and not low_mem_usage:
@@ -128,13 +164,32 @@ def main(
 
             np.save(cur_out_dir / f"{record_id}_acc.npy", cur_acc.astype(np.float32))
             np.save(cur_out_dir / f"{record_id}_raw_ft.npy", cur_ft.astype(np.float32))
-            np.save(cur_out_dir / f"{record_id}_smooth_ft.npy", cur_smooth_ft.astype(np.float32))
+            np.save(
+                cur_out_dir / f"{record_id}_smooth_ft.npy",
+                cur_smooth_ft.astype(np.float32),
+            )
             np.save(cur_out_dir / f"{record_id}_snr.npy", cur_snr.astype(np.float32))
-            np.save(cur_out_dir / f"{record_id}_ft_freq.npy", cur_ft_freq.astype(np.float32))
-            np.save(cur_out_dir / f"{record_id}_ft_pe_freq.npy", cur_ft_freq_pe.astype(np.float32))
+            np.save(
+                cur_out_dir / f"{record_id}_ft_freq.npy", cur_ft_freq.astype(np.float32)
+            )
+            np.save(
+                cur_out_dir / f"{record_id}_ft_pe_freq.npy",
+                cur_ft_freq_pe.astype(np.float32),
+            )
 
-    meta_df = pd.DataFrame.from_dict(meta_data, orient="index", columns=["acc_length", "acc_dt", "acc_duration", "ft_length", "snr_length"])
-    meta_df.to_csv(output_dir / "meta_data.csv")
+    meta_df = pd.DataFrame.from_dict(
+        meta_data,
+        orient="index",
+        columns=[
+            "acc_length",
+            "acc_dt",
+            "acc_duration",
+            "ft_length",
+            "snr_length",
+            "p_wave_ix",
+        ],
+    )
+    meta_df.to_csv(output_dir / "meta_data.csv", index_label="record_id")
 
     gm.records.print_errors(failed_records)
 
@@ -169,6 +224,12 @@ if __name__ == "__main__":
         help="If specified, existing results will not be overwritten",
         default=False,
     )
+    parser.add_argument(
+        "--record_list_ffp",
+        type=str,
+        help="Path to file that lists all records to use (one per line)",
+        default=None,
+    )
 
     args = parser.parse_args()
 
@@ -177,5 +238,6 @@ if __name__ == "__main__":
         args.output_dir,
         args.ko_matrices_dir,
         low_mem_usage=args.low_memory,
-        skip_existing=args.no_overwrite
+        skip_existing=args.no_overwrite,
+        record_list_ffp=args.record_list_ffp
     )
