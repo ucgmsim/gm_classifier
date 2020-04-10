@@ -6,24 +6,27 @@ import pandas as pd
 from tensorflow import keras
 
 from . import pre_processing as pre
+from . import model
 
-def predict(model_dir: Union[str, Path], X: pd.DataFrame, feature_config: Dict = None):
-    """Does the prediction using the specified model,
-    performs any pre & post processing if required"""
-    model_dir = Path(model_dir) if isinstance(model_dir, str) else model_dir
 
-    # Load the model
-    model = keras.models.load_model(model_dir / "model.h5")
-
-    # Pre-processing of the features
-    if feature_config is not None:
-        X_mu = pd.read_csv(model_dir / "feature_mu.csv")
-        X_sigma = pd.read_csv(model_dir / "feature_sigma.csv")
-
-        W = np.load(model_dir / "feature_W.npy") if feature_config.get("whiten") is True else None
-        X = pre.apply(X, feature_config, X_mu, X_sigma, W)
-
-    y_est = model.predict(X)
+#
+# def predict(gm_model: keras.Model, model_dir: Union[str, Path], X: pd.DataFrame, feature_config: Dict = None):
+#     """Does the prediction using the specified model,
+#     performs any pre & post processing if required"""
+#     model_dir = Path(model_dir) if isinstance(model_dir, str) else model_dir
+#
+#     # Load the model
+#     gm_model.load_weights(str(model_dir / "model.h5"))
+#
+#     # Pre-processing of the features
+#     if feature_config is not None:
+#         X_mu = pd.read_csv(model_dir / "feature_mu.csv")
+#         X_sigma = pd.read_csv(model_dir / "feature_sigma.csv")
+#
+#         W = np.load(model_dir / "feature_W.npy") if feature_config.get("whiten") is True else None
+#         X = pre.apply(X, feature_config, X_mu, X_sigma, W)
+#
+#     y_est = gm_model.predict(X)
 
     # # Post-processing of the labels (i.e. reversing the pre-processing)
     # if label_config is not None:
@@ -39,5 +42,5 @@ def predict(model_dir: Union[str, Path], X: pd.DataFrame, feature_config: Dict =
     #         shift = np.asarray(shift)
     #         y_est = y_est - shift
 
-    return y_est
+    # return y_est
 

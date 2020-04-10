@@ -1,6 +1,7 @@
 """Trains and evaluates a model that takes the features from all
 three components for a specific record and estimates a score & f_min
 for each of the components"""
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -15,13 +16,13 @@ import gm_classifier as gm
 # ----- Config -----
 # label_dir = "/Users/Clus/code/work/gm_classifier/data/records/training_data/iter"
 label_dir = (
-    "/Users/Clus/code/work/gm_classifier/data/records_local/training_data/labels"
+    "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/labels"
 )
 
 # features_dir = "/Users/Clus/code/work/gm_classifier/data/records/training_data/all_records_features/200401"
-features_dir = "/Users/Clus/code/work/gm_classifier/data/records_local/training_data/all_records_features/200401"
+features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200401"
 
-output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/tmp_2"
+output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/tmp_1"
 
 label_config = {
     "score_X": None,
@@ -52,7 +53,6 @@ feature_config = {
     "fas_ratio_high": ["standard", "whiten"],
     "pn_pga_ratio": ["standard", "whiten"],
     "is_vertical": None,
-    "snr_value_*": gm.pre.scale_snr_values
 }
 feature_config_X = {f"{key}_X": val for key, val in feature_config.items()}
 feature_config_Y = {f"{key}_Y": val for key, val in feature_config.items()}
@@ -60,29 +60,73 @@ feature_config_Z = {f"{key}_Z": val for key, val in feature_config.items()}
 feature_config = {**feature_config_X, **{**feature_config_Y, **feature_config_Z}}
 feature_names = [key for key in feature_config.keys() if not "*" in key]
 
-snr_features = [f"snr_value_{freq:.3f}" for freq in np.logspace(np.log(0.05), np.log(20), 50, base=np.e)]
-# snr_features = snr_features[::3]
-snr_features = list(np.concatenate((np.char.add(snr_features, "_X"), np.char.add(snr_features, "_Y"), np.char.add(snr_features, "_Z"))))
+snr_features = [
+    f"snr_value_{freq:.3f}"
+    for freq in np.logspace(np.log(0.05), np.log(20), 50, base=np.e)
+]
 
-feature_names = feature_names + snr_features
+# snr_features = list(
+#     np.concatenate(
+#         (
+#             np.char.add(snr_features, "_X"),
+#             np.char.add(snr_features, "_Y"),
+#             np.char.add(snr_features, "_Z"),
+#         )
+#     )
+# )
 
-# Model details
+# feature_names = feature_names + snr_features
+
+# Model config
+dropout_rate = 0.4
 model_config = {
-    "units": [256, 128, 64],
-    "act_funcs": "relu",
-    # "n_outputs": 3,
+    "dense_layer_config": [
+        (keras.layers.Dense, {"units": 32, "activation": "relu"}),
+        (keras.layers.Dense, {"units": 16, "activation": "relu"}),
+    ],
+    "dense_input_name": "features",
+    "cnn_layer_config": [
+        (
+            keras.layers.Conv1D,
+            {
+                "filters": 32,
+                "kernel_size": 15,
+                "strides": 1,
+                "activation": "relu",
+                "padding": "same",
+            },
+        ),
+        (keras.layers.MaxPooling1D, {"pool_size": 2}),
+        (keras.layers.Dropout, {"rate": dropout_rate}),
+        (
+            keras.layers.Conv1D,
+            {
+                "filters": 16,
+                "kernel_size": 5,
+                "strides": 1,
+                "activation": "relu",
+                "padding": "same",
+            },
+        ),
+        # (keras.layers.MaxPooling1D, {"pool_size": 2}),
+        (keras.layers.Dropout, {"rate": dropout_rate}),
+    ],
+    "cnn_input_name": "snr_series",
+    "comb_layer_config": [
+        (keras.layers.Dense, {"units": 128, "activation": "relu"}),
+        (keras.layers.Dropout, {"rate": dropout_rate}),
+        (keras.layers.Dense, {"units": 42, "activation": "relu"}),
+        (keras.layers.Dropout, {"rate": dropout_rate}),
+        (keras.layers.Dense, {"units": 16, "activation": "relu"}),
+    ],
     "n_outputs": 6,
-    "output_act_func": "linear",
-    "output_names": label_names,
-    "dropout": 0.5,
 }
 
 # Training details
 optimizer = "Adam"
-# loss = gm.training.mape
 loss = "mse"
 val_size = 0.1
-n_epochs = 1000
+n_epochs = 250
 batch_size = 32
 
 output_dir = Path(output_dir)
@@ -101,25 +145,67 @@ assert np.all(
     np.isin(feature_names, feature_df.columns.values)
 ), "Not all features are in the feature dataframe"
 
-# Split into training and validation
-train_data, val_data = gm.training.train_val_split(
-    train_df, feature_names, label_names, val_size=val_size
+# Data preparation
+X_features = train_df.loc[:, feature_names]
+
+# Bit of hack atm, need to update
+X_snr = np.stack(
+    (
+        train_df.loc[:, np.char.add(snr_features, "_X")].values,
+        train_df.loc[:, np.char.add(snr_features, "_Y")].values,
+        train_df.loc[:, np.char.add(snr_features, "_Z")].values,
+    ),
+    axis=2,
 )
-X_train, y_train, ids_train = train_data
-X_val, y_val, ids_val = val_data
+
+ids = train_df.index.values
+y = train_df.loc[:, label_names]
+
+# Split into training and validation
+X_features_train, X_features_val, X_snr_train, X_snr_val, y_train, y_val, ids_train, ids_val = train_test_split(
+    X_features, X_snr, y, ids, test_size=val_size
+)
+
+# Pre-processing
+X_features_train, X_features_val = gm.training.apply_pre(
+    X_features_train.copy(),
+    feature_config,
+    output_dir,
+    val_data=X_features_val.copy(),
+    output_prefix="features",
+)
+X_snr_train, X_snr_val = np.log(X_snr_train), np.log(X_snr_val)
 
 # Run training of the model
-history, X_train, X_val, y_train_proc, y_val_proc = gm.training.train(
+compile_kwargs = {"optimizer": optimizer, "loss": loss}
+fit_kwargs = {"batch_size": batch_size, "epochs": n_epochs, "verbose": 2}
+history, gm_model = gm.training.train(
     output_dir,
-    feature_config,
+    gm.model.CnnSnrModel,
     model_config,
-    train_data,
-    val_data=val_data,
-    label_config=label_config,
-    # compile_kwargs={"optimizer": optimizer, "loss": loss, "run_eagerly": True},
-    compile_kwargs={"optimizer": optimizer, "loss": loss},
-    fit_kwargs={"batch_size": batch_size, "epochs": n_epochs, "verbose": 2},
+    (
+        {"features": X_features_train.values, "snr_series": X_snr_train},
+        y_train.values,
+        ids_train,
+    ),
+    val_data=(
+        {"features": X_features_val.values, "snr_series": X_snr_val},
+        y_val.values,
+        ids_val,
+    ),
+    compile_kwargs=compile_kwargs,
+    fit_kwargs=fit_kwargs,
 )
+
+# Save the config
+config = {
+    "feature_config": str(feature_config),
+    "model_config": str(model_config),
+    "compiler_kwargs": str(compile_kwargs),
+    "fit_kwargs": str(fit_kwargs),
+}
+with open(output_dir / "config.json", "w") as f:
+    json.dump(config, f)
 
 # ---- Evaluation ----
 fig_size = (16, 10)
@@ -131,17 +217,17 @@ fig, ax = gm.plots.plot_loss(
 )
 ax.set_ylim((0, 1))
 plt.savefig(str(output_dir / "loss_plot.png"))
-
+plt.close()
 
 # Load the best model
-model = keras.models.load_model(output_dir / "model.h5")
+gm_model.load_weights(str(output_dir / "model.h5"))
 
-# Predict (also does the reverse transform)
-y_train_est = gm.predict.predict(
-    output_dir, X_train, feature_config=None,
+# Predict train and validation
+y_train_est = gm_model.predict(
+    {"features": X_features_train.values, "snr_series": X_snr_train}
 )
-y_val_est = gm.predict.predict(
-    output_dir, X_val, feature_config=None,
+y_val_est = gm_model.predict(
+    {"features": X_features_val.values, "snr_series": X_snr_val}
 )
 
 for cur_comp, (score_ix, f_min_ix) in zip(["X", "Y", "Z"], [(0, 1), (2, 3), (4, 5)]):
@@ -153,7 +239,8 @@ for cur_comp, (score_ix, f_min_ix) in zip(["X", "Y", "Z"], [(0, 1), (2, 3), (4, 
     )
     fig, ax = gm.plots.plot_true_vs_est(
         y_train_est[:, score_ix],
-        y_train.iloc[:, score_ix] + np.random.normal(0, 0.01, y_train.iloc[:, score_ix].size),
+        y_train.iloc[:, score_ix]
+        + np.random.normal(0, 0.01, y_train.iloc[:, score_ix].size),
         y_val_est=y_val_est[:, score_ix],
         y_val_true=y_val.iloc[:, score_ix]
         + np.random.normal(0, 0.01, y_val.iloc[:, score_ix].size),
@@ -168,9 +255,11 @@ for cur_comp, (score_ix, f_min_ix) in zip(["X", "Y", "Z"], [(0, 1), (2, 3), (4, 
     score_res_val = y_val.iloc[:, score_ix] - y_val_est[:, score_ix]
     fig, ax = gm.plots.plot_residual(
         score_res_train,
-        y_train.iloc[:, score_ix] + +np.random.normal(0, 0.01, y_train.iloc[:, score_ix].size),
+        y_train.iloc[:, score_ix]
+        + +np.random.normal(0, 0.01, y_train.iloc[:, score_ix].size),
         score_res_val,
-        y_val.iloc[:, score_ix] + np.random.normal(0, 0.01, y_val.iloc[:, score_ix].size),
+        y_val.iloc[:, score_ix]
+        + np.random.normal(0, 0.01, y_val.iloc[:, score_ix].size),
         min_max=(score_min, score_max),
         title="Score residual",
         x_label="Score",
@@ -185,7 +274,8 @@ for cur_comp, (score_ix, f_min_ix) in zip(["X", "Y", "Z"], [(0, 1), (2, 3), (4, 
     )
     fig, ax = gm.plots.plot_true_vs_est(
         y_train_est[:, f_min_ix],
-        y_train.iloc[:, f_min_ix] + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
+        y_train.iloc[:, f_min_ix]
+        + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
         y_val_est=y_val_est[:, f_min_ix],
         y_val_true=y_val.iloc[:, f_min_ix]
         + np.random.normal(0, 0.025, y_val.iloc[:, f_min_ix].size),
@@ -198,7 +288,8 @@ for cur_comp, (score_ix, f_min_ix) in zip(["X", "Y", "Z"], [(0, 1), (2, 3), (4, 
 
     fig, ax = gm.plots.plot_true_vs_est(
         y_train_est[:, f_min_ix],
-        y_train.iloc[:, f_min_ix] + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
+        y_train.iloc[:, f_min_ix]
+        + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
         y_val_est=y_val_est[:, f_min_ix],
         y_val_true=y_val.iloc[:, f_min_ix]
         + np.random.normal(0, 0.025, y_val.iloc[:, f_min_ix].size),
@@ -217,9 +308,11 @@ for cur_comp, (score_ix, f_min_ix) in zip(["X", "Y", "Z"], [(0, 1), (2, 3), (4, 
     f_min_res_val = y_val.iloc[:, f_min_ix] - y_val_est[:, f_min_ix]
     fig, ax = gm.plots.plot_residual(
         f_min_res_train,
-        y_train.iloc[:, f_min_ix] + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
+        y_train.iloc[:, f_min_ix]
+        + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
         f_min_res_val,
-        y_val.iloc[:, f_min_ix] + np.random.normal(0, 0.025, y_val.iloc[:, f_min_ix].size),
+        y_val.iloc[:, f_min_ix]
+        + np.random.normal(0, 0.025, y_val.iloc[:, f_min_ix].size),
         min_max=(f_min_min, f_min_max),
         title="f_min residual",
         x_label="f_min",

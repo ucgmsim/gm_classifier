@@ -46,45 +46,44 @@ def get_multi_output_y(
     return y
 
 
-def train_val_split(
-    train_df: pd.DataFrame,
-    feature_names: List[str],
-    label_names: List[str],
-    val_size: float = 0.25,
-):
-    """Performs the training & validation data split for the given dataframe
-    Also only retrieves the features/labels of interest"""
-    # Get indices for splitting into training & validation set
-    train_ind, val_ind = train_test_split(
-        np.arange(train_df.shape[0], dtype=int), test_size=val_size
-    )
-
-    # Create training and validation datasets
-    X_train = train_df.loc[:, feature_names].iloc[train_ind].copy()
-    X_val = train_df.loc[:, feature_names].iloc[val_ind].copy()
-
-    y_train = train_df.loc[:, label_names].iloc[train_ind].copy()
-    y_val = train_df.loc[:, label_names].iloc[val_ind].copy()
-
-    ids_train = train_df.iloc[train_ind].index.values
-    ids_val = train_df.iloc[val_ind].index.values
-
-    train_data = (X_train, y_train, ids_train)
-    val_data = (X_val, y_val, ids_val)
-
-    return train_data, val_data
+# def train_val_split(
+#     train_df: pd.DataFrame,
+#     feature_names: List[str],
+#     label_names: List[str],
+#     val_size: float = 0.25,
+# ):
+#     """Performs the training & validation data split for the given dataframe
+#     Also only retrieves the features/labels of interest"""
+#     # Get indices for splitting into training & validation set
+#     train_ind, val_ind = train_test_split(
+#         np.arange(train_df.shape[0], dtype=int), test_size=val_size
+#     )
+#
+#     # Create training and validation datasets
+#     X_train = train_df.loc[:, feature_names].iloc[train_ind].copy()
+#     X_val = train_df.loc[:, feature_names].iloc[val_ind].copy()
+#
+#     y_train = train_df.loc[:, label_names].iloc[train_ind].copy()
+#     y_val = train_df.loc[:, label_names].iloc[val_ind].copy()
+#
+#     ids_train = train_df.iloc[train_ind].index.values
+#     ids_val = train_df.iloc[val_ind].index.values
+#
+#     train_data = (X_train, y_train, ids_train)
+#     val_data = (X_val, y_val, ids_val)
+#
+#     return train_data, val_data
 
 
 def train(
     output_dir: Path,
-    feature_config: Dict[str, Any],
-    model_config: Dict[str, Any],
-    training_data: Tuple[pd.DataFrame, np.ndarray, np.ndarray],
-    val_data: Union[None, Tuple[pd.DataFrame, np.ndarray, np.ndarray]] = None,
-    label_config: Dict[str, Any] = None,
+    model_type: keras.Model,
+    model_config: Dict,
+    training_data: Tuple[Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray],
+    val_data: Union[None, Tuple[Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray]] = None,
     compile_kwargs: Dict[str, Any] = None,
     fit_kwargs: Dict[str, Any] = None,
-) -> Tuple[Dict, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> Tuple[Dict, keras.Model]:
     """
     Performs the training for the specified
     training and validation data
@@ -93,11 +92,6 @@ def train(
     ----------
     output_dir: str
         Path to directory where results are saved
-    feature_config: dictionary with string keys
-        Dictionary that contains preprocessing details for features
-        Has to be per feature, valid keys are:
-        - "standard" (standardises features to zero mean and unit variance)
-        - None
     model_config: dictionary with string keys
         Dictionary that contains model details
     training_data: triplet
@@ -106,8 +100,6 @@ def train(
     val_data: triplet
         Validation data, expected tuple data:
         (X_train, y_train, ids_train)
-    label_config: dictionary with string keys
-        Dictionary that contains preprocessing details for labels
     compile_kwargs: dictionary
         Keyword arguments for the model compile,
         see https://www.tensorflow.org/api_docs/python/tf/keras/Model#compile
@@ -119,15 +111,6 @@ def train(
     -------
     dictionary:
         The training history
-    X_train: dataframe
-        The pre-precossed training data
-    X_val: dataframe
-        The pre-precossed validation data
-    y_train: dataframe
-    y_val: dataframe
-        If label pre-processing is specified, then these
-        are the pre-processed training & validation labels.
-        Otherwise just the passed labels
     """
     # Unroll training & validation data
     X_train, y_train, ids_train = training_data
@@ -138,27 +121,15 @@ def train(
     if ids_val is not None:
         np.save(output_dir / "val_ids.npy", ids_val)
 
-    # Apply the pre-processing
-    X_train, X_val = _apply_pre(
-        X_train, feature_config, output_dir, val_data=X_val, output_prefix="feature"
-    )
-    if label_config is not None:
-        y_train, y_val = _apply_pre(
-            y_train, label_config, output_dir, val_data=y_val, output_prefix="label"
-        )
-
     # Build the model architecture
-    model_arch = model.ModelArchitecture.from_dict(X_train.shape[1], model_config)
-
-    # Get the model
-    gm_model = model_arch.build()
-    print(gm_model.summary())
+    gm_model = model_type.from_custom_config(model_config)
 
     # Train the model
     callbacks = [
         keras.callbacks.ModelCheckpoint(
-            str(output_dir / "model.h5"), save_best_only=True
-        )
+            str(output_dir / "model.h5"), save_best_only=True, save_weights_only=True
+        ),
+        keras.callbacks.TensorBoard(output_dir / "tensorboard_log", write_images=True)
     ]
     gm_model.compile(**compile_kwargs)
     history = gm_model.fit(
@@ -173,20 +144,10 @@ def train(
     hist_df = pd.DataFrame.from_dict(history.history, orient="columns")
     hist_df.to_csv(output_dir / "history.csv", index_label="epoch")
 
-    # Save the config
-    config = {
-        "feature_config": str(feature_config),
-        "model_config": model_config,
-        "compiler_kwargs": str(compile_kwargs),
-        "fit_kwargs": fit_kwargs,
-    }
-    with open(output_dir / "config.json", "w") as f:
-        json.dump(config, f)
-
-    return history.history, X_train, X_val, y_train, y_val
+    return history.history, gm_model
 
 
-def _apply_pre(
+def apply_pre(
     train_data: pd.DataFrame,
     feature_config: Dict,
     output_dir: Path,
@@ -260,14 +221,6 @@ def _apply_pre(
             cur_key = _match_keys(cur_key, train_data.columns) if "*" in cur_key else cur_key
             train_data.loc[:, cur_key] = cur_fn(train_data.loc[:, cur_key].values)
             val_data.loc[:, cur_key] = cur_fn(val_data.loc[:, cur_key].values)
-
-    # shift = feature_config.get("shift")
-    # if shift is not None:
-    #     assert len(shift) == train_data.shape[1]
-    #     shift = np.asarray(shift)
-    #
-    #     train_data = train_data + shift
-    #     val_data = val_data + shift
 
     return train_data, val_data
 

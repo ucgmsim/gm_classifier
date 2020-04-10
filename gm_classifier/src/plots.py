@@ -14,13 +14,14 @@ def plot_loss(
 
     epochs = np.arange(len(history["loss"]))
     ax.plot(epochs, history["loss"], "k-", label=f"Training - {np.min(history['loss'])}")
-    ax.plot(
-        epochs,
-        history["val_loss"],
-        "k--",
-        label=f"Validation - {np.min(history['val_loss'])}",
-    )
-    ax.legend()
+    if "val_loss" in history.keys():
+        ax.plot(
+            epochs,
+            history["val_loss"],
+            "k--",
+            label=f"Validation - {np.min(history['val_loss'])}",
+        )
+        ax.legend()
 
     if output_ffp is not None:
         plt.savefig(output_ffp)
