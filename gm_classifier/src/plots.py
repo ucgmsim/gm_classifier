@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,7 +13,9 @@ def plot_loss(
         fig, ax = plt.subplots(**fig_kwargs)
 
     epochs = np.arange(len(history["loss"]))
-    ax.plot(epochs, history["loss"], "k-", label=f"Training - {np.min(history['loss'])}")
+    ax.plot(
+        epochs, history["loss"], "k-", label=f"Training - {np.min(history['loss'])}"
+    )
     if "val_loss" in history.keys():
         ax.plot(
             epochs,
@@ -89,6 +91,8 @@ def plot_true_vs_est(
     y_true: np.ndarray,
     y_val_est: np.ndarray = None,
     y_val_true: np.ndarray = None,
+    c_train: Union[str, np.ndarray] = None,
+    c_val: Union[str, np.ndarray] = None,
     output_ffp: str = None,
     ax: plt.Axes = None,
     min_max: Tuple[float, float] = None,
@@ -102,9 +106,18 @@ def plot_true_vs_est(
         fig, ax = plt.subplots(**fig_kwargs)
 
     label = None if y_val_est is None else "training"
-    ax.scatter(y_est, y_true, c="b", label=label, **scatter_kwargs)
+    train_scatter = ax.scatter(
+        y_est, y_true, label=label, c=c_train, marker=".", **scatter_kwargs
+    )
     if y_val_est is not None and y_val_true is not None:
-        ax.scatter(y_val_est, y_val_true, c="r", label="validation", **scatter_kwargs)
+        ax.scatter(
+            y_val_est,
+            y_val_true,
+            c=c_val,
+            marker="s",
+            label="validation",
+            **scatter_kwargs,
+        )
         ax.legend()
 
     if min_max is not None:
@@ -119,9 +132,9 @@ def plot_true_vs_est(
     if output_ffp is not None:
         plt.savefig(output_ffp)
         plt.close()
-        return None, None
+        return None, None, None
 
-    return fig, ax
+    return fig, ax, train_scatter
 
 
 def plot_residual(
@@ -129,6 +142,8 @@ def plot_residual(
     x: np.ndarray,
     res_val: np.ndarray = None,
     x_val: np.ndarray = None,
+    c_train: Union[str, np.ndarray] = None,
+    c_val: Union[str, np.ndarray] = None,
     output_ffp: str = None,
     ax: plt.Axes = None,
     min_max: Tuple[float, float] = None,
@@ -148,10 +163,20 @@ def plot_residual(
 
     sort_ind = np.argsort(x)
 
-    ax.scatter(x[sort_ind], res[sort_ind], c="b", **scatter_kwargs)
+    c_train = c_train if isinstance(c_train, str) else c_train[sort_ind]
+    train_scatter = ax.scatter(
+        x[sort_ind], res[sort_ind], c=c_train, marker=".", **scatter_kwargs
+    )
     if res_val is not None:
         sort_ind_val = np.argsort(x_val)
-        ax.scatter(x_val[sort_ind_val], res_val[sort_ind_val], c="r", **scatter_kwargs)
+        c_val = c_val if isinstance(c_val, str) else c_val[sort_ind_val]
+        ax.scatter(
+            x_val[sort_ind_val],
+            res_val[sort_ind_val],
+            c=c_val,
+            marker="s",
+            **scatter_kwargs,
+        )
 
     if min_max is not None:
         ax.plot([min_max[0], min_max[1]], [0, 0])
@@ -167,9 +192,10 @@ def plot_residual(
     if output_ffp is not None:
         plt.savefig(output_ffp)
         plt.close()
-        return None, None
+        return None, None, None
 
-    return fig, ax
+    return fig, ax, train_scatter
+
 
 def get_color_marker_comb():
     colours = mcolors.TABLEAU_COLORS

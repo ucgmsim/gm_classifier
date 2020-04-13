@@ -11,6 +11,10 @@ import tensorflow as tf
 from tensorflow import keras
 from sklearn.model_selection import train_test_split
 
+import seaborn as sns
+sns.set()
+sns.set_style("whitegrid")
+
 import gm_classifier as gm
 
 # ----- Config -----
@@ -65,18 +69,6 @@ snr_features = [
     for freq in np.logspace(np.log(0.05), np.log(20), 50, base=np.e)
 ]
 
-# snr_features = list(
-#     np.concatenate(
-#         (
-#             np.char.add(snr_features, "_X"),
-#             np.char.add(snr_features, "_Y"),
-#             np.char.add(snr_features, "_Z"),
-#         )
-#     )
-# )
-
-# feature_names = feature_names + snr_features
-
 # Model config
 dropout_rate = 0.4
 model_config = {
@@ -122,11 +114,21 @@ model_config = {
     "n_outputs": 6,
 }
 
+f_min_weights = {0.0: 0.0,
+                 0.25: 0.0019782907648974966,
+                 0.5: 0.12559972669436933,
+                 0.75: 0.72562875130023119,
+                 1.0: 1.0}
+
+scores = np.asarray([0.0, 0.25, 0.5, 0.75, 1.0])
+weights = np.asarray(gm.training.f_min_loss_weights(scores))
+
 # Training details
 optimizer = "Adam"
-loss = "mse"
+# loss = "mse"
+loss = gm.training.CustomLoss(scores, weights)
 val_size = 0.1
-n_epochs = 250
+n_epochs = 200
 batch_size = 32
 
 output_dir = Path(output_dir)
@@ -178,6 +180,7 @@ X_snr_train, X_snr_val = np.log(X_snr_train), np.log(X_snr_val)
 
 # Run training of the model
 compile_kwargs = {"optimizer": optimizer, "loss": loss}
+# compile_kwargs = {"optimizer": optimizer, "loss": loss, "run_eagerly": True}
 fit_kwargs = {"batch_size": batch_size, "epochs": n_epochs, "verbose": 2}
 history, gm_model = gm.training.train(
     output_dir,
@@ -230,6 +233,9 @@ y_val_est = gm_model.predict(
     {"features": X_features_val.values, "snr_series": X_snr_val}
 )
 
+cmap = "coolwarm"
+# cmap = sns.color_palette("coolwarm")
+m_size = 4.0
 for cur_comp, (score_ix, f_min_ix) in zip(["X", "Y", "Z"], [(0, 1), (2, 3), (4, 5)]):
     # for cur_comp, score_ix in zip(["X", "Y", "Z"], [0, 1, 2]):
     # Plot true vs estimated
@@ -237,33 +243,37 @@ for cur_comp, (score_ix, f_min_ix) in zip(["X", "Y", "Z"], [(0, 1), (2, 3), (4, 
         np.min(train_df[f"score_{cur_comp}"]),
         np.max(train_df[f"score_{cur_comp}"]),
     )
-    fig, ax = gm.plots.plot_true_vs_est(
+    fig, ax, train_scatter = gm.plots.plot_true_vs_est(
         y_train_est[:, score_ix],
         y_train.iloc[:, score_ix]
         + np.random.normal(0, 0.01, y_train.iloc[:, score_ix].size),
+        c_train="b",
+        c_val="r",
         y_val_est=y_val_est[:, score_ix],
         y_val_true=y_val.iloc[:, score_ix]
         + np.random.normal(0, 0.01, y_val.iloc[:, score_ix].size),
         title="Score",
         min_max=(score_min, score_max),
-        scatter_kwargs={"s": 2.0},
+        scatter_kwargs={"s": m_size},
         fig_kwargs={"figsize": fig_size},
         output_ffp=output_dir / f"score_true_vs_est_{cur_comp}.png",
     )
 
     score_res_train = y_train.iloc[:, score_ix] - y_train_est[:, score_ix]
     score_res_val = y_val.iloc[:, score_ix] - y_val_est[:, score_ix]
-    fig, ax = gm.plots.plot_residual(
+    fig, ax, train_scatter = gm.plots.plot_residual(
         score_res_train,
         y_train.iloc[:, score_ix]
         + +np.random.normal(0, 0.01, y_train.iloc[:, score_ix].size),
         score_res_val,
         y_val.iloc[:, score_ix]
         + np.random.normal(0, 0.01, y_val.iloc[:, score_ix].size),
+        c_train="b",
+        c_val="r",
         min_max=(score_min, score_max),
         title="Score residual",
         x_label="Score",
-        scatter_kwargs={"s": 2.0},
+        scatter_kwargs={"s": m_size},
         fig_kwargs={"figsize": fig_size},
         output_ffp=output_dir / f"score_res_{cur_comp}.png",
     )
@@ -272,51 +282,67 @@ for cur_comp, (score_ix, f_min_ix) in zip(["X", "Y", "Z"], [(0, 1), (2, 3), (4, 
         np.min(train_df[f"f_min_{cur_comp}"]),
         np.max(train_df[f"f_min_{cur_comp}"]),
     )
-    fig, ax = gm.plots.plot_true_vs_est(
+    fig, ax, train_scatter = gm.plots.plot_true_vs_est(
         y_train_est[:, f_min_ix],
         y_train.iloc[:, f_min_ix]
         + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
+        c_train=y_train.iloc[:, score_ix].values,
+        c_val=y_val.iloc[:, score_ix].values,
         y_val_est=y_val_est[:, f_min_ix],
         y_val_true=y_val.iloc[:, f_min_ix]
         + np.random.normal(0, 0.025, y_val.iloc[:, f_min_ix].size),
         title="f_min",
         min_max=(f_min_min, f_min_max),
-        scatter_kwargs={"s": 2.0},
+        scatter_kwargs={"s": m_size, "cmap": cmap},
         fig_kwargs={"figsize": fig_size},
-        output_ffp=output_dir / f"f_min_true_vs_est_{cur_comp}.png",
+        # output_ffp=output_dir / f"f_min_true_vs_est_{cur_comp}.png",
     )
+    cbar = fig.colorbar(train_scatter)
+    cbar.set_label("Quality score (True)")
+    plt.savefig(output_dir / f"f_min_true_vs_est_{cur_comp}.png")
+    plt.close()
 
-    fig, ax = gm.plots.plot_true_vs_est(
+    fig, ax, train_scatter = gm.plots.plot_true_vs_est(
         y_train_est[:, f_min_ix],
         y_train.iloc[:, f_min_ix]
         + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
+        c_train=y_train.iloc[:, score_ix].values,
+        c_val=y_val.iloc[:, score_ix].values,
         y_val_est=y_val_est[:, f_min_ix],
         y_val_true=y_val.iloc[:, f_min_ix]
         + np.random.normal(0, 0.025, y_val.iloc[:, f_min_ix].size),
         title="f_min",
         min_max=(f_min_min, f_min_max),
-        scatter_kwargs={"s": 2.0},
+        scatter_kwargs={"s": m_size, "cmap": cmap},
         fig_kwargs={"figsize": fig_size},
         # output_ffp=output_dir / "f_min_true_vs_est.png"
     )
     ax.set_xlim((0.0, 2.0))
     ax.set_ylim((0.0, 2.0))
+    cbar = fig.colorbar(train_scatter)
+    cbar.set_label("Quality score (True)")
     plt.savefig(output_dir / f"f_min_true_vs_est_zoomed_{cur_comp}.png")
     plt.close()
 
     f_min_res_train = y_train.iloc[:, f_min_ix] - y_train_est[:, f_min_ix]
     f_min_res_val = y_val.iloc[:, f_min_ix] - y_val_est[:, f_min_ix]
-    fig, ax = gm.plots.plot_residual(
+    fig, ax, train_scatter = gm.plots.plot_residual(
         f_min_res_train,
         y_train.iloc[:, f_min_ix]
         + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
         f_min_res_val,
         y_val.iloc[:, f_min_ix]
         + np.random.normal(0, 0.025, y_val.iloc[:, f_min_ix].size),
+        c_train=y_train.iloc[:, score_ix].values,
+        c_val=y_val.iloc[:, score_ix].values,
         min_max=(f_min_min, f_min_max),
         title="f_min residual",
         x_label="f_min",
-        scatter_kwargs={"s": 2.0},
+        scatter_kwargs={"s": m_size, "cmap": cmap},
         fig_kwargs={"figsize": fig_size},
-        output_ffp=output_dir / f"f_min_res_{cur_comp}.png",
+        # output_ffp=output_dir / f"f_min_res_{cur_comp}.png",
     )
+    cbar = fig.colorbar(train_scatter)
+    cbar.set_label("Quality score (True)")
+    plt.savefig(output_dir / f"f_min_res_{cur_comp}.png")
+    plt.close()

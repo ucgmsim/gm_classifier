@@ -1,3 +1,4 @@
+import shutil
 import fnmatch
 import json
 import os
@@ -8,6 +9,7 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
+from scipy import stats
 from sklearn.model_selection import train_test_split
 
 from . import features
@@ -79,8 +81,12 @@ def train(
     output_dir: Path,
     model_type: keras.Model,
     model_config: Dict,
-    training_data: Tuple[Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray],
-    val_data: Union[None, Tuple[Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray]] = None,
+    training_data: Tuple[
+        Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray
+    ],
+    val_data: Union[
+        None, Tuple[Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray]
+    ] = None,
     compile_kwargs: Dict[str, Any] = None,
     fit_kwargs: Dict[str, Any] = None,
 ) -> Tuple[Dict, keras.Model]:
@@ -125,11 +131,14 @@ def train(
     gm_model = model_type.from_custom_config(model_config)
 
     # Train the model
+    tensorboard_output_dir = output_dir / "tensorboard_log"
+    if tensorboard_output_dir.is_dir():
+        shutil.rmtree(tensorboard_output_dir)
     callbacks = [
         keras.callbacks.ModelCheckpoint(
             str(output_dir / "model.h5"), save_best_only=True, save_weights_only=True
         ),
-        keras.callbacks.TensorBoard(output_dir / "tensorboard_log", write_images=True)
+        keras.callbacks.TensorBoard(tensorboard_output_dir, write_images=True),
     ]
     gm_model.compile(**compile_kwargs)
     history = gm_model.fit(
@@ -167,7 +176,9 @@ def apply_pre(
         )
 
         # Apply to both train and val data
-        train_data.loc[:, std_keys] = pre.standardise(train_data.loc[:, std_keys], mu, sigma)
+        train_data.loc[:, std_keys] = pre.standardise(
+            train_data.loc[:, std_keys], mu, sigma
+        )
         val_data.loc[:, std_keys] = (
             pre.standardise(val_data.loc[:, std_keys], mu, sigma)
             if val_data is not None
@@ -208,7 +219,10 @@ def apply_pre(
 
         # Sanity check
         assert np.all(
-            np.isclose(np.cov(train_data.loc[:, whiten_keys], rowvar=False), np.identity(len(whiten_keys)))
+            np.isclose(
+                np.cov(train_data.loc[:, whiten_keys], rowvar=False),
+                np.identity(len(whiten_keys)),
+            )
         )
 
         # Save whitening matrix
@@ -218,15 +232,76 @@ def apply_pre(
     if len(whiten_keys) > 0:
         for cur_key in cust_func_keys:
             cur_fn = feature_config[cur_key]
-            cur_key = _match_keys(cur_key, train_data.columns) if "*" in cur_key else cur_key
+            cur_key = (
+                _match_keys(cur_key, train_data.columns) if "*" in cur_key else cur_key
+            )
             train_data.loc[:, cur_key] = cur_fn(train_data.loc[:, cur_key].values)
             val_data.loc[:, cur_key] = cur_fn(val_data.loc[:, cur_key].values)
 
     return train_data, val_data
 
+
 def _match_keys(key_filter: str, columns: np.ndarray):
     return fnmatch.filter(columns, key_filter)
+
 
 def mape(y_true, y_pred):
     """Mean absolute percentage error"""
     return tf.reduce_sum(tf.abs(y_true - y_pred) / y_true, axis=1)
+
+
+def f_min_loss_weights(x):
+    x_min, x_max = -6.0, 3.0
+    y_min = 1.961_839_939_667_620_5e-06
+    y_max = 0.989_491_871_886_240_7
+
+    x_s = x * (x_max - x_min) + x_min
+    y = stats.norm.cdf(x_s, 0, 1.3)
+
+    return (y - y_min) / (y_max - y_min)
+
+
+class CustomLoss(keras.losses.Loss):
+    """Custom loss function that weights the f_min loss
+    based on the (true) score value, as f_min is not relevant for
+    records with a low quality score
+
+    Note: Expects the following format for y: [n_samples, 6],
+    where the columns have to be in the order
+    [score_X, f_min_X, score_Y, f_min_Y, score_Z, f_min_Z]
+    """
+
+    def __init__(self, scores: np.ndarray, weights: np.ndarray, **kwargs):
+        super().__init__(**kwargs)
+
+        scores = tf.constant((scores * 4), tf.int32)
+        values = tf.constant(weights, tf.float32)
+        self.table = tf.lookup.StaticHashTable(
+            tf.lookup.KeyValueTensorInitializer(scores, values),
+            default_value=tf.constant(np.nan),
+        )
+
+    def call(self, y_true, y_pred):
+        # Get the weights from the lookup table
+        f_min_weights = self.table.lookup(
+            tf.cast(tf.gather(y_true, [0, 2, 4], axis=1) * 4, tf.int32)
+        )
+
+        # Score weights are hard-coded to 1 at this stage
+        score_weights = tf.ones_like(f_min_weights)
+
+        # Combine the weights
+        weights = tf.stack(
+            (
+                score_weights[:, 0],
+                f_min_weights[:, 0],
+                score_weights[:, 1],
+                f_min_weights[:, 1],
+                score_weights[:, 2],
+                f_min_weights[:, 2],
+            ),
+            axis=1,
+        )
+
+        # Compute MSE and apply the weights
+        return weights * tf.math.squared_difference(y_pred, y_true)
