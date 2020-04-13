@@ -128,7 +128,10 @@ def load_comp_features_from_dir(feature_dir: str, glob_filter: str = "*comp*.csv
 
 
 def load_labels_from_dir(
-    label_dir: str, glob_filter: str = "labels_*.csv", drop_invalid: bool = True
+    label_dir: str,
+    glob_filter: str = "labels_*.csv",
+    drop_invalid: bool = True,
+    f_min_100_value: float = None,
 ):
     """
     Loads all labels, single row per record
@@ -168,10 +171,11 @@ def load_labels_from_dir(
     )
     df.index.name = "record_id"
 
-    # For components with f_min == 100, set this to 20
-    # df.loc[df.f_min_X == 100, "f_min_X"] = 20
-    # df.loc[df.f_min_Y == 100, "f_min_Y"] = 20
-    # df.loc[df.f_min_Z == 100, "f_min_Z"] = 20
+    # For components with f_min == 100, set this to the specified value
+    if f_min_100_value is not None:
+        df.loc[df.f_min_X == 100, "f_min_X"] = f_min_100_value
+        df.loc[df.f_min_Y == 100, "f_min_Y"] = f_min_100_value
+        df.loc[df.f_min_Z == 100, "f_min_Z"] = f_min_100_value
 
     # Drop invalid
     if drop_invalid:
