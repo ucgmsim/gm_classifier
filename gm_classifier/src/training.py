@@ -221,7 +221,7 @@ def apply_pre(
         assert np.all(
             np.isclose(
                 np.cov(train_data.loc[:, whiten_keys], rowvar=False),
-                np.identity(len(whiten_keys)),
+                np.identity(len(whiten_keys)), atol=1e-7
             )
         )
 
@@ -305,3 +305,34 @@ class CustomLoss(keras.losses.Loss):
 
         # Compute MSE and apply the weights
         return weights * tf.math.squared_difference(y_pred, y_true)
+
+
+def custom_act_fn(z):
+    score_vals = tf.gather(z, [0, 2, 4], axis=1)
+
+    score_vals = tf.where(score_vals > 1.0, 1.0, score_vals)
+    score_vals = tf.where(score_vals < 0.0, 0.0, score_vals)
+
+    f_min_vals = tf.gather(z, [1, 3, 5], axis=1)
+    f_min_vals = tf.where(f_min_vals > 10.0, 10.0, f_min_vals)
+    f_min_vals = tf.where(f_min_vals < 0.1, 0.1, f_min_vals)
+
+    r = tf.stack(
+        (
+            score_vals[:, 0],
+            f_min_vals[:, 0],
+            score_vals[:, 1],
+            f_min_vals[:, 1],
+            score_vals[:, 2],
+            f_min_vals[:, 2],
+        ),
+        axis=1
+    )
+
+    return r
+
+
+
+
+
+

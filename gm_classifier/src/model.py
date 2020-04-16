@@ -1,5 +1,5 @@
 import os
-from typing import List, Dict, Tuple, Union
+from typing import List, Dict, Tuple, Union, Callable
 
 import numpy as np
 import tensorflow.keras as keras
@@ -58,6 +58,7 @@ class CnnSnrModel(keras.models.Model):
         cnn_input_name: str,
         comb_layer_config: List[Tuple[layers.Layer, Dict]],
         n_outputs: int,
+        output_activation: Union[str, Callable],
         **kwargs
     ):
         super(CnnSnrModel, self).__init__(**kwargs)
@@ -78,7 +79,7 @@ class CnnSnrModel(keras.models.Model):
         self.conc = layers.Concatenate()
         self.comb_dense = GenericLayer(self.comb_layer_config, "Dense_Combined")
 
-        self.output_dense = layers.Dense(n_outputs, activation="linear")
+        self.output_dense = layers.Dense(n_outputs, activation=output_activation)
 
     def call(self, inputs, training=None, mask=None):
         x_dense = self.dense(inputs[self.dense_input_name], training=training)
@@ -99,6 +100,7 @@ class CnnSnrModel(keras.models.Model):
             model_config["cnn_input_name"],
             model_config["comb_layer_config"],
             model_config["n_outputs"],
+            model_config["output_activation"]
         )
 
 

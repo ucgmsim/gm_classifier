@@ -26,7 +26,7 @@ label_dir = (
 # features_dir = "/Users/Clus/code/work/gm_classifier/data/records/training_data/all_records_features/200401"
 features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200401"
 
-output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/tmp_1"
+output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/tmp_2"
 
 label_config = {
     "score_X": None,
@@ -112,13 +112,9 @@ model_config = {
         (keras.layers.Dense, {"units": 16, "activation": "relu"}),
     ],
     "n_outputs": 6,
+    # "output_activation": gm.training.custom_act_fn
+    "output_activation": "linear"
 }
-
-f_min_weights = {0.0: 0.0,
-                 0.25: 0.0019782907648974966,
-                 0.5: 0.12559972669436933,
-                 0.75: 0.72562875130023119,
-                 1.0: 1.0}
 
 scores = np.asarray([0.0, 0.25, 0.5, 0.75, 1.0])
 weights = np.asarray(gm.training.f_min_loss_weights(scores))
@@ -128,13 +124,13 @@ optimizer = "Adam"
 # loss = "mse"
 loss = gm.training.CustomLoss(scores, weights)
 val_size = 0.1
-n_epochs = 200
+n_epochs = 250
 batch_size = 32
 
 output_dir = Path(output_dir)
 
 # ---- Training ----
-label_df = gm.utils.load_labels_from_dir(label_dir)
+label_df = gm.utils.load_labels_from_dir(label_dir, f_min_100_value=10)
 feature_df = gm.utils.load_features_from_dir(features_dir)
 
 train_df = pd.merge(
