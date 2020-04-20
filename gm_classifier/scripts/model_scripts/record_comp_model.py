@@ -10,8 +10,10 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow import keras
 from sklearn.model_selection import train_test_split
+from sklearn.utils.class_weight import compute_class_weight
 
 import seaborn as sns
+
 sns.set()
 sns.set_style("whitegrid")
 
@@ -26,7 +28,8 @@ label_dir = (
 # features_dir = "/Users/Clus/code/work/gm_classifier/data/records/training_data/all_records_features/200401"
 features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200401"
 
-output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/tmp_2"
+# output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/tmp_3"
+output_dir = "/Users/Clus/code/work/gm_classifier/results/200420_results"
 
 label_config = {
     "score_X": None,
@@ -69,12 +72,24 @@ snr_features = [
     for freq in np.logspace(np.log(0.05), np.log(20), 50, base=np.e)
 ]
 
+
 # Model config
+act_fn = "selu"
+kernel_init = "lecun_normal"
+
+# act_fn = "elu"
+# kernel_init = "glorot_uniform"
 dropout_rate = 0.4
 model_config = {
     "dense_layer_config": [
-        (keras.layers.Dense, {"units": 32, "activation": "relu"}),
-        (keras.layers.Dense, {"units": 16, "activation": "relu"}),
+        (
+            keras.layers.Dense,
+            {"units": 32, "activation": act_fn, "kernel_initializer": kernel_init},
+        ),
+        (
+            keras.layers.Dense,
+            {"units": 16, "activation": act_fn, "kernel_initializer": kernel_init},
+        ),
     ],
     "dense_input_name": "features",
     "cnn_layer_config": [
@@ -84,7 +99,8 @@ model_config = {
                 "filters": 32,
                 "kernel_size": 15,
                 "strides": 1,
-                "activation": "relu",
+                "activation": act_fn,
+                "kernel_initializer": kernel_init,
                 "padding": "same",
             },
         ),
@@ -96,7 +112,8 @@ model_config = {
                 "filters": 16,
                 "kernel_size": 5,
                 "strides": 1,
-                "activation": "relu",
+                "activation": act_fn,
+                "kernel_initializer": kernel_init,
                 "padding": "same",
             },
         ),
@@ -105,26 +122,34 @@ model_config = {
     ],
     "cnn_input_name": "snr_series",
     "comb_layer_config": [
-        (keras.layers.Dense, {"units": 128, "activation": "relu"}),
+        (
+            keras.layers.Dense,
+            {"units": 64, "activation": act_fn, "kernel_initializer": kernel_init},
+        ),
         (keras.layers.Dropout, {"rate": dropout_rate}),
-        (keras.layers.Dense, {"units": 42, "activation": "relu"}),
+        (
+            keras.layers.Dense,
+            {"units": 32, "activation": act_fn, "kernel_initializer": kernel_init},
+        ),
         (keras.layers.Dropout, {"rate": dropout_rate}),
-        (keras.layers.Dense, {"units": 16, "activation": "relu"}),
+        (
+            keras.layers.Dense,
+            {"units": 16, "activation": act_fn, "kernel_initializer": kernel_init},
+        ),
     ],
-    "n_outputs": 6,
-    # "output_activation": gm.training.custom_act_fn
-    "output_activation": "linear"
+    "output": keras.layers.Dense(6, activation="linear")
+    # "output": keras.layers.Dense(6, activation=gm.training.custom_act_fn)
+    # "output": [keras.layers.Dense(3, activation="linear", name="score_out"),
+    #      keras.layers.Dense(3, activation="linear", name="f_min_out")],
 }
 
-scores = np.asarray([0.0, 0.25, 0.5, 0.75, 1.0])
-weights = np.asarray(gm.training.f_min_loss_weights(scores))
-
 # Training details
-optimizer = "Adam"
+# optimizer = "Adam"
+optimizer = keras.optimizers.Adam(learning_rate=0.0005)
 # loss = "mse"
-loss = gm.training.CustomLoss(scores, weights)
+# loss = gm.training.CustomLoss(scores, weights)
 val_size = 0.1
-n_epochs = 250
+n_epochs = 400
 batch_size = 32
 
 output_dir = Path(output_dir)
@@ -174,26 +199,39 @@ X_features_train, X_features_val = gm.training.apply_pre(
 )
 X_snr_train, X_snr_val = np.log(X_snr_train), np.log(X_snr_val)
 
+# Loss setup
+scores = np.asarray([0.0, 0.25, 0.5, 0.75, 1.0])
+f_min_weights = np.asarray(gm.training.f_min_loss_weights(scores))
+
+# score_weights = compute_class_weight("balanced", scores, y_train.values[:, [0, 2, 4]].ravel())
+score_weights = None
+
+loss = gm.training.CustomLoss(scores, f_min_weights, score_weights)
+
 # Run training of the model
 compile_kwargs = {"optimizer": optimizer, "loss": loss}
 # compile_kwargs = {"optimizer": optimizer, "loss": loss, "run_eagerly": True}
 fit_kwargs = {"batch_size": batch_size, "epochs": n_epochs, "verbose": 2}
+tensorboard_kwargs = {"histogram_freq": 2, "write_images": True}
 history, gm_model = gm.training.train(
     output_dir,
     gm.model.CnnSnrModel,
     model_config,
     (
         {"features": X_features_train.values, "snr_series": X_snr_train},
+        # [y_train.values[:, [0, 2, 4]], y_train.values[:, [1, 3, 5]]],
         y_train.values,
         ids_train,
     ),
     val_data=(
         {"features": X_features_val.values, "snr_series": X_snr_val},
+        # [y_val.values[:, [0, 2, 4]], y_val.values[:, [1, 3, 5]]],
         y_val.values,
         ids_val,
     ),
     compile_kwargs=compile_kwargs,
     fit_kwargs=fit_kwargs,
+    tensorboard_cb_kwargs=tensorboard_kwargs,
 )
 
 # Save the config
@@ -228,6 +266,10 @@ y_train_est = gm_model.predict(
 y_val_est = gm_model.predict(
     {"features": X_features_val.values, "snr_series": X_snr_val}
 )
+
+est_df = pd.DataFrame(np.concatenate((y_train_est, y_val_est), axis=0),
+index=np.concatenate((ids_train, ids_val)), columns=label_names)
+est_df.to_csv(output_dir / "est_df.csv", index_label="record_id")
 
 cmap = "coolwarm"
 # cmap = sns.color_palette("coolwarm")

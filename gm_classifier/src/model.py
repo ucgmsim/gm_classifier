@@ -57,8 +57,7 @@ class CnnSnrModel(keras.models.Model):
         cnn_layer_config: List[Tuple[layers.Layer, Dict]],
         cnn_input_name: str,
         comb_layer_config: List[Tuple[layers.Layer, Dict]],
-        n_outputs: int,
-        output_activation: Union[str, Callable],
+        output: Union[keras.layers.Layer, keras.layers.Layer],
         **kwargs
     ):
         super(CnnSnrModel, self).__init__(**kwargs)
@@ -79,7 +78,7 @@ class CnnSnrModel(keras.models.Model):
         self.conc = layers.Concatenate()
         self.comb_dense = GenericLayer(self.comb_layer_config, "Dense_Combined")
 
-        self.output_dense = layers.Dense(n_outputs, activation=output_activation)
+        self.model_output = output
 
     def call(self, inputs, training=None, mask=None):
         x_dense = self.dense(inputs[self.dense_input_name], training=training)
@@ -89,7 +88,17 @@ class CnnSnrModel(keras.models.Model):
         x = self.conc([x_dense, x_cnn])
         x = self.comb_dense(x, training=training)
 
-        return self.output_dense(x)
+        if isinstance(self.model_output, list):
+            result = []
+            for cur_output in self.model_output:
+                result.append(cur_output(x))
+            return tuple(result)
+        else:
+            return self.model_output(x)
+
+    def save(self, *args, **kwargs):
+        print(f"Saving with arguments {args} and kwargs {kwargs}")
+        super(CnnSnrModel, self).save(*args, **kwargs)
 
     @classmethod
     def from_custom_config(cls, model_config: Dict):
@@ -99,8 +108,7 @@ class CnnSnrModel(keras.models.Model):
             model_config["cnn_layer_config"],
             model_config["cnn_input_name"],
             model_config["comb_layer_config"],
-            model_config["n_outputs"],
-            model_config["output_activation"]
+            model_config["output"],
         )
 
 

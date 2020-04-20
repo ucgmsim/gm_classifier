@@ -126,12 +126,10 @@ def apply(
 
     if W is not None:
         print("Whitening input data")
-        X = whiten(X, W)
+        whiten_features = get_whiten_keys(config)
+        X.loc[:, whiten_features] = whiten(X.loc[:, whiten_features], W)
 
     return X
-
-
-
 
 
 def get_whiten_keys(config: Dict):

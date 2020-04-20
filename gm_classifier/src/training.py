@@ -89,6 +89,7 @@ def train(
     ] = None,
     compile_kwargs: Dict[str, Any] = None,
     fit_kwargs: Dict[str, Any] = None,
+    tensorboard_cb_kwargs: Dict[str, Any] = None
 ) -> Tuple[Dict, keras.Model]:
     """
     Performs the training for the specified
@@ -138,7 +139,7 @@ def train(
         keras.callbacks.ModelCheckpoint(
             str(output_dir / "model.h5"), save_best_only=True, save_weights_only=True
         ),
-        keras.callbacks.TensorBoard(tensorboard_output_dir, write_images=True),
+        keras.callbacks.TensorBoard(tensorboard_output_dir, write_graph=True, **tensorboard_cb_kwargs),
     ]
     gm_model.compile(**compile_kwargs)
     history = gm_model.fit(
@@ -271,24 +272,32 @@ class CustomLoss(keras.losses.Loss):
     [score_X, f_min_X, score_Y, f_min_Y, score_Z, f_min_Z]
     """
 
-    def __init__(self, scores: np.ndarray, weights: np.ndarray, **kwargs):
+    def __init__(self, scores: np.ndarray, f_min_weights: np.ndarray, score_weights: np.ndarray = None, **kwargs):
         super().__init__(**kwargs)
 
+        # Keys can't be floats, therefore convert to integer
         scores = tf.constant((scores * 4), tf.int32)
-        values = tf.constant(weights, tf.float32)
-        self.table = tf.lookup.StaticHashTable(
-            tf.lookup.KeyValueTensorInitializer(scores, values),
+
+        f_min_weights = tf.constant(f_min_weights, tf.float32)
+        self.f_min_table = tf.lookup.StaticHashTable(
+            tf.lookup.KeyValueTensorInitializer(scores, f_min_weights),
             default_value=tf.constant(np.nan),
         )
 
-    def call(self, y_true, y_pred):
-        # Get the weights from the lookup table
-        f_min_weights = self.table.lookup(
-            tf.cast(tf.gather(y_true, [0, 2, 4], axis=1) * 4, tf.int32)
+        score_weights = tf.constant(score_weights, tf.float32) if score_weights is not None else np.ones(scores.shape[0], dtype=np.float32)
+        self.score_table = tf.lookup.StaticHashTable(
+            tf.lookup.KeyValueTensorInitializer(scores, score_weights),
+            default_value=1
         )
 
+    def call(self, y_true, y_pred):
+        score_keys = tf.cast(tf.gather(y_true, [0, 2, 4], axis=1) * 4, tf.int32)
+
+        # Get the weights from the lookup table
+        f_min_weights = self.f_min_table.lookup(score_keys)
+
         # Score weights are hard-coded to 1 at this stage
-        score_weights = tf.ones_like(f_min_weights)
+        score_weights = self.score_table.lookup(score_keys)
 
         # Combine the weights
         weights = tf.stack(
@@ -305,7 +314,6 @@ class CustomLoss(keras.losses.Loss):
 
         # Compute MSE and apply the weights
         return weights * tf.math.squared_difference(y_pred, y_true)
-
 
 def custom_act_fn(z):
     score_vals = tf.gather(z, [0, 2, 4], axis=1)
