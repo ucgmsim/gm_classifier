@@ -33,44 +33,28 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
     )
 
     # Combine acceleration time-series, shape [n_timesteps, 3 components]
-    acc = np.concatenate(
-        (
-            gf.comp_1st.acc[:, np.newaxis],
-            gf.comp_2nd.acc[:, np.newaxis],
-            gf.comp_up.acc[:, np.newaxis],
-        ),
-        axis=1,
-    )
+    acc = np.stack((gf.comp_1st.acc, gf.comp_2nd.acc, gf.comp_up.acc), axis=1)
 
     # Combine fourier transform data, shape [n_frequencies, 3 components]
-    ft = np.concatenate(
+    ft_smooth = np.stack(
+        (ft_data_X.smooth_ft, ft_data_Y.smooth_ft, ft_data_Z.smooth_ft), axis=1
+    )
+    ft_smooth_signal = np.stack(
         (
-            ft_data_X.ft[:, np.newaxis],
-            ft_data_Y.ft[:, np.newaxis],
-            ft_data_Z.ft[:, np.newaxis],
+            ft_data_X.smooth_ft_signal,
+            ft_data_Y.smooth_ft_signal,
+            ft_data_Z.smooth_ft_signal,
         ),
         axis=1,
     )
-    ft_smooth = np.concatenate(
-        (
-            ft_data_X.smooth_ft[:, np.newaxis],
-            ft_data_Y.smooth_ft[:, np.newaxis],
-            ft_data_Z.smooth_ft[:, np.newaxis],
-        ),
-        axis=1,
+    ft_smooth_pe = np.stack(
+        (ft_data_X.smooth_ft_pe, ft_data_Y.smooth_ft_pe, ft_data_Z.smooth_ft_pe), axis=1
     )
 
-    snr = np.concatenate(
-        (
-            ft_data_X.snr[:, np.newaxis],
-            ft_data_Y.snr[:, np.newaxis],
-            ft_data_Z.snr[:, np.newaxis],
-        ),
-        axis=1,
-    )
+    snr = np.stack((ft_data_X.snr, ft_data_Y.snr, ft_data_Z.snr), axis=1)
 
     ft_freq = ft_data_X.ft_freq
-    ft_fre_pe = ft_data_Y.ft_freq_pe
+    ft_freq_signal = ft_data_X.ft_freq_signal
 
     assert np.all(
         np.isclose(ft_data_X.ft_freq, ft_data_Y.ft_freq)
@@ -80,18 +64,31 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
         np.isclose(ft_data_X.ft_freq_pe, ft_data_Y.ft_freq_pe)
         & np.isclose(ft_data_X.ft_freq_pe, ft_data_Z.ft_freq_pe)
     )
+    assert np.all(
+        np.isclose(ft_data_X.ft_freq_signal, ft_data_Y.ft_freq_signal)
+        & np.isclose(ft_data_X.ft_freq_signal, ft_data_Z.ft_freq_signal)
+    )
 
     # Collect some meta data
     meta_data = {
         "acc_length": gf.comp_1st.acc.size,
         "acc_dt": gf.comp_1st.delta_t,
         "acc_duration": gf.comp_1st.acc.size * gf.comp_1st.delta_t,
-        "ft_length": ft.shape[0],
+        "ft_length": ft_smooth.shape[0],
         "snr_length": snr.shape[0],
         "p_wave_ix": p_wave_ix,
     }
 
-    return acc, ft, ft_smooth, snr, ft_freq, ft_fre_pe, meta_data
+    return (
+        acc,
+        ft_smooth,
+        ft_smooth_signal,
+        ft_smooth_pe,
+        snr,
+        ft_freq,
+        ft_freq_signal,
+        meta_data,
+    )
 
 
 def main(
@@ -100,7 +97,7 @@ def main(
     ko_matrices_dir: str,
     low_mem_usage: bool = False,
     skip_existing: bool = False,
-    record_list_ffp: str = None
+    record_list_ffp: str = None,
 ):
     output_dir = Path(output_dir)
 
@@ -112,7 +109,9 @@ def main(
 
     if record_list_ffp is not None:
         print(f"Filtering records")
-        record_files = gm.records.filter_record_files(record_files, record_list_ffp=record_list_ffp)
+        record_files = gm.records.filter_record_files(
+            record_files, record_list_ffp=record_list_ffp
+        )
         print(f"Number of records after filter - {len(record_files)}")
 
     # Load the Konno matrices into memory
@@ -146,7 +145,7 @@ def main(
             continue
 
         try:
-            cur_acc, cur_ft, cur_smooth_ft, cur_snr, cur_ft_freq, cur_ft_freq_pe, cur_meta_data = get_series_data(
+            cur_acc, cur_ft_smooth, cur_ft_smooth_signal, cur_ft_smooth_pe, cur_snr, cur_ft_freq, cur_ft_freq_signal, cur_meta_data = get_series_data(
                 record_ffp, ko_matrices
             )
         except gm.records.RecordError as ex:
@@ -163,19 +162,13 @@ def main(
                 cur_out_dir.mkdir()
 
             np.save(cur_out_dir / f"{record_id}_acc.npy", cur_acc.astype(np.float32))
-            np.save(cur_out_dir / f"{record_id}_raw_ft.npy", cur_ft.astype(np.float32))
-            np.save(
-                cur_out_dir / f"{record_id}_smooth_ft.npy",
-                cur_smooth_ft.astype(np.float32),
-            )
+            np.save(cur_out_dir / f"{record_id}_smooth_ft.npy", cur_ft_smooth.astype(np.float32))
+            np.save(cur_out_dir / f"{record_id}_smooth_ft_signal.npy", cur_ft_smooth_signal.astype(np.float32))
+            np.save(cur_out_dir / f"{record_id}_smooth_ft_pe.npy", cur_ft_smooth_pe.astype(np.float32))
             np.save(cur_out_dir / f"{record_id}_snr.npy", cur_snr.astype(np.float32))
-            np.save(
-                cur_out_dir / f"{record_id}_ft_freq.npy", cur_ft_freq.astype(np.float32)
-            )
-            np.save(
-                cur_out_dir / f"{record_id}_ft_pe_freq.npy",
-                cur_ft_freq_pe.astype(np.float32),
-            )
+            np.save(cur_out_dir / f"{record_id}_ft_freq.npy", cur_ft_freq.astype(np.float32))
+            np.save(cur_out_dir / f"{record_id}_ft_freq_signal.npy", cur_ft_freq_signal.astype(np.float32))
+
 
     meta_df = pd.DataFrame.from_dict(
         meta_data,
@@ -239,5 +232,5 @@ if __name__ == "__main__":
         args.ko_matrices_dir,
         low_mem_usage=args.low_memory,
         skip_existing=args.no_overwrite,
-        record_list_ffp=args.record_list_ffp
+        record_list_ffp=args.record_list_ffp,
     )

@@ -398,8 +398,6 @@ def get_p_wave_ix(acc_X, acc_Y, acc_Z, dt):
     p_wave_ix = int(np.floor(np.multiply(p_pick, sample_rate)))
     return p_wave_ix
 
-
-
 # def get_p_wave_ix(acc_X, acc_Y, acc_Z, dt):
 #     # Set up some modified time series for p- and s-wave picking.
 #     # These are multiplied by an additional 10 because it seems to make the P-wave picking better
