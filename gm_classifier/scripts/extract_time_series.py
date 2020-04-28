@@ -22,13 +22,13 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
     )
 
     t = np.arange(gf.comp_1st.acc.shape[0]) * gf.comp_1st.delta_t
-    ft_data_X, _ = gm.features.comp_fourier_data(
+    ft_data_X = gm.features.comp_fourier_data(
         gf.comp_1st.acc, t, gf.comp_1st.delta_t, p_wave_ix, ko_matrices
     )
-    ft_data_Y, _ = gm.features.comp_fourier_data(
+    ft_data_Y = gm.features.comp_fourier_data(
         gf.comp_2nd.acc, t, gf.comp_2nd.delta_t, p_wave_ix, ko_matrices
     )
-    ft_data_Z, _ = gm.features.comp_fourier_data(
+    ft_data_Z = gm.features.comp_fourier_data(
         gf.comp_up.acc, t, gf.comp_up.delta_t, p_wave_ix, ko_matrices
     )
 

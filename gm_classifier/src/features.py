@@ -31,6 +31,7 @@ class FeatureError(Exception):
 
         self.error_type = error_type
 
+
 KONNO_MATRIX_FILENAME_TEMPLATE = "konno_{}.npy"
 
 FourierData = namedtuple(
@@ -38,9 +39,12 @@ FourierData = namedtuple(
     [
         "ft",
         "ft_freq",
+        "ft_signal",
+        "ft_freq_signal",
         "ft_pe",
         "ft_freq_pe",
         "smooth_ft",
+        "smooth_ft_signal",
         "smooth_ft_pe",
         "snr",
         "snr_min",
@@ -51,7 +55,7 @@ FourierData = namedtuple(
 def get_konno_matrix(ft_len, dt: float = 0.005):
     """Computes the Konno matrix"""
     ft_freq = np.arange(0, ft_len / 2 + 1) * (1.0 / (ft_len * dt))
-    return calculate_smoothing_matrix(ft_freq, bandwidth=20, normalize=True)
+    return calculate_smoothing_matrix(ft_freq, bandwidth=30, normalize=True)
 
 
 def get_husid(acc: np.ndarray, t: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -128,6 +132,9 @@ def compute_fourier(
     ft_freq: numpy array of floats
         Frequencies at which fourier amplitudes are computed
     """
+    # Create a copy since the acc series is modified in this function..
+    acc = acc.copy()
+
     # Computes fourier spectra for acceleration time series
     npts = len(acc)
     npts_FFT = int(math.ceil(duration) / dt)
@@ -157,13 +164,36 @@ def get_freq_ix(ft_freq: np.ndarray, lower: float, upper: float) -> (int, int):
     return lower_index, upper_index
 
 
+def load_konno_matrix(
+    ko_matrices: Union[str, Dict[int, np.ndarray]], ft_freq: np.ndarray
+):
+    if isinstance(ko_matrices, dict):
+        smooth_matrix = ko_matrices[ft_freq.size - 1]
+    elif isinstance(ko_matrices, str) and os.path.isdir(ko_matrices):
+        matrix_name = KONNO_MATRIX_FILENAME_TEMPLATE.format(ft_freq.size - 1)
+        print(f"Loading Konno matrix {matrix_name}")
+        smooth_matrix = np.load(
+            os.path.join(
+                ko_matrices, matrix_name
+            )
+        )
+    else:
+        raise ValueError(
+            "The ko_matrices parameter has to either be a "
+            "dictionary with the Konno matrices or a directory "
+            "path that contains the Konno matrices files."
+        )
+
+    return smooth_matrix
+
+
 def comp_fourier_data(
     acc: np.ndarray,
     t: np.ndarray,
     dt: float,
-    index: int,
+    p_wave_ix: int,
     ko_matrices: Union[str, Dict[int, np.ndarray]],
-) -> Tuple[FourierData, np.ndarray]:
+) -> FourierData:
     """
     Computes the Fourier transform featuers
 
@@ -175,8 +205,8 @@ def comp_fourier_data(
         Time values for the time series
     dt: float
         Step size
-    index: int
-        ?
+    p_wave_ix: int
+        P-wave arrival index
     ko_matrices: dictionary or str
         Either dictionary of Konno matrices or
        directory path, which contains stored konno matrices
@@ -186,43 +216,49 @@ def comp_fourier_data(
     -------
     FourierFeatuers
         Named tuple which contains the FT features
-    np.ndarray
-        The smoothing matrix used
     """
     # Calculate fourier spectra
-    ft, ft_freq = compute_fourier(acc, dt, t[-1])
-    ft_pe, ft_freq_pe = compute_fourier(acc[0:index], dt, t[-1])
+    signal_acc, noise_acc = acc[p_wave_ix:], acc[:p_wave_ix]
+    signal_duration, noise_duration = t[-1] - t[p_wave_ix], t[p_wave_ix]
 
-    # Get appropriate smoothing matrix
-    if isinstance(ko_matrices, dict):
-        smooth_matrix = ko_matrices[ft_freq.size - 1]
-    elif isinstance(ko_matrices, str) and os.path.isdir(ko_matrices):
-        smooth_matrix = np.load(
-            os.path.join(
-                ko_matrices, KONNO_MATRIX_FILENAME_TEMPLATE.format(ft_freq.size - 1)
-            )
-        )
+    ft, ft_freq = compute_fourier(acc, dt, t[-1])
+    ft_signal, ft_freq_signal = compute_fourier(signal_acc, dt, signal_duration)
+    ft_pe, ft_freq_pe = compute_fourier(noise_acc, dt, signal_duration)
+
+    # Noise scaling, scale factor = (signal length / noise length)**(1/2)
+    ft_pe = np.abs(ft_pe) * np.sqrt(signal_acc.size / noise_acc.size)
+
+    # Apply smoothing, might require two different smoothing matrices due to different number of frequencies
+    smooth_matrix = load_konno_matrix(ko_matrices, ft_freq)
+    smooth_ft = np.dot(np.abs(ft), smooth_matrix)
+
+    if ft_freq.size == ft_freq_signal.size:
+        smooth_signal_matrix = smooth_matrix
     else:
-        raise ValueError(
-            "The ko_matrices parameter has to either be a "
-            "dictionary with the Konno matrices or a directory "
-            "path that contains the Konno matrices files."
-        )
+        smooth_signal_matrix = load_konno_matrix(ko_matrices, ft_freq_signal)
+        del smooth_matrix
 
     # Smooth ft with konno ohmachi matrix
-    smooth_ft = np.dot(np.abs(ft), smooth_matrix)
-    smooth_ft_pe = np.dot(np.abs(ft_pe), smooth_matrix)
+    smooth_ft_signal = np.dot(np.abs(ft_signal), smooth_signal_matrix)
+    smooth_ft_pe = np.dot(np.abs(ft_pe), smooth_signal_matrix)
 
-    # Calculate snr of frequency intervals
+    # Calculate SNR
+    snr = smooth_ft_signal / smooth_ft_pe
     lower_index, upper_index = get_freq_ix(ft_freq, 0.1, 20)
-    snr = np.divide(smooth_ft, smooth_ft_pe)
     snr_min = np.round(np.min(snr[lower_index:upper_index]), 5)
 
-    return (
-        FourierData(
-            ft, ft_freq, ft_pe, ft_freq_pe, smooth_ft, smooth_ft_pe, snr, snr_min
-        ),
-        smooth_matrix,
+    return FourierData(
+        ft,
+        ft_freq,
+        ft_signal,
+        ft_freq_signal,
+        ft_pe,
+        ft_freq_pe,
+        smooth_ft,
+        smooth_ft_signal,
+        smooth_ft_pe,
+        snr,
+        snr_min,
     )
 
 
@@ -300,7 +336,10 @@ def compute_snr(
 ):
     """Computes the SNR for the specified frequency range"""
     lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
-    return np.trapz(snr[lower_ix:upper_ix], ft_freq[lower_ix:upper_ix])/ (ft_freq[upper_ix] - ft_freq[lower_ix])
+    return np.trapz(snr[lower_ix:upper_ix], ft_freq[lower_ix:upper_ix]) / (
+        ft_freq[upper_ix] - ft_freq[lower_ix]
+    )
+
 
 def compute_fas(
     ft_smooth: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float
@@ -335,50 +374,77 @@ def log_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray):
     ln_x, ln_y, ln_x_new = np.log(x), np.log(y), np.log(x_new)
     return np.exp(interp1d(ln_x, ln_y, kind="linear", bounds_error=True)(ln_x_new))
 
-def get_p_wave_ix(acc_X, acc_Y, acc_Z, dt):
-    # Set up some modified time series for p- and s-wave picking.
-    # These are multiplied by an additional 10 because it seems to make the P-wave picking better
-    # Also better if the vertical component is sign squared (apparently better)
-    tr1 = acc_X * 9806.7 * 10.0
-    tr2 = acc_Y * 9806.7 * 10.0
-    tr3 = np.multiply(np.abs(acc_Z), acc_Z) * np.power(9806.7 * 10.0, 2)
 
+def get_p_wave_ix(acc_X, acc_Y, acc_Z, dt):
     sample_rate = 1.0 / dt
 
-    low_pass = dt * 20.0
-    high_pass = sample_rate / 20.0
+    p_pick, s_pick = ar_pick(a = acc_Z,
+                b = acc_X,
+                c = acc_Y,
+                samp_rate=sample_rate,  # sample_rate
+                f1=dt*20.0,  # low_pass
+                f2=sample_rate/20.0,  # high_pass
+                lta_p=1.0,  # P-LTA
+                sta_p=0.2,  # P-STA,
+                lta_s=2.0,  # S-LTA
+                sta_s=0.4,  # S-STA
+                m_p=8,  # P-AR coefficients
+                m_s=8,  # S-coefficients
+                l_p=0.4,  # P-length
+                l_s=0.2,  # S-length
+                s_pick=True,  # S-pick
+            )
 
-    p_s_pick = partial(
-        ar_pick,
-        samp_rate=sample_rate,  # sample_rate
-        f1=low_pass,  # low_pass
-        f2=high_pass,  # high_pass
-        lta_p=1.0,  # P-LTA
-        sta_p=0.2,  # P-STA,
-        lta_s=2.0,  # S-LTA
-        sta_s=0.4,  # S-STA
-        m_p=8,  # P-AR coefficients
-        m_s=8,  # S-coefficients
-        l_p=0.4,  # P-length
-        l_s=0.2,  # S-length
-        s_pick=True,  # S-pick
-    )
-
-    # Get p-wave arrival and s-wave arrival picks
-    p_pick, s_pick = p_s_pick(tr3, tr1, tr2)
-
-    if p_pick < 5.0:
-        # NEXT THING TO DO IS TO TEST CHANGING THE PARAMETERS FOR THE FAKE PICK
-        tr3_fake1 = np.multiply(np.abs(acc_X), acc_Z) * np.power(9806.7 * 10.0, 2)
-        p_pick_fake1, s_pick_fake1 = p_s_pick(tr3_fake1, tr1, tr2)
-
-        tr3_fake2 = np.multiply(np.abs(acc_Y), acc_Z) * np.power(9806.7 * 10.0, 2)
-        p_pick_fake2, s_pick_fake2 = p_s_pick(tr3_fake2, tr1, tr2)
-
-        p_pick = np.max([p_pick_fake1, p_pick_fake2, p_pick])
-        s_pick = np.max([s_pick_fake1, s_pick_fake2, s_pick])
     p_wave_ix = int(np.floor(np.multiply(p_pick, sample_rate)))
     return p_wave_ix
+
+
+
+# def get_p_wave_ix(acc_X, acc_Y, acc_Z, dt):
+#     # Set up some modified time series for p- and s-wave picking.
+#     # These are multiplied by an additional 10 because it seems to make the P-wave picking better
+#     # Also better if the vertical component is sign squared (apparently better)
+#     tr1 = acc_X * 9806.7 * 10.0
+#     tr2 = acc_Y * 9806.7 * 10.0
+#     tr3 = np.multiply(np.abs(acc_Z), acc_Z) * np.power(9806.7 * 10.0, 2)
+#
+#     sample_rate = 1.0 / dt
+#
+#     low_pass = dt * 20.0
+#     high_pass = sample_rate / 20.0
+#
+#     p_s_pick = partial(
+#         ar_pick,
+#         samp_rate=sample_rate,  # sample_rate
+#         f1=low_pass,  # low_pass
+#         f2=high_pass,  # high_pass
+#         lta_p=1.0,  # P-LTA
+#         sta_p=0.2,  # P-STA,
+#         lta_s=2.0,  # S-LTA
+#         sta_s=0.4,  # S-STA
+#         m_p=8,  # P-AR coefficients
+#         m_s=8,  # S-coefficients
+#         l_p=0.4,  # P-length
+#         l_s=0.2,  # S-length
+#         s_pick=True,  # S-pick
+#     )
+#
+#     # Get p-wave arrival and s-wave arrival picks
+#     p_pick, s_pick = p_s_pick(tr3, tr1, tr2)
+#
+#     if p_pick < 5.0:
+#         # NEXT THING TO DO IS TO TEST CHANGING THE PARAMETERS FOR THE FAKE PICK
+#         tr3_fake1 = np.multiply(np.abs(acc_X), acc_Z) * np.power(9806.7 * 10.0, 2)
+#         p_pick_fake1, s_pick_fake1 = p_s_pick(tr3_fake1, tr1, tr2)
+#
+#         tr3_fake2 = np.multiply(np.abs(acc_Y), acc_Z) * np.power(9806.7 * 10.0, 2)
+#         p_pick_fake2, s_pick_fake2 = p_s_pick(tr3_fake2, tr1, tr2)
+#
+#         p_pick = np.max([p_pick_fake1, p_pick_fake2, p_pick])
+#         s_pick = np.max([s_pick_fake1, s_pick_fake2, s_pick])
+#     p_wave_ix = int(np.floor(np.multiply(p_pick, sample_rate)))
+#     return p_wave_ix
+
 
 def get_features(
     gf: GeoNet_File, ko_matrices: Dict[int, np.ndarray] = None
@@ -475,19 +541,21 @@ def get_features(
     ds_595_gm = np.sqrt(ds_595_1 * ds_595_2)
 
     # Compute the fourier transform
-    ft_data_1, smooth_matrix = comp_fourier_data(
+    ft_data_1 = comp_fourier_data(
         np.copy(acc_1), t, gf.comp_1st.delta_t, p_wave_ix, ko_matrices
     )
-    ft_data_2, smooth_matrix = comp_fourier_data(
+    ft_data_2 = comp_fourier_data(
         np.copy(acc_2), t, gf.comp_2nd.delta_t, p_wave_ix, ko_matrices
     )
-    ft_data_v, smooth_matrix = comp_fourier_data(
+    ft_data_v = comp_fourier_data(
         np.copy(acc_v), t, gf.comp_up.delta_t, p_wave_ix, ko_matrices
     )
 
     # Compute geomean of fourier spectra
-    ft_gm = np.sqrt(np.abs(ft_data_1.ft) * np.abs(ft_data_2.ft))
+    ft_gm = np.sqrt(np.abs(ft_data_1.ft_signal) * np.abs(ft_data_2.ft_signal))
     ft_pe_gm = np.sqrt(np.abs(ft_data_1.ft_pe) * np.abs(ft_data_2.ft_pe))
+
+    smooth_matrix = load_konno_matrix(ko_matrices, ft_data_1.ft_freq_signal)
     ft_smooth_gm = np.dot(ft_gm, smooth_matrix)
     ft_smooth_pe_gm = np.dot(ft_pe_gm, smooth_matrix)
 
@@ -519,7 +587,14 @@ def get_features(
     snr_avg_gm = compute_snr_avg(snr_gm, ft_freq, 0.1, 20)
 
     # Computing average SNR for the different frequency ranges
-    snr_freq_bins = [(0.1, 0.2), (0.2, 0.5), (0.5, 1.0), (1.0, 2.0), (2.0, 5.0), (5.0, 10.0)]
+    snr_freq_bins = [
+        (0.1, 0.2),
+        (0.2, 0.5),
+        (0.5, 1.0),
+        (1.0, 2.0),
+        (2.0, 5.0),
+        (5.0, 10.0),
+    ]
     snr_values_1, snr_values_2 = [], []
     snr_values_v, snr_values_gm = [], []
     for lower_freq, upper_freq in snr_freq_bins:
@@ -527,7 +602,6 @@ def get_features(
         snr_values_2.append(compute_snr(snr_2, ft_freq, lower_freq, upper_freq))
         snr_values_v.append(compute_snr(snr_v, ft_freq, lower_freq, upper_freq))
         snr_values_gm.append(compute_snr(snr_gm, ft_freq, lower_freq, upper_freq))
-
 
     # Compute SNR for a range of different frequency values
     snr_freq = np.logspace(np.log(0.05), np.log(20), 50, base=np.e)
@@ -687,9 +761,18 @@ def get_features(
     }
 
     # Add the SNR values
-    features_dict["1"] = {**features_dict["1"], **{f"snr_value_{freq:.3f}": val for freq, val in zip(snr_freq, snr_values_1)}}
-    features_dict["2"] = {**features_dict["2"], **{f"snr_value_{freq:.3f}": val for freq, val in zip(snr_freq, snr_values_2)}}
-    features_dict["v"] = {**features_dict["v"], **{f"snr_value_{freq:.3f}": val for freq, val in zip(snr_freq, snr_values_v)}}
+    features_dict["1"] = {
+        **features_dict["1"],
+        **{f"snr_value_{freq:.3f}": val for freq, val in zip(snr_freq, snr_values_1)},
+    }
+    features_dict["2"] = {
+        **features_dict["2"],
+        **{f"snr_value_{freq:.3f}": val for freq, val in zip(snr_freq, snr_values_2)},
+    }
+    features_dict["v"] = {
+        **features_dict["v"],
+        **{f"snr_value_{freq:.3f}": val for freq, val in zip(snr_freq, snr_values_v)},
+    }
 
     additional_data = {
         "p_pick": p_pick,

@@ -206,7 +206,7 @@ f_min_weights = np.asarray(gm.training.f_min_loss_weights(scores))
 # score_weights = compute_class_weight("balanced", scores, y_train.values[:, [0, 2, 4]].ravel())
 score_weights = None
 
-loss = gm.training.CustomLoss(scores, f_min_weights, score_weights)
+loss = gm.training.WeightedFMinMSELoss(scores, f_min_weights, score_weights)
 
 # Run training of the model
 compile_kwargs = {"optimizer": optimizer, "loss": loss}

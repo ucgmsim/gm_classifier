@@ -1,8 +1,8 @@
 from typing import Union, Tuple, Dict
 
+import tensorflow as tf
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import minmax_scale
 
 def standardise(
     data: np.ndarray,
@@ -62,6 +62,21 @@ def whiten(X: np.ndarray, W: np.ndarray):
     """
     return W.dot(X.T).T
 
+def min_max_scale(X: Union[float, np.ndarray], range: Tuple[float, float] = (0, 1), x_min: float = None, x_max: float = None):
+    """Scales the given data to the specified range, the min & max values of the data can
+    either be given or inferred from the data.
+
+    Note: If a float is given, then x_min and x_max have to be set"""
+    x_min = x_min if x_min is not None else X.min()
+    x_max = x_max if x_max is not None else X.max()
+
+    X_std = (X - x_min) / (x_max - x_min)
+    X_scaled = X_std * (range[1] - range[0]) + range[0]
+
+    return X_scaled
+
+
+
 
 def compute_W_ZCA(X: np.ndarray) -> np.ndarray:
     """
@@ -86,11 +101,6 @@ def compute_W_ZCA(X: np.ndarray) -> np.ndarray:
 
     # Compute inverse
     return np.linalg.inv(cov_X_sqrt)
-
-def scale_snr_values(X: np.ndarray, **kwargs):
-    """Min-max scales the SNR values along the frequency axis"""
-    return minmax_scale(X, axis=1)
-
 
 def apply(
     X: pd.DataFrame,

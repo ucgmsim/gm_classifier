@@ -150,13 +150,13 @@ weights = np.asarray(gm.training.f_min_loss_weights(scores))
 
 # Training details
 optimizer = "Adam"
-loss = gm.training.CustomLoss(scores, weights)
+loss = gm.training.WeightedFMinMSELoss(scores, weights)
 n_epochs = 250
 batch_size = 32
 n_folds = 20
 
 # Data-point selection config
-eval_loss = gm.training.CustomLoss(scores, weights, reduction="none")
+eval_loss = gm.training.WeightedFMinMSELoss(scores, weights, reduction="none")
 eval_loss_name = "f_min_loss"
 
 output_dir = Path(output_dir)

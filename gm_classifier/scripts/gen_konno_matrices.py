@@ -4,8 +4,7 @@ import argparse
 import time
 
 import numpy as np
-from gm_classifier import features
-
+import gm_classifier as gm
 
 def main(output_dir):
     # Generate the Konno matrices
@@ -15,7 +14,7 @@ def main(output_dir):
     for ft_len in ft_lens:
         print(f"Computing konno {int(ft_len / 2)}")
         start_time = time.time()
-        cur_konno = features.get_konno_matrix(ft_len, dt=dt)
+        cur_konno = gm.features.get_konno_matrix(ft_len, dt=dt)
         print(f"Took {time.time() - start_time}\n")
 
         np.save(os.path.join(output_dir, f"konno_{int(ft_len / 2)}.npy"), cur_konno)

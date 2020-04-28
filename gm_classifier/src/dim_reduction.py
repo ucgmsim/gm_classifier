@@ -6,7 +6,6 @@ import pandas as pd
 from sklearn import decomposition
 from tensorflow import keras
 
-
 def pca(X: np.ndarray, n_dims: int = 2, **kwargs):
     """Uses PCA for dimensionality reduction"""
     pca = decomposition.PCA(n_components=n_dims, **kwargs)
