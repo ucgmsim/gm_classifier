@@ -89,7 +89,7 @@ def train(
     ] = None,
     compile_kwargs: Dict[str, Any] = None,
     fit_kwargs: Dict[str, Any] = None,
-    tensorboard_cb_kwargs: Dict[str, Any] = None
+    tensorboard_cb_kwargs: Dict[str, Any] = None,
 ) -> Tuple[Dict, keras.Model]:
     """
     Performs the training for the specified
@@ -139,7 +139,9 @@ def train(
         keras.callbacks.ModelCheckpoint(
             str(output_dir / "model.h5"), save_best_only=True, save_weights_only=True
         ),
-        keras.callbacks.TensorBoard(tensorboard_output_dir, write_graph=True, **tensorboard_cb_kwargs),
+        keras.callbacks.TensorBoard(
+            tensorboard_output_dir, write_graph=True, **tensorboard_cb_kwargs
+        ),
     ]
     gm_model.compile(**compile_kwargs)
     history = gm_model.fit(
@@ -222,7 +224,8 @@ def apply_pre(
         assert np.all(
             np.isclose(
                 np.cov(train_data.loc[:, whiten_keys], rowvar=False),
-                np.identity(len(whiten_keys)), atol=1e-7
+                np.identity(len(whiten_keys)),
+                atol=1e-7,
             )
         )
 
@@ -251,7 +254,23 @@ def mape(y_true, y_pred):
     return tf.reduce_sum(tf.abs(y_true - y_pred) / y_true, axis=1)
 
 
+def create_huber(threshold: float = 1.0):
+    """Creates a huber loss function using the specified threshold"""
+    def huber_fn(y_true, y_pred):
+        error = y_true - y_pred
+        small_mask = tf.abs(error) < threshold
+        return tf.where(
+            small_mask,
+            tf.square(error) / 2,
+            threshold * (tf.abs(error) - 0.5 * threshold),
+        )
+
+    return tf.function(huber_fn)
+
 def f_min_loss_weights(x):
+    """Arbitrary function that defines f_min loss weights
+    Uses normal cdf, not really needed should just define these
+    weights manually"""
     x_min, x_max = -6.0, 3.0
     y_min = 1.961_839_939_667_620_5e-06
     y_max = 0.989_491_871_886_240_7
@@ -262,17 +281,24 @@ def f_min_loss_weights(x):
     return (y - y_min) / (y_max - y_min)
 
 
-class CustomLoss(keras.losses.Loss):
-    """Custom loss function that weights the f_min loss
+class WeightedFMinMSELoss(keras.losses.Loss):
+    """Custom loss function that weights the f_min MSE loss
     based on the (true) score value, as f_min is not relevant for
     records with a low quality score
+    Score loss is also calculated using MSE
 
     Note: Expects the following format for y: [n_samples, 6],
     where the columns have to be in the order
     [score_X, f_min_X, score_Y, f_min_Y, score_Z, f_min_Z]
     """
 
-    def __init__(self, scores: np.ndarray, f_min_weights: np.ndarray, score_weights: np.ndarray = None, **kwargs):
+    def __init__(
+        self,
+        scores: np.ndarray,
+        f_min_weights: np.ndarray,
+        score_weights: np.ndarray = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
 
         # Keys can't be floats, therefore convert to integer
@@ -284,10 +310,13 @@ class CustomLoss(keras.losses.Loss):
             default_value=tf.constant(np.nan),
         )
 
-        score_weights = tf.constant(score_weights, tf.float32) if score_weights is not None else np.ones(scores.shape[0], dtype=np.float32)
+        score_weights = (
+            tf.constant(score_weights, tf.float32)
+            if score_weights is not None
+            else np.ones(scores.shape[0], dtype=np.float32)
+        )
         self.score_table = tf.lookup.StaticHashTable(
-            tf.lookup.KeyValueTensorInitializer(scores, score_weights),
-            default_value=1
+            tf.lookup.KeyValueTensorInitializer(scores, score_weights), default_value=1
         )
 
     def call(self, y_true, y_pred):
@@ -315,7 +344,99 @@ class CustomLoss(keras.losses.Loss):
         # Compute MSE and apply the weights
         return weights * tf.math.squared_difference(y_pred, y_true)
 
+class CustomScaledLoss(keras.losses.Loss):
+    """
+    """
+
+    def __init__(self, score_loss_fn: Callable, f_min_loss_fn: Callable,
+                 scores: np.ndarray, f_min_weights: np.ndarray, score_loss_max: float,
+                 f_min_loss_max: float):
+        """
+        Parameters
+        ----------
+        score_loss_fn: Callable
+        f_min_loss_fn: Callable
+            The function to use for computing the score/f_min loss
+            Must take the arguments y_pred, y_true
+        scores: numpy array of floats
+            The possible score values
+        f_min_weights: numpy array of floats
+            The f_min weighting corresponding to the
+            scores parameter
+        score_loss_max: float
+        f_min_loss_max: float
+            The maximum score/f_min loss, any loss above these
+            values will be clipped. This ensures that the
+            (independent, i.e. before any weighting is applied)
+            score/f_min loss values never exceed one.
+            These value therefore allows defining the score/f_min
+            threshold at which the loss becomes constant (as a
+            function of the loss)
+        """
+        super().__init__()
+        self.score_loss_fn = score_loss_fn
+        self.f_min_loss_fn = f_min_loss_fn
+
+        self.scores = scores
+        self.f_min_weights = f_min_weights
+
+        self.score_loss_max = score_loss_max
+        self.f_min_loss_max = f_min_loss_max
+
+        # Setup of f_min weights lookup
+        # Keys can't be floats, therefore convert to integer
+        scores = tf.constant((scores * 4), tf.int32)
+        f_min_weights = tf.constant(f_min_weights, tf.float32)
+        self.f_min_table = tf.lookup.StaticHashTable(
+            tf.lookup.KeyValueTensorInitializer(scores, f_min_weights),
+            default_value=tf.constant(np.nan),
+        )
+
+    def call(self, y_true, y_pred):
+        # Split into score & f_min tensors
+        scores_true = tf.gather(y_true, [0, 2, 4], axis=1)
+        scores_pred = tf.gather(y_pred, [0, 2, 4], axis=1)
+
+        f_min_true = tf.gather(y_true, [1, 3, 5], axis=1)
+        f_min_pred = tf.gather(y_pred, [1, 3, 5], axis=1)
+
+        # Compute the score loss
+        score_loss = self.score_loss_fn(scores_true, scores_pred)
+
+        # Cap any loss above the specified max
+        score_loss = tf.where(score_loss > self.score_loss_max, self.score_loss_max, score_loss)
+
+        # Min/Max scale the score loss
+        score_loss = self.min_max_scale(score_loss, 0.0, 1.0, 0.0, self.score_loss_max)
+
+        # Compute the f_min loss
+        f_min_loss = self.f_min_loss_fn(f_min_true, f_min_pred)
+
+        # Cap any loss above the specified max, then min/max scale
+        f_min_loss = tf.where(f_min_loss > self.f_min_loss_max, self.f_min_loss_max, f_min_loss)
+        f_min_loss = self.min_max_scale(f_min_loss, 0.0, 1.0, 0.0, self.f_min_loss_max)
+
+        # Apply f_min weighting based on true scores
+        score_keys = tf.cast(scores_true * 4, tf.int32)
+        f_min_weights = self.f_min_table.lookup(score_keys)
+        f_min_loss = f_min_loss * f_min_weights
+
+        loss = tf.stack((score_loss[:, 0], f_min_loss[:, 1],
+                         score_loss[:, 2], f_min_loss[:, 3],
+                         score_loss[:, 4], f_min_loss[:, 5]))
+        return loss
+
+    @tf.function
+    def min_max_scale(self, X, target_min, target_max, x_min, x_max):
+        X_std = (X - x_min) / (x_max - x_min)
+        X_scaled = X_std * (target_max - target_min) + target_min
+
+        return X_scaled
+
+
 def custom_act_fn(z):
+    """Custom activation function that
+    clips the outputs at the specified values"""
     score_vals = tf.gather(z, [0, 2, 4], axis=1)
 
     score_vals = tf.where(score_vals > 1.0, 1.0, score_vals)
@@ -334,13 +455,7 @@ def custom_act_fn(z):
             score_vals[:, 2],
             f_min_vals[:, 2],
         ),
-        axis=1
+        axis=1,
     )
 
     return r
-
-
-
-
-
-
