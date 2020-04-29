@@ -221,7 +221,7 @@ def comp_fourier_data(
     signal_acc, noise_acc = acc[p_wave_ix:], acc[:p_wave_ix]
     signal_duration, noise_duration = t[-1] - t[p_wave_ix], t[p_wave_ix]
 
-    ft, ft_freq = compute_fourier(acc, dt, t[-1])
+    # ft, ft_freq = compute_fourier(acc, dt, t[-1])
     ft_signal, ft_freq_signal = compute_fourier(signal_acc, dt, signal_duration)
     ft_pe, ft_freq_pe = compute_fourier(noise_acc, dt, signal_duration)
 
@@ -229,14 +229,14 @@ def comp_fourier_data(
     ft_pe = np.abs(ft_pe) * np.sqrt(signal_acc.size / noise_acc.size)
 
     # Apply smoothing, might require two different smoothing matrices due to different number of frequencies
-    smooth_matrix = load_konno_matrix(ko_matrices, ft_freq)
-    smooth_ft = np.dot(np.abs(ft), smooth_matrix)
+    # smooth_matrix = load_konno_matrix(ko_matrices, ft_freq)
+    # smooth_ft = np.dot(np.abs(ft), smooth_matrix)
 
-    if ft_freq.size == ft_freq_signal.size:
-        smooth_signal_matrix = smooth_matrix
-    else:
-        smooth_signal_matrix = load_konno_matrix(ko_matrices, ft_freq_signal)
-        del smooth_matrix
+    # if ft_freq.size == ft_freq_signal.size:
+    #     smooth_signal_matrix = smooth_matrix
+    # else:
+    # del smooth_matrix
+    smooth_signal_matrix = load_konno_matrix(ko_matrices, ft_freq_signal)
 
     # Smooth ft with konno ohmachi matrix
     smooth_ft_signal = np.dot(np.abs(ft_signal), smooth_signal_matrix)
@@ -244,17 +244,17 @@ def comp_fourier_data(
 
     # Calculate SNR
     snr = smooth_ft_signal / smooth_ft_pe
-    lower_index, upper_index = get_freq_ix(ft_freq, 0.1, 20)
+    lower_index, upper_index = get_freq_ix(ft_freq_signal, 0.1, 20)
     snr_min = np.round(np.min(snr[lower_index:upper_index]), 5)
 
     return FourierData(
-        ft,
-        ft_freq,
+        None,
+        None,
         ft_signal,
         ft_freq_signal,
         ft_pe,
         ft_freq_pe,
-        smooth_ft,
+        None,
         smooth_ft_signal,
         smooth_ft_pe,
         snr,
@@ -558,31 +558,31 @@ def get_features(
     ft_smooth_pe_gm = np.dot(ft_pe_gm, smooth_matrix)
 
     # Same for all components
-    ft_freq = ft_data_1.ft_freq
-    assert np.all(np.isclose(ft_data_1.ft_freq, ft_data_2.ft_freq)) and np.all(
-        np.isclose(ft_data_1.ft_freq, ft_data_v.ft_freq)
+    ft_freq_signal = ft_data_1.ft_freq_signal
+    assert np.all(np.isclose(ft_data_1.ft_freq_signal, ft_data_2.ft_freq_signal)) and np.all(
+        np.isclose(ft_data_1.ft_freq_signal, ft_data_v.ft_freq_signal)
     )
 
     # SNR metrics - min, max and averages
-    snr_1 = ft_data_1.smooth_ft / ft_data_1.smooth_ft_pe
-    snr_min_1 = compute_snr_min(snr_1, ft_freq, 0.1, 20)
-    snr_max_1 = compute_snr_max(snr_1, ft_freq, 0.1, 20)
-    snr_avg_1 = compute_snr_avg(snr_1, ft_freq, 0.1, 20)
+    snr_1 = ft_data_1.smooth_ft_signal / ft_data_1.smooth_ft_pe
+    snr_min_1 = compute_snr_min(snr_1, ft_freq_signal, 0.1, 20)
+    snr_max_1 = compute_snr_max(snr_1, ft_freq_signal, 0.1, 20)
+    snr_avg_1 = compute_snr_avg(snr_1, ft_freq_signal, 0.1, 20)
 
-    snr_2 = ft_data_2.smooth_ft / ft_data_2.smooth_ft_pe
-    snr_min_2 = compute_snr_min(snr_2, ft_freq, 0.1, 20)
-    snr_max_2 = compute_snr_max(snr_2, ft_freq, 0.1, 20)
-    snr_avg_2 = compute_snr_avg(snr_2, ft_freq, 0.1, 20)
+    snr_2 = ft_data_2.smooth_ft_signal / ft_data_2.smooth_ft_pe
+    snr_min_2 = compute_snr_min(snr_2, ft_freq_signal, 0.1, 20)
+    snr_max_2 = compute_snr_max(snr_2, ft_freq_signal, 0.1, 20)
+    snr_avg_2 = compute_snr_avg(snr_2, ft_freq_signal, 0.1, 20)
 
-    snr_v = ft_data_v.smooth_ft / ft_data_v.smooth_ft_pe
-    snr_min_v = compute_snr_min(snr_v, ft_freq, 0.1, 20)
-    snr_max_v = compute_snr_max(snr_v, ft_freq, 0.1, 20)
-    snr_avg_v = compute_snr_avg(snr_2, ft_freq, 0.1, 10)
+    snr_v = ft_data_v.smooth_ft_signal / ft_data_v.smooth_ft_pe
+    snr_min_v = compute_snr_min(snr_v, ft_freq_signal, 0.1, 20)
+    snr_max_v = compute_snr_max(snr_v, ft_freq_signal, 0.1, 20)
+    snr_avg_v = compute_snr_avg(snr_2, ft_freq_signal, 0.1, 10)
 
     snr_gm = np.divide(ft_smooth_gm, ft_smooth_pe_gm)
-    snr_min = compute_snr_min(snr_gm, ft_freq, 0.1, 20)
-    snr_max = compute_snr_max(snr_gm, ft_freq, 0.1, 20)
-    snr_avg_gm = compute_snr_avg(snr_gm, ft_freq, 0.1, 20)
+    snr_min = compute_snr_min(snr_gm, ft_freq_signal, 0.1, 20)
+    snr_max = compute_snr_max(snr_gm, ft_freq_signal, 0.1, 20)
+    snr_avg_gm = compute_snr_avg(snr_gm, ft_freq_signal, 0.1, 20)
 
     # Computing average SNR for the different frequency ranges
     snr_freq_bins = [
@@ -596,32 +596,32 @@ def get_features(
     snr_values_1, snr_values_2 = [], []
     snr_values_v, snr_values_gm = [], []
     for lower_freq, upper_freq in snr_freq_bins:
-        snr_values_1.append(compute_snr(snr_1, ft_freq, lower_freq, upper_freq))
-        snr_values_2.append(compute_snr(snr_2, ft_freq, lower_freq, upper_freq))
-        snr_values_v.append(compute_snr(snr_v, ft_freq, lower_freq, upper_freq))
-        snr_values_gm.append(compute_snr(snr_gm, ft_freq, lower_freq, upper_freq))
+        snr_values_1.append(compute_snr(snr_1, ft_freq_signal, lower_freq, upper_freq))
+        snr_values_2.append(compute_snr(snr_2, ft_freq_signal, lower_freq, upper_freq))
+        snr_values_v.append(compute_snr(snr_v, ft_freq_signal, lower_freq, upper_freq))
+        snr_values_gm.append(compute_snr(snr_gm, ft_freq_signal, lower_freq, upper_freq))
 
     # Compute SNR for a range of different frequency values
     snr_freq = np.logspace(np.log(0.01), np.log(25), 100, base=np.e)
-    snr_values_1 = log_interpolate(ft_freq + 1e-17, snr_1, snr_freq)
-    snr_values_2 = log_interpolate(ft_freq + 1e-17, snr_2, snr_freq)
-    snr_values_v = log_interpolate(ft_freq + 1e-17, snr_v, snr_freq)
+    snr_values_1 = log_interpolate(ft_freq_signal + 1e-17, snr_1, snr_freq)
+    snr_values_2 = log_interpolate(ft_freq_signal + 1e-17, snr_2, snr_freq)
+    snr_values_v = log_interpolate(ft_freq_signal + 1e-17, snr_v, snr_freq)
 
     # Compute the Fourier amplitude ratio
-    fas_0p1_0p2_1, ft_s1_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.1, 0.2)
-    fas_0p1_0p2_2, ft_s1_2 = compute_fas(ft_data_2.smooth_ft, ft_freq, 0.1, 0.2)
-    fas_0p1_0p2_v, ft_s1_v = compute_fas(ft_data_v.smooth_ft, ft_freq, 0.1, 0.2)
-    fas_0p1_0p2_gm, ft_s1_gm = compute_fas(ft_smooth_gm, ft_freq, 0.1, 0.2)
+    fas_0p1_0p2_1, ft_s1_1 = compute_fas(ft_data_1.smooth_ft_signal, ft_freq_signal, 0.1, 0.2)
+    fas_0p1_0p2_2, ft_s1_2 = compute_fas(ft_data_2.smooth_ft_signal, ft_freq_signal, 0.1, 0.2)
+    fas_0p1_0p2_v, ft_s1_v = compute_fas(ft_data_v.smooth_ft_signal, ft_freq_signal, 0.1, 0.2)
+    fas_0p1_0p2_gm, ft_s1_gm = compute_fas(ft_smooth_gm, ft_freq_signal, 0.1, 0.2)
 
-    fas_0p2_0p5_1, ft_s2_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.2, 0.5)
-    fas_0p2_0p5_2, ft_s2_2 = compute_fas(ft_data_2.smooth_ft, ft_freq, 0.2, 0.5)
-    fas_0p2_0p5_v, ft_s2_v = compute_fas(ft_data_v.smooth_ft, ft_freq, 0.2, 0.5)
-    fas_0p2_0p5_gm, ft_s2_gm = compute_fas(ft_smooth_gm, ft_freq, 0.2, 0.5)
+    fas_0p2_0p5_1, ft_s2_1 = compute_fas(ft_data_1.smooth_ft_signal, ft_freq_signal, 0.2, 0.5)
+    fas_0p2_0p5_2, ft_s2_2 = compute_fas(ft_data_2.smooth_ft_signal, ft_freq_signal, 0.2, 0.5)
+    fas_0p2_0p5_v, ft_s2_v = compute_fas(ft_data_v.smooth_ft_signal, ft_freq_signal, 0.2, 0.5)
+    fas_0p2_0p5_gm, ft_s2_gm = compute_fas(ft_smooth_gm, ft_freq_signal, 0.2, 0.5)
 
-    fas_0p5_1p0_1, ft_s3_1 = compute_fas(ft_data_1.smooth_ft, ft_freq, 0.5, 1.0)
-    fas_0p5_1p0_2, ft_s3_2 = compute_fas(ft_data_2.smooth_ft, ft_freq, 0.5, 1.0)
-    fas_0p5_1p0_v, ft_s3_v = compute_fas(ft_data_v.smooth_ft, ft_freq, 0.5, 1.0)
-    fas_0p5_1p0_gm, ft_s3_gm = compute_fas(ft_smooth_gm, ft_freq, 0.5, 1.0)
+    fas_0p5_1p0_1, ft_s3_1 = compute_fas(ft_data_1.smooth_ft_signal, ft_freq_signal, 0.5, 1.0)
+    fas_0p5_1p0_2, ft_s3_2 = compute_fas(ft_data_2.smooth_ft_signal, ft_freq_signal, 0.5, 1.0)
+    fas_0p5_1p0_v, ft_s3_v = compute_fas(ft_data_v.smooth_ft_signal, ft_freq_signal, 0.5, 1.0)
+    fas_0p5_1p0_gm, ft_s3_gm = compute_fas(ft_smooth_gm, ft_freq_signal, 0.5, 1.0)
 
     fas_ratio_low_1 = fas_0p1_0p2_1 / fas_0p2_0p5_1
     fas_ratio_low_2 = fas_0p1_0p2_2 / fas_0p2_0p5_2
@@ -645,17 +645,17 @@ def get_features(
     ft_s2_s3_gm = ft_s1_gm / ft_s2_gm
 
     # Compute low frequency (both event & pre-event) FAS to maximum signal FAS ratio
-    fas_max_1 = np.max(ft_data_1.smooth_ft)
-    lf_fas_1 = compute_low_freq_fas(ft_data_1.smooth_ft, ft_freq, 0.1)
-    lf_pe_fas_1 = compute_low_freq_fas(ft_data_1.smooth_ft_pe, ft_freq, 0.1)
+    fas_max_1 = np.max(ft_data_1.smooth_ft_signal)
+    lf_fas_1 = compute_low_freq_fas(ft_data_1.smooth_ft_signal, ft_freq_signal, 0.1)
+    lf_pe_fas_1 = compute_low_freq_fas(ft_data_1.smooth_ft_pe, ft_freq_signal, 0.1)
 
-    fas_max_2 = np.max(ft_data_2.smooth_ft)
-    lf_fas_2 = compute_low_freq_fas(ft_data_2.smooth_ft, ft_freq, 0.1)
-    lf_pe_fas_2 = compute_low_freq_fas(ft_data_2.smooth_ft_pe, ft_freq, 0.1)
+    fas_max_2 = np.max(ft_data_2.smooth_ft_signal)
+    lf_fas_2 = compute_low_freq_fas(ft_data_2.smooth_ft_signal, ft_freq_signal, 0.1)
+    lf_pe_fas_2 = compute_low_freq_fas(ft_data_2.smooth_ft_pe, ft_freq_signal, 0.1)
 
-    fas_max_v = np.max(ft_data_v.smooth_ft)
-    lf_fas_v = compute_low_freq_fas(ft_data_v.smooth_ft, ft_freq, 0.1)
-    lf_pe_fas_v = compute_low_freq_fas(ft_data_v.smooth_ft_pe, ft_freq, 0.1)
+    fas_max_v = np.max(ft_data_v.smooth_ft_signal)
+    lf_fas_v = compute_low_freq_fas(ft_data_v.smooth_ft_signal, ft_freq_signal, 0.1)
+    lf_pe_fas_v = compute_low_freq_fas(ft_data_v.smooth_ft_pe, ft_freq_signal, 0.1)
 
     signal_ratio_max_1 = lf_fas_1 / fas_max_1
     signal_ratio_max_2 = lf_fas_2 / fas_max_2

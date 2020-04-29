@@ -437,28 +437,32 @@ class CustomScaledLoss(keras.losses.Loss):
         return X_scaled
 
 
-def custom_act_fn(z):
-    """Custom activation function that
-    clips the outputs at the specified values"""
-    score_vals = tf.gather(z, [0, 2, 4], axis=1)
-
-    score_vals = tf.where(score_vals > 1.0, 1.0, score_vals)
-    score_vals = tf.where(score_vals < 0.0, 0.0, score_vals)
-
-    f_min_vals = tf.gather(z, [1, 3, 5], axis=1)
-    f_min_vals = tf.where(f_min_vals > 10.0, 10.0, f_min_vals)
-    f_min_vals = tf.where(f_min_vals < 0.1, 0.1, f_min_vals)
-
-    r = tf.stack(
-        (
-            score_vals[:, 0],
-            f_min_vals[:, 0],
-            score_vals[:, 1],
-            f_min_vals[:, 1],
-            score_vals[:, 2],
-            f_min_vals[:, 2],
-        ),
-        axis=1,
-    )
-
-    return r
+# def custom_act_fn(z):
+#     """Custom activation function that
+#     clips the outputs at the specified values
+#
+#     Note: This is actually garbage since the gradienst will be zero
+#     for anything is clipped...
+#     """
+#     score_vals = tf.gather(z, [0, 2, 4], axis=1)
+#
+#     score_vals = tf.where(score_vals > 1.0, 1.0, score_vals)
+#     score_vals = tf.where(score_vals < 0.0, 0.0, score_vals)
+#
+#     f_min_vals = tf.gather(z, [1, 3, 5], axis=1)
+#     f_min_vals = tf.where(f_min_vals > 10.0, 10.0, f_min_vals)
+#     f_min_vals = tf.where(f_min_vals < 0.1, 0.1, f_min_vals)
+#
+#     r = tf.stack(
+#         (
+#             score_vals[:, 0],
+#             f_min_vals[:, 0],
+#             score_vals[:, 1],
+#             f_min_vals[:, 1],
+#             score_vals[:, 2],
+#             f_min_vals[:, 2],
+#         ),
+#         axis=1,
+#     )
+#
+#     return r
