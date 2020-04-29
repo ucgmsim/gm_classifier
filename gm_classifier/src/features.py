@@ -602,7 +602,7 @@ def get_features(
         snr_values_gm.append(compute_snr(snr_gm, ft_freq, lower_freq, upper_freq))
 
     # Compute SNR for a range of different frequency values
-    snr_freq = np.logspace(np.log(0.05), np.log(20), 50, base=np.e)
+    snr_freq = np.logspace(np.log(0.01), np.log(25), 100, base=np.e)
     snr_values_1 = log_interpolate(ft_freq + 1e-17, snr_1, snr_freq)
     snr_values_2 = log_interpolate(ft_freq + 1e-17, snr_2, snr_freq)
     snr_values_v = log_interpolate(ft_freq + 1e-17, snr_v, snr_freq)
@@ -773,8 +773,7 @@ def get_features(
     }
 
     additional_data = {
-        "p_pick": p_pick,
-        "s_pick": s_pick,
+        "p_wave_ix": p_wave_ix,
         "gm": {
             "fas_0p1_0p2": fas_0p1_0p2_gm,
             "fas_0p2_0p5": fas_0p2_0p5_gm,

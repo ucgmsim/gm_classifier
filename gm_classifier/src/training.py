@@ -256,6 +256,7 @@ def mape(y_true, y_pred):
 
 def create_huber(threshold: float = 1.0):
     """Creates a huber loss function using the specified threshold"""
+    threshold = threshold if isinstance(threshold, tf.Tensor) else tf.constant(threshold, dtype=tf.float32)
     def huber_fn(y_true, y_pred):
         error = y_true - y_pred
         small_mask = tf.abs(error) < threshold
@@ -350,7 +351,7 @@ class CustomScaledLoss(keras.losses.Loss):
 
     def __init__(self, score_loss_fn: Callable, f_min_loss_fn: Callable,
                  scores: np.ndarray, f_min_weights: np.ndarray, score_loss_max: float,
-                 f_min_loss_max: float):
+                 f_min_loss_max: float, **kwargs):
         """
         Parameters
         ----------
@@ -373,7 +374,7 @@ class CustomScaledLoss(keras.losses.Loss):
             threshold at which the loss becomes constant (as a
             function of the loss)
         """
-        super().__init__()
+        super().__init__(**kwargs)
         self.score_loss_fn = score_loss_fn
         self.f_min_loss_fn = f_min_loss_fn
 
@@ -404,7 +405,7 @@ class CustomScaledLoss(keras.losses.Loss):
         score_loss = self.score_loss_fn(scores_true, scores_pred)
 
         # Cap any loss above the specified max
-        score_loss = tf.where(score_loss > self.score_loss_max, self.score_loss_max, score_loss)
+        # score_loss = tf.where(score_loss > self.score_loss_max, self.score_loss_max, score_loss)
 
         # Min/Max scale the score loss
         score_loss = self.min_max_scale(score_loss, 0.0, 1.0, 0.0, self.score_loss_max)
@@ -412,8 +413,10 @@ class CustomScaledLoss(keras.losses.Loss):
         # Compute the f_min loss
         f_min_loss = self.f_min_loss_fn(f_min_true, f_min_pred)
 
-        # Cap any loss above the specified max, then min/max scale
-        f_min_loss = tf.where(f_min_loss > self.f_min_loss_max, self.f_min_loss_max, f_min_loss)
+        # Cap any loss above the specified max
+        # f_min_loss = tf.where(f_min_loss > self.selff_min_loss_max, self.f_min_loss_max, f_min_loss)
+
+        # Min/Max scale
         f_min_loss = self.min_max_scale(f_min_loss, 0.0, 1.0, 0.0, self.f_min_loss_max)
 
         # Apply f_min weighting based on true scores
@@ -421,9 +424,9 @@ class CustomScaledLoss(keras.losses.Loss):
         f_min_weights = self.f_min_table.lookup(score_keys)
         f_min_loss = f_min_loss * f_min_weights
 
-        loss = tf.stack((score_loss[:, 0], f_min_loss[:, 1],
-                         score_loss[:, 2], f_min_loss[:, 3],
-                         score_loss[:, 4], f_min_loss[:, 5]))
+        loss = tf.stack((score_loss[:, 0], f_min_loss[:, 0],
+                         score_loss[:, 1], f_min_loss[:, 1],
+                         score_loss[:, 2], f_min_loss[:, 2]), axis=1)
         return loss
 
     @tf.function
