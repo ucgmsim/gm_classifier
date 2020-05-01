@@ -3,17 +3,14 @@ import fnmatch
 import json
 import os
 from pathlib import Path
-from typing import Dict, Tuple, Union, Callable, Any, Iterable, List
+from typing import Dict, Tuple, Union, Callable, Any, Iterable, List, Type
 
 import pandas as pd
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 from scipy import stats
-from sklearn.model_selection import train_test_split
 
-from . import features
-from . import model
 from . import pre_processing as pre
 
 
@@ -77,9 +74,9 @@ def get_multi_output_y(
 #     return train_data, val_data
 
 
-def train(
+def fit(
     output_dir: Path,
-    model_type: keras.Model,
+    model: Union[Type, keras.Model],
     model_config: Dict,
     training_data: Tuple[
         Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray
@@ -99,6 +96,11 @@ def train(
     ----------
     output_dir: str
         Path to directory where results are saved
+    model: keras model or type of model
+        If an keras model instance is passed in, it is used
+        If a type is passed in, this is expected to be a sub-class
+        of keras.Model and implement the from_custom_config method which
+        will be used to create the actual model instance from the model_config
     model_config: dictionary with string keys
         Dictionary that contains model details
     training_data: triplet
@@ -113,6 +115,8 @@ def train(
     fit_kwargs: dictionary
         Keyword arguments for the model fit functions,
         see https://www.tensorflow.org/api_docs/python/tf/keras/Model#fit
+    tensorboard_cb_kwargs: dictionary, optional
+            Tensorboard callback keyword arguments
 
     Returns
     -------
@@ -128,8 +132,8 @@ def train(
     if ids_val is not None:
         np.save(output_dir / "val_ids.npy", ids_val)
 
-    # Build the model architecture
-    gm_model = model_type.from_custom_config(model_config)
+    # Build the model architecture (if required)
+    gm_model = model.from_custom_config(model_config) if isinstance(model, type) else model
 
     # Train the model
     tensorboard_output_dir = output_dir / "tensorboard_log"
@@ -256,7 +260,12 @@ def mape(y_true, y_pred):
 
 def create_huber(threshold: float = 1.0):
     """Creates a huber loss function using the specified threshold"""
-    threshold = threshold if isinstance(threshold, tf.Tensor) else tf.constant(threshold, dtype=tf.float32)
+    threshold = (
+        threshold
+        if isinstance(threshold, tf.Tensor)
+        else tf.constant(threshold, dtype=tf.float32)
+    )
+
     def huber_fn(y_true, y_pred):
         error = y_true - y_pred
         small_mask = tf.abs(error) < threshold
@@ -267,6 +276,7 @@ def create_huber(threshold: float = 1.0):
         )
 
     return tf.function(huber_fn)
+
 
 def f_min_loss_weights(x):
     """Arbitrary function that defines f_min loss weights
@@ -345,13 +355,21 @@ class WeightedFMinMSELoss(keras.losses.Loss):
         # Compute MSE and apply the weights
         return weights * tf.math.squared_difference(y_pred, y_true)
 
+
 class CustomScaledLoss(keras.losses.Loss):
     """
     """
 
-    def __init__(self, score_loss_fn: Callable, f_min_loss_fn: Callable,
-                 scores: np.ndarray, f_min_weights: np.ndarray, score_loss_max: float,
-                 f_min_loss_max: float, **kwargs):
+    def __init__(
+        self,
+        score_loss_fn: Callable,
+        f_min_loss_fn: Callable,
+        scores: np.ndarray,
+        f_min_weights: np.ndarray,
+        score_loss_max: float,
+        f_min_loss_max: float,
+        **kwargs,
+    ):
         """
         Parameters
         ----------
@@ -366,13 +384,8 @@ class CustomScaledLoss(keras.losses.Loss):
             scores parameter
         score_loss_max: float
         f_min_loss_max: float
-            The maximum score/f_min loss, any loss above these
-            values will be clipped. This ensures that the
-            (independent, i.e. before any weighting is applied)
-            score/f_min loss values never exceed one.
-            These value therefore allows defining the score/f_min
-            threshold at which the loss becomes constant (as a
-            function of the loss)
+            The values to use for min/max scaling of the different losses
+            The given will corresponds to a scaled loss of 1.0
         """
         super().__init__(**kwargs)
         self.score_loss_fn = score_loss_fn
@@ -404,65 +417,78 @@ class CustomScaledLoss(keras.losses.Loss):
         # Compute the score loss
         score_loss = self.score_loss_fn(scores_true, scores_pred)
 
-        # Cap any loss above the specified max
-        # score_loss = tf.where(score_loss > self.score_loss_max, self.score_loss_max, score_loss)
-
         # Min/Max scale the score loss
-        score_loss = self.min_max_scale(score_loss, 0.0, 1.0, 0.0, self.score_loss_max)
+        score_loss = pre.tf_min_max_scale(
+            score_loss, 0.0, 1.0, 0.0, self.score_loss_max
+        )
 
         # Compute the f_min loss
         f_min_loss = self.f_min_loss_fn(f_min_true, f_min_pred)
 
-        # Cap any loss above the specified max
-        # f_min_loss = tf.where(f_min_loss > self.selff_min_loss_max, self.f_min_loss_max, f_min_loss)
-
         # Min/Max scale
-        f_min_loss = self.min_max_scale(f_min_loss, 0.0, 1.0, 0.0, self.f_min_loss_max)
+        f_min_loss = pre.tf_min_max_scale(
+            f_min_loss, 0.0, 1.0, 0.0, self.f_min_loss_max
+        )
 
         # Apply f_min weighting based on true scores
         score_keys = tf.cast(scores_true * 4, tf.int32)
         f_min_weights = self.f_min_table.lookup(score_keys)
         f_min_loss = f_min_loss * f_min_weights
 
-        loss = tf.stack((score_loss[:, 0], f_min_loss[:, 0],
-                         score_loss[:, 1], f_min_loss[:, 1],
-                         score_loss[:, 2], f_min_loss[:, 2]), axis=1)
+        loss = tf.stack(
+            (
+                score_loss[:, 0],
+                f_min_loss[:, 0],
+                score_loss[:, 1],
+                f_min_loss[:, 1],
+                score_loss[:, 2],
+                f_min_loss[:, 2],
+            ),
+            axis=1,
+        )
         return loss
 
-    @tf.function
-    def min_max_scale(self, X, target_min, target_max, x_min, x_max):
-        X_std = (X - x_min) / (x_max - x_min)
-        X_scaled = X_std * (target_max - target_min) + target_min
 
-        return X_scaled
+def create_soft_clipping(alpha, z_min: float = 0.0, z_max: float = 1.0):
+    """Returns the soft-clipping activation function as used in
+    this paper https://arxiv.org/pdf/1810.11509.pdf
 
+    The function is approx. linear within (0, 1) and asymptotes very
+    quickly outside that range. To allow other ranges, this implementation
+    supports min-max scaling of the input & output
 
-# def custom_act_fn(z):
-#     """Custom activation function that
-#     clips the outputs at the specified values
-#
-#     Note: This is actually garbage since the gradienst will be zero
-#     for anything is clipped...
-#     """
-#     score_vals = tf.gather(z, [0, 2, 4], axis=1)
-#
-#     score_vals = tf.where(score_vals > 1.0, 1.0, score_vals)
-#     score_vals = tf.where(score_vals < 0.0, 0.0, score_vals)
-#
-#     f_min_vals = tf.gather(z, [1, 3, 5], axis=1)
-#     f_min_vals = tf.where(f_min_vals > 10.0, 10.0, f_min_vals)
-#     f_min_vals = tf.where(f_min_vals < 0.1, 0.1, f_min_vals)
-#
-#     r = tf.stack(
-#         (
-#             score_vals[:, 0],
-#             f_min_vals[:, 0],
-#             score_vals[:, 1],
-#             f_min_vals[:, 1],
-#             score_vals[:, 2],
-#             f_min_vals[:, 2],
-#         ),
-#         axis=1,
-#     )
-#
-#     return r
+    Mainly useful as a output layer activation function,
+    when wanting constrained regression (i.e. linear activation within a range)
+
+    Parameters
+    ----------
+    alpha: float
+        Parameter of the soft-clipping function that determines
+        how close to linear the central region is and how sharply the linear
+        region turns to the asymptotic values
+    z_min: float
+    z_max: float
+        The range of interest of the output values
+
+    Returns
+    -------
+    tensorflow function
+    """
+    alpha = (
+        alpha if isinstance(alpha, tf.Tensor) else tf.constant(alpha, dtype=tf.float32)
+    )
+
+    def soft_clipping(z):
+        z_scaled = pre.tf_min_max_scale(
+            z, target_min=0, target_max=1, x_min=0, x_max=10
+        )
+        result = (1 / alpha) * tf.math.log(
+            (1 + tf.math.exp(alpha * z_scaled))
+            / (1 + tf.math.exp(alpha * (z_scaled - 1)))
+        )
+        result = pre.tf_min_max_scale(
+            result, target_min=z_min, target_max=z_max, x_min=0, x_max=1
+        )
+        return result
+
+    return tf.function(soft_clipping)

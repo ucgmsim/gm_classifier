@@ -228,7 +228,7 @@ for ix, (train_ind, val_ind) in enumerate(kf.split(X_features)):
     # Run training of the model
     compile_kwargs = {"optimizer": optimizer, "loss": loss}
     fit_kwargs = {"batch_size": batch_size, "epochs": n_epochs, "verbose": 2}
-    history, gm_model = gm.training.train(
+    history, gm_model = gm.training.fit(
         cur_output_dir,
         gm.model.CnnSnrModel,
         model_config,

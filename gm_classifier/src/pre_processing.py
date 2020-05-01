@@ -75,6 +75,12 @@ def min_max_scale(X: Union[float, np.ndarray], range: Tuple[float, float] = (0, 
 
     return X_scaled
 
+@tf.function
+def tf_min_max_scale(X, target_min, target_max, x_min, x_max):
+    X_std = (X - x_min) / (x_max - x_min)
+    X_scaled = X_std * (target_max - target_min) + target_min
+
+    return X_scaled
 
 
 

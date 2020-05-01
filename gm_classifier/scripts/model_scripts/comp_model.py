@@ -105,7 +105,7 @@ train_data = (X_train, y_train, ids_train)
 val_data = (X_val, y_val, ids_val)
 
 # Run training of the model
-history, X_train, X_val, y_train_proc, y_val_proc = gm.training.train(
+history, X_train, X_val, y_train_proc, y_val_proc = gm.training.fit(
     output_dir,
     feature_pre_config,
     model_config,

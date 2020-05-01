@@ -7,6 +7,9 @@ import tensorflow.keras.layers as layers
 
 
 class GenericLayer(layers.Layer):
+    """Represents a generic layer as per the specified
+    config. This layer can be made up of many other sub-layers."""
+
     def __init__(
         self, layer_config: List[Tuple[layers.Layer, Dict]], name: str, **kwargs
     ):
@@ -31,6 +34,8 @@ class GenericLayer(layers.Layer):
 
 
 class DenseModel(keras.models.Model):
+    """Represents a FC-NN based on the specified config"""
+
     def __init__(
         self,
         name: str,
@@ -50,6 +55,12 @@ class DenseModel(keras.models.Model):
 
 
 class CnnSnrModel(keras.models.Model):
+    """Represents a model of format
+     SNR -> CNN -> Flatten ---->
+                                  Concatenate -> Dense -> Outputs
+     Other features -> FC-NN ->
+     """
+
     def __init__(
         self,
         dense_layer_config: List[Tuple[layers.Layer, Dict]],
@@ -110,60 +121,3 @@ class CnnSnrModel(keras.models.Model):
             model_config["comb_layer_config"],
             model_config["output"],
         )
-
-
-# class DenseNN:
-#     def __init__(
-#         self,
-#         n_inputs: int,
-#         units: List[int],
-#         act_funcs: Union[str, List[str]],
-#         n_outputs: int,
-#         dropout: Union[List[float], float] = 0.0,
-#         output_act_func: Union[str, List[str]] = None,
-#     ):
-#         self.n_inputs = n_inputs
-#         self.units = units
-#         self.dropout = dropout if isinstance(dropout, list) else [dropout for ix in range(len(units))]
-#         self.act_funcs = act_funcs
-#         self.n_outputs = n_outputs
-#         self.output_act_func = output_act_func
-#
-#     def build(self) -> keras.Model:
-#         # Input
-#         inputs = keras.Input(self.n_inputs)
-#
-#         # Hidden layers
-#         x = None
-#         for ix, (n_units, cur_dropout) in enumerate(zip(self.units, self.dropout)):
-#             cur_layer = layers.Dense(
-#                 n_units,
-#                 activation=self.act_funcs[ix]
-#                 if isinstance(self.act_funcs, list)
-#                 else self.act_funcs,
-#             )
-#
-#             if x is None:
-#                 x = cur_layer(inputs)
-#             else:
-#                 x = cur_layer(x)
-#
-#             # Add dropout if specified
-#             if cur_dropout is not None:
-#                 x = layers.Dropout(cur_dropout)(x)
-#
-#         # Output
-#         output = layers.Dense(self.n_outputs, activation=self.output_act_func)(x)
-#         return keras.Model(inputs=inputs, outputs=output)
-#
-#     @classmethod
-#     def from_dict(cls, n_inputs: int, model_dict: Dict) -> "DenseNN":
-#         return DenseNN(
-#             n_inputs,
-#             model_dict["units"],
-#             model_dict["act_funcs"],
-#             model_dict["n_outputs"],
-#             dropout=model_dict["dropout"],
-#             output_act_func=model_dict["output_act_func"],
-#         )
-#

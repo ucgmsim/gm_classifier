@@ -203,3 +203,4 @@ def get_color_marker_comb():
     markers = ["o", "x", "v", "^", ">", "<", "s", "+", "d", "p"]
 
     return [(c, m) for c in colours for m in markers]
+
