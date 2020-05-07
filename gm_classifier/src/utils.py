@@ -1,9 +1,11 @@
 import os
 import glob
-from typing import Dict, Union, Tuple
+from pathlib import Path
+from typing import Dict, Union, Tuple, List
 
 import pandas as pd
 import numpy as np
+from scipy.signal import detrend
 
 
 def load_features_from_dir(
@@ -329,3 +331,87 @@ def score_weighting(
     assert np.all(~np.isnan(weights))
 
     return weights
+
+def get_full_feature_config(feature_config: Dict) -> Tuple[List[str], Dict]:
+    """Generates the full feature config, i.e. for all 3 components
+
+    Parameters
+    ----------
+    feature_config: dictionary
+        The general feature config, i.e. not component specific, this will
+        be extended for all 3 components
+
+    Returns
+    -------
+    feature_names: list of strings
+        The feature names
+    feature_config: dictionary
+        The component based feature config (i.e. 3x as many entries
+        as original feature config)
+
+    """
+    feature_config_X = {f"{key}_X": val for key, val in feature_config.items()}
+    feature_config_Y = {f"{key}_Y": val for key, val in feature_config.items()}
+    feature_config_Z = {f"{key}_Z": val for key, val in feature_config.items()}
+    feature_config = {
+        **feature_config_X,
+        **{**feature_config_Y, **feature_config_Z},
+    }
+    feature_names = [
+        key for key in feature_config.keys() if not "*" in key
+    ]
+
+    return feature_names, feature_config
+
+
+def get_feature_details(feature_config: Dict, snr_freq_values: np.ndarray) -> Tuple[List[str], Dict, List[str]]:
+    """Retrieves the feature details required for training of a
+    record-component multi-output model
+
+    Parameters
+    ----------
+    feature_config: dictionary
+        The general feature config, i.e. not component specific, this will
+        be extended for all 3 components
+    snr_freq_values: numpy array of floats
+        The SNR frequencies to use in for the SNR series input
+
+    Returns
+    -------
+    feature_names: list of strings
+        The feature names
+    feature_config: dictionary
+        The component based feature config (i.e. 3x as many entries
+        as original feature config)
+    snr_feature_keys: list of strings
+        The SNR series keys into the feature dataframe
+    """
+    feature_names, feature_config = get_full_feature_config(feature_config)
+    snr_feature_keys = [f"snr_value_{freq:.3f}" for freq in snr_freq_values]
+
+    return feature_names, feature_config, snr_feature_keys
+
+
+def load_ts_data(data_dir: Path):
+    """Loads time series data that was extracted using
+    the extract_time_series.py script
+    """
+    record_id = os.path.basename(data_dir)
+    if data_dir.is_dir():
+        acc_ffp = os.path.join(data_dir, f"{record_id}_acc.npy")
+        ft_ffp_signal = os.path.join(data_dir, f"{record_id}_smooth_ft_signal.npy")
+        ft_freq_signal = os.path.join(data_dir, f"{record_id}_ft_freq_signal.npy")
+        snr_ffp = os.path.join(data_dir, f"{record_id}_snr.npy")
+
+        acc_ts = np.load(acc_ffp)
+        acc_ts = detrend(acc_ts).astype(np.float32)
+
+        ft_ts_signal = np.load(ft_ffp_signal)
+        ft_freq_signal = np.load(ft_freq_signal)
+
+        snr_ts = np.load(snr_ffp)
+        # snr_ts = minmax_scale(snr_ts, axis=0)
+
+        return record_id, acc_ts, ft_ts_signal, ft_freq_signal, snr_ts
+
+    return record_id, None, None, None, None

@@ -8,11 +8,12 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 from tensorflow import keras
 from sklearn.model_selection import train_test_split
+import seaborn as sns
 
 from .model import CnnSnrModel
 from . import training
 from . import plots
-
+from . import pre
 
 class RecordCompModel:
 
@@ -51,6 +52,7 @@ class RecordCompModel:
                     "kernel_initializer": "glorot_uniform",
                 },
             ),
+            (keras.layers.Dropout, {"rate": 0.3}),
             (
                 keras.layers.Dense,
                 {
@@ -59,6 +61,7 @@ class RecordCompModel:
                     "kernel_initializer": "glorot_uniform",
                 },
             ),
+            (keras.layers.Dropout, {"rate": 0.3}),
         ],
         "dense_input_name": "features",
         "cnn_layer_config": [
@@ -118,7 +121,13 @@ class RecordCompModel:
                 },
             ),
         ],
-        "output": keras.layers.Dense(6, activation="linear"),
+        "output": keras.layers.Dense(
+            6,
+            activation=training.create_custom_act_fn(
+                keras.activations.linear,
+                training.create_soft_clipping(30, z_min=0.1, z_max=10.0),
+            ),
+        ),
     }
 
     score_values = np.asarray([0.0, 0.25, 0.5, 0.75, 1.0])
@@ -139,17 +148,17 @@ class RecordCompModel:
         ),
     )
     compile_kwargs = {"optimizer": "Adam", "loss": loss}
-    fit_kwargs = {"batch_size": 64, "epochs": 200, "verbose": 2}
+    fit_kwargs = {"batch_size": 32, "epochs": 250, "verbose": 2}
 
     def __init__(
         self,
-        output_dir: str,
+        model_dir: str,
         label_names: List[str] = None,
         feature_config: Dict = None,
         snr_freq_values: np.ndarray = None,
         model_config: Dict = None,
     ):
-        self.output_dir = Path(output_dir)
+        self.model_dir = Path(model_dir)
 
         self.label_names = (
             RecordCompModel.label_names if label_names is None else label_names
@@ -158,14 +167,16 @@ class RecordCompModel:
             RecordCompModel.feature_config if feature_config is None else feature_config
         )
 
-        feature_config_X = {f"{key}_X": val for key, val in feature_config.items()}
-        feature_config_Y = {f"{key}_Y": val for key, val in feature_config.items()}
-        feature_config_Z = {f"{key}_Z": val for key, val in feature_config.items()}
+        feature_config_X = {f"{key}_X": val for key, val in self.feature_config.items()}
+        feature_config_Y = {f"{key}_Y": val for key, val in self.feature_config.items()}
+        feature_config_Z = {f"{key}_Z": val for key, val in self.feature_config.items()}
         self.feature_config = {
             **feature_config_X,
             **{**feature_config_Y, **feature_config_Z},
         }
-        self.feature_names = [key for key in self.feature_config.keys() if not "*" in key]
+        self.feature_names = [
+            key for key in self.feature_config.keys() if not "*" in key
+        ]
 
         snr_freq_values = (
             RecordCompModel.snr_freq_values
@@ -196,11 +207,44 @@ class RecordCompModel:
         self.X_features_val, self.X_snr_val = None, None
         self.y_val, self.ids_val = None, None
 
+    def load(self):
+        inputs = {"features": keras.Input(shape=[len(self.feature_config)]),
+                  "snr_series": keras.Input(shape=[len(self.snr_feature_keys), 3])}
+        self.gm_model._set_inputs(inputs)
+        self.gm_model.load_weights(str(self.model_dir / "model.h5"))
+
+    def predict(self, feature_df: pd.DataFrame):
+        X_features = feature_df.loc[:, self.feature_names].copy()
+
+        # Pre-procesisng
+        X_features = pre.apply(
+            X_features,
+            self.feature_config,
+            mu=pd.read_csv(self.model_dir / "features_mu.csv", index_col=0, squeeze=True),
+            sigma=pd.read_csv(self.model_dir / "features_sigma.csv", index_col=0,
+                              squeeze=True),
+            W=np.load(self.model_dir / "features_W.npy"),
+        )
+
+        X_snr = np.log(
+            np.stack(
+                (
+                    feature_df.loc[:, np.char.add(self.snr_feature_keys, "_X")].values,
+                    feature_df.loc[:, np.char.add(self.snr_feature_keys, "_Y")].values,
+                    feature_df.loc[:, np.char.add(self.snr_feature_keys, "_Z")].values,
+                ),
+                axis=2,
+            )
+        )
+
+        y_hat = self.gm_model.predict({"features": X_features.values, "snr_series": X_snr})
+        return y_hat
+
     def train(
         self,
         train_df: pd.DataFrame,
         val_size: float = 0.0,
-        compile_kwargs: Dict = None,
+        compile_kwargs: Dict = {},
         fit_kwargs: Dict = None,
         tensorboard_kwargs: Dict = None,
     ):
@@ -223,7 +267,7 @@ class RecordCompModel:
             Tensorboard callback keyword arguments
         """
         self.train_df = train_df
-        train_df.to_csv(self.output_dir / "training_data.csv")
+        train_df.to_csv(self.model_dir / "training_data.csv")
 
         assert np.all(
             np.isin(self.feature_names, train_df.columns.values)
@@ -247,10 +291,10 @@ class RecordCompModel:
 
         # Split into training and validation
         if val_size > 0.0:
-            data = train_test_split(
-                X_features, X_snr, y, ids, test_size=val_size
-            )
-            self.X_features_train, self.X_snr_train, self.y_train, self.ids_train = data[::2]
+            data = train_test_split(X_features, X_snr, y, ids, test_size=val_size)
+            self.X_features_train, self.X_snr_train, self.y_train, self.ids_train = data[
+                ::2
+            ]
             self.X_features_val, self.X_snr_val, self.y_val, self.ids_val = data[1::2]
         else:
             self.X_features_train, self.X_snr_train = X_features, X_snr
@@ -260,7 +304,7 @@ class RecordCompModel:
         self.X_features_train, self.X_features_val = training.apply_pre(
             self.X_features_train.copy(),
             self.feature_config,
-            self.output_dir,
+            self.model_dir,
             val_data=self.X_features_val.copy()
             if self.X_features_val is not None
             else None,
@@ -270,7 +314,12 @@ class RecordCompModel:
         self.X_snr_val = np.log(self.X_snr_val) if self.X_snr_val is not None else None
 
         val_data = (
-            (self.X_features_val.values, self.X_snr_val, self.y_val.values, self.ids_val)
+            (
+                self.X_features_val.values,
+                self.X_snr_val,
+                self.y_val.values,
+                self.ids_val,
+            )
             if val_size > 0.0
             else None
         )
@@ -296,7 +345,7 @@ class RecordCompModel:
         val_data: Union[
             None, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         ] = None,
-        compile_kwargs: Dict = None,
+        compile_kwargs: Dict = {},
         fit_kwargs: Dict = None,
         tensorboard_kwargs: Dict = None,
     ):
@@ -330,11 +379,13 @@ class RecordCompModel:
         tensorboard_kwargs: dictionary, optional
             Tensorboard callback keyword arguments
         """
-        self.compile_kwargs = (
-            RecordCompModel.compile_kwargs if compile_kwargs is None else compile_kwargs
+        self.compile_kwargs = {**RecordCompModel.compile_kwargs, **compile_kwargs}
+        self.fit_kwargs = (
+            RecordCompModel.fit_kwargs if fit_kwargs is None else fit_kwargs
         )
-        self.fit_kwargs = RecordCompModel.fit_kwargs if fit_kwargs is None else fit_kwargs
-        self.tensorboard_kwargs = tensorboard_kwargs if tensorboard_kwargs is not None else {}
+        self.tensorboard_kwargs = (
+            tensorboard_kwargs if tensorboard_kwargs is not None else {}
+        )
 
         training_data = (
             {"features": X_features_train, "snr_series": X_snr_train},
@@ -352,11 +403,11 @@ class RecordCompModel:
         )
 
         self.train_history, _ = training.fit(
-            self.output_dir,
+            self.model_dir,
             self.gm_model,
-            self.model_config,
             training_data,
-            val_data,
+            val_data=val_data,
+            model_config=self.model_config,
             compile_kwargs=self.compile_kwargs,
             fit_kwargs=self.fit_kwargs,
             tensorboard_cb_kwargs=self.tensorboard_kwargs,
@@ -369,106 +420,116 @@ class RecordCompModel:
             "compiler_kwargs": str(compile_kwargs),
             "fit_kwargs": str(fit_kwargs),
         }
-        with open(self.output_dir / "config.json", "w") as f:
+        with open(self.model_dir / "config.json", "w") as f:
             json.dump(config, f)
 
         # Load the best model
-        self.gm_model.load_weights(str(self.output_dir / "model.h5"))
+        self.gm_model.load_weights(str(self.model_dir / "model.h5"))
 
     def create_eval_plots(self):
-        fig_size = (16, 10)
+        if not self.is_trained:
+            print(f"Model is either loaded or not trained, "
+                  f"unable to create eval plots in this situation.")
+            return
 
-        fig, ax = plots.plot_loss(
-            self.train_history,
-            # output_ffp=str(output_dir / "loss_plot.png"),
-            fig_kwargs={"figsize": fig_size},
-        )
-        ax.set_ylim((0, 1))
-        plt.savefig(str(self.output_dir / "loss_plot.png"))
-        plt.close()
+        with sns.axes_style("whitegrid"):
+            fig_size = (16, 10)
 
-        # Predict train and validation
-        y_train_est = self.gm_model.predict(
-            {"features": self.X_features_train.values, "snr_series": self.X_snr_train}
-        )
-        y_val_est = self.gm_model.predict(
-            {"features": self.X_features_val.values, "snr_series": self.X_snr_val}
-        )
-
-        est_df = pd.DataFrame(np.concatenate((y_train_est, y_val_est), axis=0),
-                              index=np.concatenate((self.ids_train, self.ids_val)),
-                              columns=self.label_names)
-        est_df.to_csv(self.output_dir / "est_df.csv", index_label="record_id")
-
-        cmap = "coolwarm"
-        # cmap = sns.color_palette("coolwarm")
-        m_size = 4.0
-        for cur_comp, (score_ix, f_min_ix) in zip(["X", "Y", "Z"],
-                                                  [(0, 1), (2, 3), (4, 5)]):
-            # for cur_comp, score_ix in zip(["X", "Y", "Z"], [0, 1, 2]):
-            # Plot true vs estimated
-            score_min, score_max = (
-                np.min(self.train_df[f"score_{cur_comp}"]),
-                np.max(self.train_df[f"score_{cur_comp}"]),
-            )
-            fig, ax, train_scatter = plots.plot_true_vs_est(
-                y_train_est[:, score_ix],
-                self.y_train.iloc[:, score_ix]
-                + np.random.normal(0, 0.01, self.y_train.iloc[:, score_ix].size),
-                c_train="b",
-                c_val="r",
-                y_val_est=y_val_est[:, score_ix],
-                y_val_true=self.y_val.iloc[:, score_ix]
-                           + np.random.normal(0, 0.01, self.y_val.iloc[:, score_ix].size),
-                title="Score",
-                min_max=(score_min, score_max),
-                scatter_kwargs={"s": m_size},
+            fig, ax = plots.plot_loss(
+                self.train_history,
+                # output_ffp=str(output_dir / "loss_plot.png"),
                 fig_kwargs={"figsize": fig_size},
-                output_ffp=self.output_dir / f"score_true_vs_est_{cur_comp}.png",
             )
-
-            f_min_min, f_min_max = (
-                np.min(self.train_df[f"f_min_{cur_comp}"]),
-                np.max(self.train_df[f"f_min_{cur_comp}"]),
-            )
-            fig, ax, train_scatter = plots.plot_true_vs_est(
-                y_train_est[:, f_min_ix],
-                self.y_train.iloc[:, f_min_ix],
-                # + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
-                c_train=self.y_train.iloc[:, score_ix].values,
-                c_val=self.y_val.iloc[:, score_ix].values,
-                y_val_est=y_val_est[:, f_min_ix],
-                y_val_true=self.y_val.iloc[:, f_min_ix],
-                           # + np.random.normal(0, 0.025, self.y_val.iloc[:, f_min_ix].size),
-                title="f_min",
-                min_max=(f_min_min, f_min_max),
-                scatter_kwargs={"s": m_size, "cmap": cmap},
-                fig_kwargs={"figsize": fig_size},
-                # output_ffp=output_dir / f"f_min_true_vs_est_{cur_comp}.png",
-            )
-            cbar = fig.colorbar(train_scatter)
-            cbar.set_label("Quality score (True)")
-            plt.savefig(self.output_dir / f"f_min_true_vs_est_{cur_comp}.png")
+            ax.set_ylim((0, 1))
+            plt.savefig(str(self.model_dir / "loss_plot.png"))
             plt.close()
 
-            fig, ax, train_scatter = plots.plot_true_vs_est(
-                y_train_est[:, f_min_ix],
-                self.y_train.iloc[:, f_min_ix],
-                # + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
-                c_train=self.y_train.iloc[:, score_ix].values,
-                c_val=self.y_val.iloc[:, score_ix].values,
-                y_val_est=y_val_est[:, f_min_ix],
-                y_val_true=self.y_val.iloc[:, f_min_ix],
-                # + np.random.normal(0, 0.025, y_val.iloc[:, f_min_ix].size),
-                title="f_min",
-                min_max=(f_min_min, f_min_max),
-                scatter_kwargs={"s": m_size, "cmap": cmap},
-                fig_kwargs={"figsize": fig_size},
-                # output_ffp=output_dir / "f_min_true_vs_est.png"
+            # Predict train and validation
+            y_train_est = self.gm_model.predict(
+                {"features": self.X_features_train.values, "snr_series": self.X_snr_train}
             )
-            ax.set_xlim((0.0, 2.0))
-            ax.set_ylim((0.0, 2.0))
-            cbar = fig.colorbar(train_scatter)
-            cbar.set_label("Quality score (True)")
-            plt.savefig(self.output_dir / f"f_min_true_vs_est_zoomed_{cur_comp}.png")
-            plt.close()
+            y_val_est = self.gm_model.predict(
+                {"features": self.X_features_val.values, "snr_series": self.X_snr_val}
+            )
+
+            est_df = pd.DataFrame(
+                np.concatenate((y_train_est, y_val_est), axis=0),
+                index=np.concatenate((self.ids_train, self.ids_val)),
+                columns=self.label_names,
+            )
+            est_df.to_csv(self.model_dir / "est_df.csv", index_label="record_id")
+
+            cmap = "coolwarm"
+            # cmap = sns.color_palette("coolwarm")
+            m_size = 4.0
+            for cur_comp, (score_ix, f_min_ix) in zip(
+                ["X", "Y", "Z"], [(0, 1), (2, 3), (4, 5)]
+            ):
+                # for cur_comp, score_ix in zip(["X", "Y", "Z"], [0, 1, 2]):
+                # Plot true vs estimated
+                score_min, score_max = (
+                    np.min(self.train_df[f"score_{cur_comp}"]),
+                    np.max(self.train_df[f"score_{cur_comp}"]),
+                )
+                fig, ax, train_scatter = plots.plot_true_vs_est(
+                    y_train_est[:, score_ix],
+                    self.y_train.iloc[:, score_ix]
+                    + np.random.normal(0, 0.01, self.y_train.iloc[:, score_ix].size),
+                    c_train="b",
+                    c_val="r",
+                    y_val_est=y_val_est[:, score_ix],
+                    y_val_true=self.y_val.iloc[:, score_ix]
+                    + np.random.normal(0, 0.01, self.y_val.iloc[:, score_ix].size),
+                    title="Score",
+                    min_max=(score_min, score_max),
+                    scatter_kwargs={"s": m_size},
+                    fig_kwargs={"figsize": fig_size},
+                    output_ffp=self.model_dir / f"score_true_vs_est_{cur_comp}.png",
+                )
+
+                f_min_min, f_min_max = (
+                    np.min(self.train_df[f"f_min_{cur_comp}"]),
+                    np.max(self.train_df[f"f_min_{cur_comp}"]),
+                )
+                fig, ax, train_scatter = plots.plot_true_vs_est(
+                    y_train_est[:, f_min_ix],
+                    self.y_train.iloc[:, f_min_ix],
+                    # + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
+                    c_train=self.y_train.iloc[:, score_ix].values,
+                    c_val=self.y_val.iloc[:, score_ix].values,
+                    y_val_est=y_val_est[:, f_min_ix],
+                    y_val_true=self.y_val.iloc[:, f_min_ix],
+                    # + np.random.normal(0, 0.025, self.y_val.iloc[:, f_min_ix].size),
+                    title="f_min",
+                    min_max=(f_min_min, f_min_max),
+                    scatter_kwargs={"s": m_size, "cmap": cmap},
+                    fig_kwargs={"figsize": fig_size},
+                    # output_ffp=output_dir / f"f_min_true_vs_est_{cur_comp}.png",
+                )
+                cbar = fig.colorbar(train_scatter)
+                cbar.set_label("Quality score (True)")
+                plt.savefig(self.model_dir / f"f_min_true_vs_est_{cur_comp}.png")
+                plt.close()
+
+                fig, ax, train_scatter = plots.plot_true_vs_est(
+                    y_train_est[:, f_min_ix],
+                    self.y_train.iloc[:, f_min_ix],
+                    # + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
+                    c_train=self.y_train.iloc[:, score_ix].values,
+                    c_val=self.y_val.iloc[:, score_ix].values,
+                    y_val_est=y_val_est[:, f_min_ix],
+                    y_val_true=self.y_val.iloc[:, f_min_ix],
+                    # + np.random.normal(0, 0.025, y_val.iloc[:, f_min_ix].size),
+                    title="f_min",
+                    min_max=(f_min_min, f_min_max),
+                    scatter_kwargs={"s": m_size, "cmap": cmap},
+                    fig_kwargs={"figsize": fig_size},
+                    # output_ffp=output_dir / "f_min_true_vs_est.png"
+                )
+                ax.set_xlim((0.0, 2.0))
+                ax.set_ylim((0.0, 2.0))
+                cbar = fig.colorbar(train_scatter)
+                cbar.set_label("Quality score (True)")
+                plt.savefig(self.model_dir / f"f_min_true_vs_est_zoomed_{cur_comp}.png")
+                plt.close()
+

@@ -8,13 +8,12 @@ import math
 from enum import Enum
 from typing import Tuple, Dict, Union, Any
 from collections import namedtuple
-from functools import partial
 
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import cumtrapz
 from scipy.interpolate import interp1d
-from obspy.signal.trigger import ar_pick
+from obspy.signal.trigger import ar_pick, pk_baer
 from obspy.signal.konnoohmachismoothing import calculate_smoothing_matrix
 
 from . import GeoNet_File
@@ -172,11 +171,7 @@ def load_konno_matrix(
     elif isinstance(ko_matrices, str) and os.path.isdir(ko_matrices):
         matrix_name = KONNO_MATRIX_FILENAME_TEMPLATE.format(ft_freq.size - 1)
         print(f"Loading Konno matrix {matrix_name}")
-        smooth_matrix = np.load(
-            os.path.join(
-                ko_matrices, matrix_name
-            )
-        )
+        smooth_matrix = np.load(os.path.join(ko_matrices, matrix_name))
     else:
         raise ValueError(
             "The ko_matrices parameter has to either be a "
@@ -375,73 +370,75 @@ def log_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray):
     return np.exp(interp1d(ln_x, ln_y, kind="linear", bounds_error=True)(ln_x_new))
 
 
-def get_p_wave_ix(acc_X, acc_Y, acc_Z, dt):
+def get_p_wave_ix(
+    acc_X: np.ndarray,
+    acc_Y: np.ndarray,
+    acc_Z: np.ndarray,
+    dt: float,
+    t: np.ndarray = None,
+):
+    def p_wave_test(p_wave: float, acc_t_threshold: float):
+        """Tests if a specific p-wave pick is 'good', based on
+        the picked position exceeding the specified acc position"""
+        return p_wave >= acc_t_threshold
+
+    t = t if t is not None else np.arange(acc_X.shape[0] * dt)
     sample_rate = 1.0 / dt
 
-    p_pick, s_pick = ar_pick(a = acc_Z,
-                b = acc_X,
-                c = acc_Y,
-                samp_rate=sample_rate,  # sample_rate
-                f1=dt*20.0,  # low_pass
-                f2=sample_rate/20.0,  # high_pass
-                lta_p=1.0,  # P-LTA
-                sta_p=0.2,  # P-STA,
-                lta_s=2.0,  # S-LTA
-                sta_s=0.4,  # S-STA
-                m_p=8,  # P-AR coefficients
-                m_s=8,  # S-coefficients
-                l_p=0.4,  # P-length
-                l_s=0.2,  # S-length
-                s_pick=True,  # S-pick
-            )
+    p_pick, s_pick = ar_pick(
+        a=acc_Z,
+        b=acc_X,
+        c=acc_Y,
+        samp_rate=sample_rate,  # sample_rate
+        f1=dt * 20.0,  # low_pass
+        f2=sample_rate / 20.0,  # high_pass
+        lta_p=1.0,  # P-LTA
+        sta_p=0.2,  # P-STA,
+        lta_s=2.0,  # S-LTA
+        sta_s=0.4,  # S-STA
+        m_p=8,  # P-AR coefficients
+        m_s=8,  # S-coefficients
+        l_p=0.4,  # P-length
+        l_s=0.2,  # S-length
+        s_pick=True,  # S-pick
+    )
+    if not p_wave_test(p_pick, t[10]):
+        p_pick, s_pick = ar_pick(
+            a=acc_Z,
+            b=acc_X,
+            c=acc_Y,
+            samp_rate=1 / dt,
+            f1=5,
+            f2=7,
+            lta_p=5.0,
+            sta_p=0.5,
+            lta_s=5.0,
+            sta_s=0.5,
+            m_p=12,
+            m_s=4,
+            l_p=0.2,
+            l_s=2.0,
+            s_pick=True,
+        )
+    if not p_wave_test(p_pick, t[10]):
+        cur_p_pick, _ = pk_baer(
+            reltrc=acc_Z,
+            samp_int=sample_rate,
+            tdownmax=20,
+            tupevent=60,
+            thr1=7.0,
+            thr2=12.0,
+            preset_len=100,
+            p_dur=100,
+        )
+        p_pick = cur_p_pick * dt
+
+    # If all algorithms fail, pick p-wave at 5% record duration, but not less than 3s in.
+    if not p_wave_test(p_pick, t[10]):
+        p_pick = np.max(3, 0.05 * t[-1])
 
     p_wave_ix = int(np.floor(np.multiply(p_pick, sample_rate)))
     return p_wave_ix
-
-# def get_p_wave_ix(acc_X, acc_Y, acc_Z, dt):
-#     # Set up some modified time series for p- and s-wave picking.
-#     # These are multiplied by an additional 10 because it seems to make the P-wave picking better
-#     # Also better if the vertical component is sign squared (apparently better)
-#     tr1 = acc_X * 9806.7 * 10.0
-#     tr2 = acc_Y * 9806.7 * 10.0
-#     tr3 = np.multiply(np.abs(acc_Z), acc_Z) * np.power(9806.7 * 10.0, 2)
-#
-#     sample_rate = 1.0 / dt
-#
-#     low_pass = dt * 20.0
-#     high_pass = sample_rate / 20.0
-#
-#     p_s_pick = partial(
-#         ar_pick,
-#         samp_rate=sample_rate,  # sample_rate
-#         f1=low_pass,  # low_pass
-#         f2=high_pass,  # high_pass
-#         lta_p=1.0,  # P-LTA
-#         sta_p=0.2,  # P-STA,
-#         lta_s=2.0,  # S-LTA
-#         sta_s=0.4,  # S-STA
-#         m_p=8,  # P-AR coefficients
-#         m_s=8,  # S-coefficients
-#         l_p=0.4,  # P-length
-#         l_s=0.2,  # S-length
-#         s_pick=True,  # S-pick
-#     )
-#
-#     # Get p-wave arrival and s-wave arrival picks
-#     p_pick, s_pick = p_s_pick(tr3, tr1, tr2)
-#
-#     if p_pick < 5.0:
-#         # NEXT THING TO DO IS TO TEST CHANGING THE PARAMETERS FOR THE FAKE PICK
-#         tr3_fake1 = np.multiply(np.abs(acc_X), acc_Z) * np.power(9806.7 * 10.0, 2)
-#         p_pick_fake1, s_pick_fake1 = p_s_pick(tr3_fake1, tr1, tr2)
-#
-#         tr3_fake2 = np.multiply(np.abs(acc_Y), acc_Z) * np.power(9806.7 * 10.0, 2)
-#         p_pick_fake2, s_pick_fake2 = p_s_pick(tr3_fake2, tr1, tr2)
-#
-#         p_pick = np.max([p_pick_fake1, p_pick_fake2, p_pick])
-#         s_pick = np.max([s_pick_fake1, s_pick_fake2, s_pick])
-#     p_wave_ix = int(np.floor(np.multiply(p_pick, sample_rate)))
-#     return p_wave_ix
 
 
 def get_features(
@@ -559,9 +556,9 @@ def get_features(
 
     # Same for all components
     ft_freq_signal = ft_data_1.ft_freq_signal
-    assert np.all(np.isclose(ft_data_1.ft_freq_signal, ft_data_2.ft_freq_signal)) and np.all(
-        np.isclose(ft_data_1.ft_freq_signal, ft_data_v.ft_freq_signal)
-    )
+    assert np.all(
+        np.isclose(ft_data_1.ft_freq_signal, ft_data_2.ft_freq_signal)
+    ) and np.all(np.isclose(ft_data_1.ft_freq_signal, ft_data_v.ft_freq_signal))
 
     # SNR metrics - min, max and averages
     snr_1 = ft_data_1.smooth_ft_signal / ft_data_1.smooth_ft_pe
@@ -599,7 +596,9 @@ def get_features(
         snr_values_1.append(compute_snr(snr_1, ft_freq_signal, lower_freq, upper_freq))
         snr_values_2.append(compute_snr(snr_2, ft_freq_signal, lower_freq, upper_freq))
         snr_values_v.append(compute_snr(snr_v, ft_freq_signal, lower_freq, upper_freq))
-        snr_values_gm.append(compute_snr(snr_gm, ft_freq_signal, lower_freq, upper_freq))
+        snr_values_gm.append(
+            compute_snr(snr_gm, ft_freq_signal, lower_freq, upper_freq)
+        )
 
     # Compute SNR for a range of different frequency values
     snr_freq = np.logspace(np.log(0.01), np.log(25), 100, base=np.e)
@@ -608,19 +607,37 @@ def get_features(
     snr_values_v = log_interpolate(ft_freq_signal + 1e-17, snr_v, snr_freq)
 
     # Compute the Fourier amplitude ratio
-    fas_0p1_0p2_1, ft_s1_1 = compute_fas(ft_data_1.smooth_ft_signal, ft_freq_signal, 0.1, 0.2)
-    fas_0p1_0p2_2, ft_s1_2 = compute_fas(ft_data_2.smooth_ft_signal, ft_freq_signal, 0.1, 0.2)
-    fas_0p1_0p2_v, ft_s1_v = compute_fas(ft_data_v.smooth_ft_signal, ft_freq_signal, 0.1, 0.2)
+    fas_0p1_0p2_1, ft_s1_1 = compute_fas(
+        ft_data_1.smooth_ft_signal, ft_freq_signal, 0.1, 0.2
+    )
+    fas_0p1_0p2_2, ft_s1_2 = compute_fas(
+        ft_data_2.smooth_ft_signal, ft_freq_signal, 0.1, 0.2
+    )
+    fas_0p1_0p2_v, ft_s1_v = compute_fas(
+        ft_data_v.smooth_ft_signal, ft_freq_signal, 0.1, 0.2
+    )
     fas_0p1_0p2_gm, ft_s1_gm = compute_fas(ft_smooth_gm, ft_freq_signal, 0.1, 0.2)
 
-    fas_0p2_0p5_1, ft_s2_1 = compute_fas(ft_data_1.smooth_ft_signal, ft_freq_signal, 0.2, 0.5)
-    fas_0p2_0p5_2, ft_s2_2 = compute_fas(ft_data_2.smooth_ft_signal, ft_freq_signal, 0.2, 0.5)
-    fas_0p2_0p5_v, ft_s2_v = compute_fas(ft_data_v.smooth_ft_signal, ft_freq_signal, 0.2, 0.5)
+    fas_0p2_0p5_1, ft_s2_1 = compute_fas(
+        ft_data_1.smooth_ft_signal, ft_freq_signal, 0.2, 0.5
+    )
+    fas_0p2_0p5_2, ft_s2_2 = compute_fas(
+        ft_data_2.smooth_ft_signal, ft_freq_signal, 0.2, 0.5
+    )
+    fas_0p2_0p5_v, ft_s2_v = compute_fas(
+        ft_data_v.smooth_ft_signal, ft_freq_signal, 0.2, 0.5
+    )
     fas_0p2_0p5_gm, ft_s2_gm = compute_fas(ft_smooth_gm, ft_freq_signal, 0.2, 0.5)
 
-    fas_0p5_1p0_1, ft_s3_1 = compute_fas(ft_data_1.smooth_ft_signal, ft_freq_signal, 0.5, 1.0)
-    fas_0p5_1p0_2, ft_s3_2 = compute_fas(ft_data_2.smooth_ft_signal, ft_freq_signal, 0.5, 1.0)
-    fas_0p5_1p0_v, ft_s3_v = compute_fas(ft_data_v.smooth_ft_signal, ft_freq_signal, 0.5, 1.0)
+    fas_0p5_1p0_1, ft_s3_1 = compute_fas(
+        ft_data_1.smooth_ft_signal, ft_freq_signal, 0.5, 1.0
+    )
+    fas_0p5_1p0_2, ft_s3_2 = compute_fas(
+        ft_data_2.smooth_ft_signal, ft_freq_signal, 0.5, 1.0
+    )
+    fas_0p5_1p0_v, ft_s3_v = compute_fas(
+        ft_data_v.smooth_ft_signal, ft_freq_signal, 0.5, 1.0
+    )
     fas_0p5_1p0_gm, ft_s3_gm = compute_fas(ft_smooth_gm, ft_freq_signal, 0.5, 1.0)
 
     fas_ratio_low_1 = fas_0p1_0p2_1 / fas_0p2_0p5_1

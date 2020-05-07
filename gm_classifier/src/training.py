@@ -9,9 +9,12 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
+import matplotlib.pyplot as plt
 from scipy import stats
+from sklearn.model_selection import KFold
 
 from . import pre_processing as pre
+from . import plots
 
 
 def get_multi_output_y(
@@ -44,49 +47,122 @@ def get_multi_output_y(
 
     return y
 
+def run_k_means(X_features: pd.DataFrame, X_snr: np.ndarray, y: pd.DataFrame, ids: np.ndarray,
+                feature_config: Dict, get_model_fn: Callable, compile_kwargs: Dict, fit_kwargs: Dict, output_dir: Path, n_folds: int = 10,
+                eval_loss_fn: Callable = None):
+    # Use K-fold to get estimated values for every labelled sample
+    kf = KFold(n_splits=n_folds, shuffle=True)
+    r_ids, r_y_val, r_y_val_est, r_val_loss = [], [], [], []
+    for ix, (train_ind, val_ind) in enumerate(kf.split(X_features)):
+        cur_id = f"iter_{ix}"
 
-# def train_val_split(
-#     train_df: pd.DataFrame,
-#     feature_names: List[str],
-#     label_names: List[str],
-#     val_size: float = 0.25,
-# ):
-#     """Performs the training & validation data split for the given dataframe
-#     Also only retrieves the features/labels of interest"""
-#     # Get indices for splitting into training & validation set
-#     train_ind, val_ind = train_test_split(
-#         np.arange(train_df.shape[0], dtype=int), test_size=val_size
-#     )
-#
-#     # Create training and validation datasets
-#     X_train = train_df.loc[:, feature_names].iloc[train_ind].copy()
-#     X_val = train_df.loc[:, feature_names].iloc[val_ind].copy()
-#
-#     y_train = train_df.loc[:, label_names].iloc[train_ind].copy()
-#     y_val = train_df.loc[:, label_names].iloc[val_ind].copy()
-#
-#     ids_train = train_df.iloc[train_ind].index.values
-#     ids_val = train_df.iloc[val_ind].index.values
-#
-#     train_data = (X_train, y_train, ids_train)
-#     val_data = (X_val, y_val, ids_val)
-#
-#     return train_data, val_data
+        # Create the output directory
+        cur_output_dir = output_dir / cur_id
+        cur_output_dir.mkdir()
 
+        # Get the current training and validation data
+        X_features_train, X_snr_train, y_train, ids_train = (
+            X_features.iloc[train_ind].copy(),
+            X_snr[train_ind],
+            y.iloc[train_ind].copy(),
+            ids[train_ind],
+        )
+        X_features_val, X_snr_val, y_val, ids_val = (
+            X_features.iloc[val_ind].copy(),
+            X_snr[val_ind],
+            y.iloc[val_ind].copy(),
+            ids[val_ind],
+        )
+
+        # Pre-processing
+        X_features_train, X_features_val = apply_pre(
+            X_features_train.copy(),
+            feature_config,
+            output_dir,
+            val_data=X_features_val.copy(),
+            output_prefix="features",
+        )
+        X_snr_train, X_snr_val = np.log(X_snr_train), np.log(X_snr_val)
+
+        # Get the model
+        gm_model = get_model_fn()
+
+        # Run training of the model
+        history, gm_model = fit(cur_output_dir, gm_model, (
+            {"features": X_features_train.values, "snr_series": X_snr_train},
+            y_train.values,
+            ids_train
+        ),
+        val_data=(
+            {"features": X_features_val.values, "snr_series": X_snr_val},
+            y_val.values,
+            ids_val,
+        ),        compile_kwargs=compile_kwargs,
+        fit_kwargs=fit_kwargs,)
+
+        # Loss plot
+        fig, ax = plots.plot_loss(
+            history,
+            # output_ffp=str(output_dir / "loss_plot.png"),
+            fig_kwargs={"figsize": (16, 10)},
+        )
+        ax.set_ylim((0, 1))
+        plt.savefig(str(cur_output_dir / "loss_plot.png"))
+        plt.close()
+
+        # Load the best model
+        gm_model.load_weights(str(cur_output_dir / "model.h5"))
+        cur_y_est = gm_model.predict(
+            {"features": X_features_val.values, "snr_series": X_snr_val}
+        )
+
+        r_ids.append(ids_val)
+        r_y_val.append(y_val)
+        r_y_val_est.append(cur_y_est)
+
+        if eval_loss_fn is not None:
+            cur_val_loss = eval_loss_fn(y_val.values, cur_y_est).numpy()
+            r_val_loss.append(cur_val_loss)
+
+    r_ids = np.concatenate(r_ids)
+    r_y_val = np.concatenate(r_y_val)
+    r_y_val_est = np.concatenate(r_y_val_est)
+
+    # --- Combine the results ----
+    label_names = y.columns.values.astype(str)
+    if eval_loss_fn is None:
+        result_df = pd.DataFrame(
+            data=np.concatenate((r_y_val, r_y_val_est), axis=1),
+            index=r_ids,
+            columns=np.concatenate(
+                (label_names, np.char.add(label_names, "_est")), axis=0
+            ),
+        )
+    else:
+        r_val_loss = np.concatenate(r_val_loss)
+        result_df = pd.DataFrame(
+            data=np.concatenate((r_y_val, r_y_val_est, r_val_loss), axis=1),
+            index=r_ids,
+            columns=np.concatenate(
+                (label_names, np.char.add(label_names, "_est"), np.char.add(label_names, "_loss")),
+                axis=0
+            ),
+        )
+    return result_df
 
 def fit(
     output_dir: Path,
     model: Union[Type, keras.Model],
-    model_config: Dict,
     training_data: Tuple[
         Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray
     ],
+    model_config: Dict = None,
     val_data: Union[
         None, Tuple[Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray]
     ] = None,
     compile_kwargs: Dict[str, Any] = None,
     fit_kwargs: Dict[str, Any] = None,
-    tensorboard_cb_kwargs: Dict[str, Any] = None,
+    tensorboard_cb_kwargs: Dict[str, Any] = {},
 ) -> Tuple[Dict, keras.Model]:
     """
     Performs the training for the specified
@@ -101,11 +177,13 @@ def fit(
         If a type is passed in, this is expected to be a sub-class
         of keras.Model and implement the from_custom_config method which
         will be used to create the actual model instance from the model_config
-    model_config: dictionary with string keys
-        Dictionary that contains model details
     training_data: triplet
         Training data, expected tuple data:
         (X_train, y_train, ids_train)
+    model_config: dictionary with string keys, optional
+        Dictionary that contains model details
+        If not specified, then the model parameter has to be a
+        keras model instance
     val_data: triplet
         Validation data, expected tuple data:
         (X_train, y_train, ids_train)
@@ -133,7 +211,9 @@ def fit(
         np.save(output_dir / "val_ids.npy", ids_val)
 
     # Build the model architecture (if required)
-    gm_model = model.from_custom_config(model_config) if isinstance(model, type) else model
+    gm_model = (
+        model.from_custom_config(model_config) if isinstance(model, type) else model
+    )
 
     # Train the model
     tensorboard_output_dir = output_dir / "tensorboard_log"
@@ -408,10 +488,10 @@ class CustomScaledLoss(keras.losses.Loss):
 
     def call(self, y_true, y_pred):
         # Split into score & f_min tensors
-        scores_true = tf.gather(y_true, [0, 2, 4], axis=1)
+        scores_true = tf.cast(tf.gather(y_true, [0, 2, 4], axis=1), tf.float32)
         scores_pred = tf.gather(y_pred, [0, 2, 4], axis=1)
 
-        f_min_true = tf.gather(y_true, [1, 3, 5], axis=1)
+        f_min_true = tf.cast(tf.gather(y_true, [1, 3, 5], axis=1), tf.float32)
         f_min_pred = tf.gather(y_pred, [1, 3, 5], axis=1)
 
         # Compute the score loss
@@ -449,20 +529,12 @@ class CustomScaledLoss(keras.losses.Loss):
         return loss
 
 
-def create_soft_clipping(alpha, z_min: float = 0.0, z_max: float = 1.0):
-    """Returns the soft-clipping activation function as used in
-    this paper https://arxiv.org/pdf/1810.11509.pdf
-
-    The function is approx. linear within (0, 1) and asymptotes very
-    quickly outside that range. To allow other ranges, this implementation
-    supports min-max scaling of the input & output
-
-    Mainly useful as a output layer activation function,
-    when wanting constrained regression (i.e. linear activation within a range)
+def create_soft_clipping(p, z_min: float = 0.0, z_max: float = 1.0):
+    """Returns the scaled soft-clipping function
 
     Parameters
     ----------
-    alpha: float
+    p: float
         Parameter of the soft-clipping function that determines
         how close to linear the central region is and how sharply the linear
         region turns to the asymptotic values
@@ -474,21 +546,69 @@ def create_soft_clipping(alpha, z_min: float = 0.0, z_max: float = 1.0):
     -------
     tensorflow function
     """
-    alpha = (
-        alpha if isinstance(alpha, tf.Tensor) else tf.constant(alpha, dtype=tf.float32)
+    p = (
+        p if isinstance(p, tf.Tensor) else tf.constant(p, dtype=tf.float32)
     )
 
-    def soft_clipping(z):
+    def scaled_soft_clipping(z):
         z_scaled = pre.tf_min_max_scale(
             z, target_min=0, target_max=1, x_min=0, x_max=10
         )
-        result = (1 / alpha) * tf.math.log(
-            (1 + tf.math.exp(alpha * z_scaled))
-            / (1 + tf.math.exp(alpha * (z_scaled - 1)))
-        )
+        result = soft_clipping(z_scaled, p)
         result = pre.tf_min_max_scale(
             result, target_min=z_min, target_max=z_max, x_min=0, x_max=1
         )
         return result
 
-    return tf.function(soft_clipping)
+    return tf.function(scaled_soft_clipping)
+
+
+@tf.function
+def soft_clipping(z: tf.Tensor, p: tf.Tensor):
+    """Implementation of the soft-clipping activation function as used in
+    this paper https://arxiv.org/pdf/1810.11509.pdf
+
+    The function is approx. linear within (0, 1) and asymptotes very
+    quickly outside that range. To allow other ranges, this implementation
+    supports min-max scaling of the input & output
+
+    Mainly useful as a output layer activation function,
+    when wanting constrained regression (i.e. linear activation within a range)
+    """
+    z, p = tf.cast(z, dtype=tf.float64), tf.cast(p, dtype=tf.float64)
+    return tf.cast((1 / p) * tf.math.log(
+        (1 + tf.math.exp(p * z)) / (1 + tf.math.exp(p * (z - 1)))
+    ), dtype=tf.float32)
+
+
+def create_custom_act_fn(score_act_fn: tf.function, f_min_act_fn: tf.function):
+    def custom_act_fn(z):
+        score_z = tf.gather(z, [0, 2, 4], axis=1)
+        score_res = score_act_fn(score_z)
+
+        f_min_z = tf.gather(z, [1, 3, 5], axis=1)
+        f_min_res = f_min_act_fn(f_min_z)
+
+        output = tf.stack((
+            score_res[:, 0],
+            f_min_res[:, 0],
+            score_res[:, 1],
+            f_min_res[:, 1],
+            score_res[:, 2],
+            f_min_res[:, 2],
+        ), axis=1)
+
+        return output
+
+    return tf.function(custom_act_fn)
+
+
+
+
+
+
+
+
+
+
+

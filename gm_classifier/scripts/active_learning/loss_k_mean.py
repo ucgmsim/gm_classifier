@@ -15,6 +15,7 @@ from tensorflow import keras
 
 import gm_classifier as gm
 
+
 # ----- Helper functions ------
 def __sample_record_ids(n: int, df: pd.DataFrame, mask: pd.Series):
     if np.count_nonzero(mask) < n:
@@ -231,12 +232,12 @@ for ix, (train_ind, val_ind) in enumerate(kf.split(X_features)):
     history, gm_model = gm.training.fit(
         cur_output_dir,
         gm.model.CnnSnrModel,
-        model_config,
         (
             {"features": X_features_train.values, "snr_series": X_snr_train},
             y_train.values,
             ids_train,
         ),
+        model_config=model_config,
         val_data=(
             {"features": X_features_val.values, "snr_series": X_snr_val},
             y_val.values,
@@ -345,8 +346,6 @@ X_full = gm.pre.standardise(X_full, X_full.mean(axis=0), X_full.std(axis=0))
 enc, X_trans, rec_loss = gm.dim_reduction.ae(X_full)
 enc.save(output_dir / "encoder.h5")
 
-# Do I need to scale here again???
-# X_trans = robust_scale(X_trans)
 df_full["X_1"] = X_trans[:, 0]
 df_full["X_2"] = X_trans[:, 1]
 

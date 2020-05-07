@@ -26,12 +26,15 @@ label_dir = (
 )
 
 # features_dir = "/Users/Clus/code/work/gm_classifier/data/records/training_data/all_records_features/200401"
-features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200401"
+# features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200401"
+# features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200429"
+features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200429"
 
 # output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/tmp_3"
 # output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/new_loss/test_1"
-output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/new_loss/test_tmp"
-# output_dir = "/Users/Clus/code/work/gm_classifier/results/200420_results"
+# output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/new_loss/test_3"
+# output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/new_loss/test_tmp"
+output_dir = "/Users/Clus/code/work/gm_classifier/results/200506_results/pred_model"
 
 label_config = {
     "score_X": None,
@@ -62,28 +65,38 @@ feature_config = {
     "fas_ratio_high": ["standard", "whiten"],
     "pn_pga_ratio": ["standard", "whiten"],
     "is_vertical": None,
+    "alg_f_min": None,
 }
-
-snr_features = [
-    f"snr_value_{freq:.3f}"
-    for freq in np.logspace(np.log(0.05), np.log(20), 50, base=np.e)
-]
-
 
 # Model config
 act_fn = "elu"
 kernel_init = "glorot_uniform"
+kernel_reg = None
 dropout_rate = 0.3
 model_config = {
     "dense_layer_config": [
         (
             keras.layers.Dense,
-            {"units": 32, "activation": act_fn, "kernel_initializer": kernel_init},
+            {
+                "units": 32,
+                "activation": act_fn,
+                "kernel_initializer": kernel_init,
+                "kernel_regularizer": kernel_reg,
+            },
         ),
+        # (keras.layers.BatchNormalization, {}),
+        (keras.layers.Dropout, {"rate": dropout_rate}),
         (
             keras.layers.Dense,
-            {"units": 16, "activation": act_fn, "kernel_initializer": kernel_init},
+            {
+                "units": 16,
+                "activation": act_fn,
+                "kernel_initializer": kernel_init,
+                "kernel_regularizer": kernel_reg,
+            },
         ),
+        # (keras.layers.BatchNormalization, {}),
+        (keras.layers.Dropout, {"rate": dropout_rate}),
     ],
     "dense_input_name": "features",
     "cnn_layer_config": [
@@ -96,10 +109,12 @@ model_config = {
                 "activation": act_fn,
                 "kernel_initializer": kernel_init,
                 "padding": "same",
+                "kernel_regularizer": kernel_reg,
             },
         ),
         (keras.layers.MaxPooling1D, {"pool_size": 2}),
         (keras.layers.Dropout, {"rate": dropout_rate}),
+        # (keras.layers.BatchNormalization, {}),
         (
             keras.layers.Conv1D,
             {
@@ -109,38 +124,56 @@ model_config = {
                 "activation": act_fn,
                 "kernel_initializer": kernel_init,
                 "padding": "same",
+                "kernel_regularizer": kernel_reg,
             },
         ),
         (keras.layers.MaxPooling1D, {"pool_size": 2}),
+        # (keras.layers.BatchNormalization, {}),
         (keras.layers.Dropout, {"rate": dropout_rate}),
     ],
     "cnn_input_name": "snr_series",
     "comb_layer_config": [
         (
             keras.layers.Dense,
-            {"units": 64, "activation": act_fn, "kernel_initializer": kernel_init},
+            {
+                "units": 64,
+                "activation": act_fn,
+                "kernel_initializer": kernel_init,
+                "kernel_regularizer": kernel_reg,
+            },
         ),
+        # (keras.layers.BatchNormalization, {}),
         (keras.layers.Dropout, {"rate": dropout_rate}),
         (
             keras.layers.Dense,
-            {"units": 32, "activation": act_fn, "kernel_initializer": kernel_init},
+            {
+                "units": 32,
+                "activation": act_fn,
+                "kernel_initializer": kernel_init,
+                "kernel_regularizer": kernel_reg,
+            },
         ),
+        # (keras.layers.BatchNormalization, {}),
         (keras.layers.Dropout, {"rate": dropout_rate}),
         (
             keras.layers.Dense,
-            {"units": 16, "activation": act_fn, "kernel_initializer": kernel_init},
+            {
+                "units": 16,
+                "activation": act_fn,
+                "kernel_initializer": kernel_init,
+                "kernel_regularizer": kernel_reg,
+            },
         ),
     ],
-    "output": keras.layers.Dense(6, activation="linear")
+    "output": keras.layers.Dense(
+        6,
+        activation=gm.training.create_custom_act_fn(
+            keras.activations.linear,
+            # keras.activations.linear,
+            gm.training.create_soft_clipping(30, z_min=0.1, z_max=10.0),
+        ),
+    ),
 }
-
-# Training details
-optimizer = "Adam"
-val_size = 0.1
-n_epochs = 400
-batch_size = 64
-
-output_dir = Path(output_dir)
 
 # ---- Training ----
 label_df = gm.utils.load_labels_from_dir(label_dir, f_min_100_value=10)
@@ -150,16 +183,20 @@ train_df = pd.merge(
     feature_df, label_df, how="inner", left_index=True, right_index=True
 )
 
-gm_model = gm.RecordCompModel(output_dir, label_names=label_names, feature_config=feature_config,
-                           snr_freq_values=np.logspace(np.log(0.05), np.log(20), 50, base=np.e),
-                           model_config=model_config)
+# gm_model = gm.RecordCompModel(
+#     output_dir,
+#     label_names=label_names,
+#     feature_config=feature_config,
+#     # snr_freq_values=np.logspace(np.log(0.05), np.log(20), 50, base=np.e),
+#     snr_freq_values=np.logspace(np.log(0.01), np.log(25), 100, base=np.e),
+#     model_config=model_config,
+# )
+gm_model = gm.RecordCompModel(output_dir)
 
 # Run training of the model
-fit_kwargs = {"batch_size": 64, "epochs": 200, "verbose": 2}
-gm_model.train(train_df, val_size=val_size, fit_kwargs=fit_kwargs)
+fit_kwargs = {"batch_size": 32, "epochs": 300, "verbose": 2}
+# gm_model.train(train_df, val_size=val_size, fit_kwargs=fit_kwargs, compile_kwargs={"run_eagerly": True})
+gm_model.train(train_df, val_size=0.1, fit_kwargs=fit_kwargs)
 
 # Create eval plots
 gm_model.create_eval_plots()
-
-
-
