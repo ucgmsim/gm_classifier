@@ -189,7 +189,7 @@ for score in result_df.score_X.unique():
 n_procs = 3
 with mp.Pool(n_procs) as p:
     results = p.map(
-        gm.utils.load_ts_data,
+        gm.utils.load_record_ts_data,
         [
             ts_data_dir / cur_record_id
             for cur_record_id in label_df.index.values.astype(str)

@@ -36,9 +36,9 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
     acc = np.stack((gf.comp_1st.acc, gf.comp_2nd.acc, gf.comp_up.acc), axis=1)
 
     # Combine fourier transform data, shape [n_frequencies, 3 components]
-    ft_smooth = np.stack(
-        (ft_data_X.smooth_ft, ft_data_Y.smooth_ft, ft_data_Z.smooth_ft), axis=1
-    )
+    # ft_smooth = np.stack(
+    #     (ft_data_X.smooth_ft, ft_data_Y.smooth_ft, ft_data_Z.smooth_ft), axis=1
+    # )
     ft_smooth_signal = np.stack(
         (
             ft_data_X.smooth_ft_signal,
@@ -56,10 +56,10 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
     ft_freq = ft_data_X.ft_freq
     ft_freq_signal = ft_data_X.ft_freq_signal
 
-    assert np.all(
-        np.isclose(ft_data_X.ft_freq, ft_data_Y.ft_freq)
-        & np.isclose(ft_data_X.ft_freq, ft_data_Z.ft_freq)
-    )
+    # assert np.all(
+    #     np.isclose(ft_data_X.ft_freq, ft_data_Y.ft_freq)
+    #     & np.isclose(ft_data_X.ft_freq, ft_data_Z.ft_freq)
+    # )
     assert np.all(
         np.isclose(ft_data_X.ft_freq_pe, ft_data_Y.ft_freq_pe)
         & np.isclose(ft_data_X.ft_freq_pe, ft_data_Z.ft_freq_pe)
@@ -74,14 +74,14 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
         "acc_length": gf.comp_1st.acc.size,
         "acc_dt": gf.comp_1st.delta_t,
         "acc_duration": gf.comp_1st.acc.size * gf.comp_1st.delta_t,
-        "ft_length": ft_smooth.shape[0],
+        "ft_signal_length": ft_smooth_signal.shape[0],
+        "ft_pe_length": ft_smooth_pe.shape[0],
         "snr_length": snr.shape[0],
         "p_wave_ix": p_wave_ix,
     }
 
     return (
         acc,
-        ft_smooth,
         ft_smooth_signal,
         ft_smooth_pe,
         snr,
@@ -145,7 +145,7 @@ def main(
             continue
 
         try:
-            cur_acc, cur_ft_smooth, cur_ft_smooth_signal, cur_ft_smooth_pe, cur_snr, cur_ft_freq, cur_ft_freq_signal, cur_meta_data = get_series_data(
+            cur_acc, cur_ft_smooth_signal, cur_ft_smooth_pe, cur_snr, cur_ft_freq, cur_ft_freq_signal, cur_meta_data = get_series_data(
                 record_ffp, ko_matrices
             )
         except gm.records.RecordError as ex:
@@ -162,11 +162,10 @@ def main(
                 cur_out_dir.mkdir()
 
             np.save(cur_out_dir / f"{record_id}_acc.npy", cur_acc.astype(np.float32))
-            np.save(cur_out_dir / f"{record_id}_smooth_ft.npy", cur_ft_smooth.astype(np.float32))
             np.save(cur_out_dir / f"{record_id}_smooth_ft_signal.npy", cur_ft_smooth_signal.astype(np.float32))
             np.save(cur_out_dir / f"{record_id}_smooth_ft_pe.npy", cur_ft_smooth_pe.astype(np.float32))
             np.save(cur_out_dir / f"{record_id}_snr.npy", cur_snr.astype(np.float32))
-            np.save(cur_out_dir / f"{record_id}_ft_freq.npy", cur_ft_freq.astype(np.float32))
+            # np.save(cur_out_dir / f"{record_id}_ft_freq.npy", cur_ft_freq.astype(np.float32))
             np.save(cur_out_dir / f"{record_id}_ft_freq_signal.npy", cur_ft_freq_signal.astype(np.float32))
 
 

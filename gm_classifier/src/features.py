@@ -382,7 +382,7 @@ def get_p_wave_ix(
         the picked position exceeding the specified acc position"""
         return p_wave >= acc_t_threshold
 
-    t = t if t is not None else np.arange(acc_X.shape[0] * dt)
+    t = t if t is not None else np.arange(acc_X.shape[0]) * dt
     sample_rate = 1.0 / dt
 
     p_pick, s_pick = ar_pick(
@@ -435,7 +435,7 @@ def get_p_wave_ix(
 
     # If all algorithms fail, pick p-wave at 5% record duration, but not less than 3s in.
     if not p_wave_test(p_pick, t[10]):
-        p_pick = np.max(3, 0.05 * t[-1])
+        p_pick = np.max([3, 0.05 * t[-1]])
 
     p_wave_ix = int(np.floor(np.multiply(p_pick, sample_rate)))
     return p_wave_ix

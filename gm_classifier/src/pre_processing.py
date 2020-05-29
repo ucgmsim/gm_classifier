@@ -110,7 +110,7 @@ def compute_W_ZCA(X: np.ndarray) -> np.ndarray:
 
 def apply(
     X: pd.DataFrame,
-    config: Dict = None,
+    config: Dict,
     mu: pd.Series = None,
     sigma: pd.Series = None,
     W: np.ndarray = None,

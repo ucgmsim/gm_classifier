@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
@@ -204,3 +205,129 @@ def get_color_marker_comb():
 
     return [(c, m) for c in colours for m in markers]
 
+
+def create_record_eval_plots(
+    record_ids: List[str],
+    acc_ts: List[np.ndarray],
+    dt: List[float],
+    snr: List[np.ndarray],
+    ft_freq: List[np.ndarray],
+    result_df: pd.DataFrame,
+    output_dir: Union[Path, str],
+    label_df: pd.DataFrame = None,
+    p_wave_ind: List[int] = None,
+):
+    """Creates record eval plots for each of the specified records,
+    each plot shows ACC and SNR for each of the three components
+
+    Parameters
+    ----------
+    record_ids: list of strings
+        The record ids for which to generate plots
+        Note: The record_ids, acc_ts, dt, snr and ft_freq lists
+        all have to be in the same order!
+    acc_ts: list of numpy array
+        The acc timeseries
+    dt: list of floats
+        The timestep size
+    snr: list of numpy array
+        The SNR frequency series
+    ft_freq: list of numpy array
+        The SNR frequencies
+    result_df: pandas datframe
+        Expected columns are [score_X, f_min_X....]
+    output_dir: str or path
+    label_df: pandas dataframe
+        Contains the true labels for each record
+        Expected columns are [score_X, f_min_X....]
+    p_wave_ind: list of ints
+        Contains the p-wave index for each record
+        Also has to be in the same order as record_ids
+    """
+    for rec_ix, cur_id in enumerate(record_ids):
+        print(f"Processing {rec_ix + 1}/{len(record_ids)}")
+        if cur_id not in record_ids:
+            print(f"No timeseries data for record {cur_id}, skipping")
+            continue
+
+        # Get the relevant data
+        ts_ix = np.flatnonzero(record_ids == cur_id)[0]
+        cur_acc = acc_ts[ts_ix]
+        cur_snr = snr[ts_ix]
+        cur_ft_freq = ft_freq[ts_ix]
+
+        fig, axes = plt.subplots(2, 3, figsize=(22, 10))
+
+        for comp_ix, cur_comp in enumerate(["X", "Y", "Z"]):
+            ax_1, ax_2 = axes[0, comp_ix], axes[1, comp_ix]
+            cur_f_min_true = label_df.loc[cur_id, f"f_min_{cur_comp}"]
+            cur_score_true = label_df.loc[cur_id, f"score_{cur_comp}"]
+            cur_f_min_est = result_df.loc[cur_id, f"f_min_{cur_comp}"]
+            cur_score_est = result_df.loc[cur_id, f"score_{cur_comp}"]
+
+            t = np.arange(cur_acc.shape[0]) * dt[rec_ix]
+            ax_1.plot(t, cur_acc[:, comp_ix], label="X")
+
+            if p_wave_ind is not None:
+                ax_1.axvline(x=t[p_wave_ind[rec_ix]], c="k", linestyle="--")
+
+            ax_1.set_ylabel("Acc")
+            ax_1.set_xlabel("Time")
+            ax_1.set_title(
+                f"Score - True: {cur_score_true} Est: {cur_score_est:.2f}, f_min - True: {cur_f_min_true}, Est: {cur_f_min_est:.2f}"
+            )
+            ax_1.grid()
+
+            ax_2.plot(cur_ft_freq, cur_snr[:, comp_ix], "b")
+            ax_2.plot(
+                [cur_f_min_true, cur_f_min_true],
+                [cur_snr[1:, comp_ix].min(), cur_snr[1:, comp_ix].max()],
+                "k--",
+                linewidth=1.4,
+            )
+            ax_2.plot(
+                [cur_f_min_est, cur_f_min_est],
+                [cur_snr[1:, comp_ix].min(), cur_snr[1:, comp_ix].max()],
+                "r--",
+                linewidth=1.4,
+            )
+            ax_2.plot(
+                [cur_ft_freq.min(), cur_ft_freq.max()],
+                [2.0, 2.0],
+                color="gray",
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.75,
+            )
+
+            ax_2.set_ylabel("SNR")
+            ax_2.set_xlabel("Frequency")
+            ax_2.loglog()
+            ax_2.grid()
+            ax_2.set_ylim((cur_snr[1:, comp_ix].min(), cur_snr[1:, comp_ix].max()))
+            fig.tight_layout()
+
+        fig.savefig(output_dir / f"{cur_id}.png")
+        plt.close()
+
+def multi_fig(
+    ind_fig_size: Tuple[float, float], n_rows: int, n_cols: int, dpi: int = 100
+) -> plt.Figure:
+    """
+    Returns a figure with n_rows rows and n_cols columns, with each plot
+    of size as specified by ind_fig_size
+
+    Parameters
+    ----------
+    ind_fig_size: pair of ints
+        The size size of each plot
+    n_rows: int
+    n_cols: int
+    dpi: int, optional
+
+    Returns
+    -------
+    Figure
+    """
+    fig_size = (ind_fig_size[0] * n_cols, ind_fig_size[1] * n_rows)
+    return plt.figure(figsize=fig_size, dpi=dpi)
