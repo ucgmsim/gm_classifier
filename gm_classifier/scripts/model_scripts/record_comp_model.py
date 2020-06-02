@@ -25,16 +25,9 @@ label_dir = (
     "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/labels"
 )
 
-# features_dir = "/Users/Clus/code/work/gm_classifier/data/records/training_data/all_records_features/200401"
-# features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200401"
-# features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200429"
 features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200429"
 
-# output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/tmp_3"
-# output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/new_loss/test_1"
-# output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/new_loss/test_3"
-# output_dir = "/Users/Clus/code/work/tmp/gm_classifier/record_based/new_loss/test_tmp"
-output_dir = "/Users/Clus/code/work/gm_classifier/results/200506_results/pred_model"
+output_dir = "/Users/Clus/code/work/gm_classifier/results/200529_results/new_model"
 
 label_config = {
     "score_X": None,

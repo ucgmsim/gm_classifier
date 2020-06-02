@@ -392,7 +392,7 @@ def get_feature_details(
     return feature_names, feature_config, snr_feature_keys
 
 
-def load_record_ts_data(record_ts_data_dir: Path, record_dt: float, dt: float):
+def load_record_ts_data(record_ts_data_dir: Path, record_dt: float = None, dt: float = None):
     """Loads the time series data for a single record,
     that was extracted using the extract_time_series.py script
     """
@@ -407,7 +407,7 @@ def load_record_ts_data(record_ts_data_dir: Path, record_dt: float, dt: float):
         acc_ts = detrend(acc_ts).astype(np.float32)
 
         # Down/Up sample if required
-        if not np.isclose(record_dt, dt):
+        if record_dt is not None and dt is not None and not np.isclose(record_dt, dt):
             t = np.arange(acc_ts.shape[0]) * record_dt
             t_new = np.arange(acc_ts.shape[0]) * dt
             acc_new = np.full((t_new.shape[0], 3), np.nan)
