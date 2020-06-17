@@ -432,7 +432,7 @@ def load_ts_data(
     record_ids: Iterable[str],
     ts_data_dir: Union[Path, str],
     meta_df: pd.DataFrame,
-    dt: float,
+    dt: float = None,
     n_procs: int = 3,
 ) -> Tuple[List[str], List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
     """

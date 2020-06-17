@@ -21,9 +21,10 @@ features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_
 # features_dir = "/Users/Clus/code/work/gm_classifier/data/records/local/training_data/all_records_features/200429_alg_f_min_feature"
 
 # output_dir = Path("/Users/Clus/code/work/tmp/gm_classifier/record_based/k_means/test_1")
-output_dir = Path("/Users/Clus/code/work/gm_classifier/results/200506_results/k_fold")
+output_dir = Path("/Users/Clus/code/work/gm_classifier/results/200529_results/k_fold")
 
 ts_data_dir = Path("/Volumes/Claudio/work/records/ts/labelled")
+meta_ffp = Path("/Volumes/Claudio/work/records/ts/labelled/meta_data.csv")
 
 # ----- Data -----
 label_df = gm.utils.load_labels_from_dir(label_dir, f_min_100_value=10)
@@ -195,6 +196,7 @@ with mp.Pool(n_procs) as p:
             for cur_record_id in label_df.index.values.astype(str)
         ],
     )
+meta_df = pd.read_csv(meta_ffp, index_col="record_id")
 
 acc_ts = [result[1] for result in results if result[1] is not None]
 snr = [result[4] for result in results if result[1] is not None]
@@ -214,7 +216,8 @@ for rec_ix, cur_id in enumerate(result_df.index.values):
     cur_ft_freq = ft_freq[ts_ix]
 
     fig, axes = plt.subplots(2, 3, figsize=(22, 10))
-
+    cur_dt = meta_df.loc[cur_id, "acc_dt"]
+    
     for comp_ix, cur_comp in enumerate(["X", "Y", "Z"]):
         ax_1, ax_2 = axes[0, comp_ix], axes[1, comp_ix]
         cur_f_min_true = result_df.loc[cur_id, f"f_min_{cur_comp}"]
@@ -222,7 +225,7 @@ for rec_ix, cur_id in enumerate(result_df.index.values):
         cur_score_true = result_df.loc[cur_id, f"score_{cur_comp}"]
         cur_score_est = result_df.loc[cur_id, f"score_{cur_comp}_est"]
 
-        ax_1.plot(np.arange(cur_acc.shape[0]) * (1/200), cur_acc[:, comp_ix], label="X")
+        ax_1.plot(np.arange(cur_acc.shape[0]) * cur_dt,cur_acc[:, comp_ix], label="X")
         ax_1.set_ylabel("Acc")
         ax_1.set_xlabel("Time")
         ax_1.set_title(
