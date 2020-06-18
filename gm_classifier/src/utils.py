@@ -7,7 +7,10 @@ from typing import Dict, Union, Tuple, List, Iterable
 
 import pandas as pd
 import numpy as np
+from obspy.signal.trigger import ar_pick, pk_baer
 from scipy.signal import detrend
+
+import phase_net as ph
 
 
 def load_features_from_dir(
@@ -364,7 +367,7 @@ def get_full_feature_config(feature_config: Dict) -> Tuple[List[str], Dict]:
 
 def get_feature_details(
     feature_config: Dict, snr_freq_values: np.ndarray
-) -> Tuple[List[str], Dict, List[str]]:
+) -> Tuple[Iterable[str], Dict, List[str]]:
     """Retrieves the feature details required for training of a
     record-component multi-output model
 
@@ -392,7 +395,9 @@ def get_feature_details(
     return feature_names, feature_config, snr_feature_keys
 
 
-def load_record_ts_data(record_ts_data_dir: Path, record_dt: float = None, dt: float = None):
+def load_record_ts_data(
+    record_ts_data_dir: Path, record_dt: float = None, dt: float = None
+):
     """Loads the time series data for a single record,
     that was extracted using the extract_time_series.py script
     """
@@ -434,7 +439,7 @@ def load_ts_data(
     meta_df: pd.DataFrame,
     dt: float = None,
     n_procs: int = 3,
-) -> Tuple[List[str], List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
+) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
     """
     Loads the timeseries data for the specified records
 
@@ -474,3 +479,119 @@ def load_ts_data(
     ft_freq = [result[3] for result in results if result[1] is not None]
 
     return record_ids, acc_ts, snr, ft_freq
+
+
+def run_phase_net(input_data: np.ndarray, dt: float, t: np.ndarray = None):
+    # Only supports a single record
+    assert input_data.shape[0] == 1
+
+    t = t if t is not None else np.arange(input_data.shape[1]) * dt
+
+    # Have to resample
+    if not np.isclose(dt, 1/100):
+        dt_new = 1/100
+        t_new = np.arange(t.max() / dt_new) * dt_new
+        input_resampled = np.full((1, t_new.shape[0], 3), np.nan)
+        input_resampled[0, :, 0] = np.interp(t_new, t, input_data[0, :, 0])
+        input_resampled[0, :, 1] = np.interp(t_new, t, input_data[0, :, 1])
+        input_resampled[0, :, 2] = np.interp(t_new, t, input_data[0, :, 2])
+
+        assert np.all(~np.isnan(input_resampled))
+
+        probs = ph.predict(input_resampled)
+        p_wave_ix, s_wave_ix = np.argmax(probs[0, :, 1]), np.argmax(probs[0, :, 2])
+
+        # Adjust for original dt
+        p_wave_ix = int(np.round((dt_new / dt) * p_wave_ix))
+        s_wave_ix = int(np.round((dt_new / dt) * s_wave_ix))
+    else:
+        probs = ph.predict(input_data)
+        p_wave_ix, s_wave_ix = np.argmax(probs[0, :, 1]), np.argmax(probs[0, :, 2])
+
+    return p_wave_ix, s_wave_ix
+
+def get_p_wave_ix(
+    acc_X: np.ndarray,
+    acc_Y: np.ndarray,
+    acc_Z: np.ndarray,
+    dt: float,
+    t: np.ndarray = None,
+) -> Tuple[int, Union[None, int]]:
+    """Performs the p-wave"""
+
+    def p_wave_test(p_wave: float, acc_t_threshold: float):
+        """Tests if a specific p-wave pick is 'good', based on
+        the picked position exceeding the specified time in the record"""
+        return p_wave >= acc_t_threshold
+
+    def get_ix(pick, cur_sample_rate) -> int:
+        return int(np.floor(np.multiply(pick, cur_sample_rate)))
+
+    t = t if t is not None else np.arange(acc_X.shape[0]) * dt
+    sample_rate = 1.0 / dt
+
+    # PhaseNet
+    p_wave_ix, s_wave_ix = run_phase_net(np.stack((acc_X, acc_Y, acc_Z), axis=1)[np.newaxis, ...], dt, t=t)
+    if p_wave_test(p_wave_ix * dt, 3):
+        return p_wave_ix, s_wave_ix
+
+    # Obspy picker 1, Argument set 1
+    p_pick, s_pick = ar_pick(
+        a=acc_Z,
+        b=acc_X,
+        c=acc_Y,
+        samp_rate=sample_rate,  # sample_rate
+        f1=dt * 20.0,  # low_pass
+        f2=sample_rate / 20.0,  # high_pass
+        lta_p=1.0,  # P-LTA
+        sta_p=0.2,  # P-STA,
+        lta_s=2.0,  # S-LTA
+        sta_s=0.4,  # S-STA
+        m_p=8,  # P-AR coefficients
+        m_s=8,  # S-coefficients
+        l_p=0.4,  # P-length
+        l_s=0.2,  # S-length
+        s_pick=True,  # S-pick
+    )
+    if p_wave_test(p_pick, 3):
+        return get_ix(p_pick, sample_rate), get_ix(s_pick, sample_rate)
+
+    # Obspy picker 1, Argument set 2
+    p_pick, s_pick = ar_pick(
+        a=acc_Z,
+        b=acc_X,
+        c=acc_Y,
+        samp_rate=1 / dt,
+        f1=5,
+        f2=7,
+        lta_p=5.0,
+        sta_p=0.5,
+        lta_s=5.0,
+        sta_s=0.5,
+        m_p=12,
+        m_s=4,
+        l_p=0.2,
+        l_s=2.0,
+        s_pick=True,
+    )
+    if p_wave_test(p_pick, 3):
+        return get_ix(p_pick, sample_rate), get_ix(s_pick, sample_rate)
+
+    # Obspy picker 2
+    cur_p_pick, _ = pk_baer(
+        reltrc=acc_Z,
+        samp_int=sample_rate,
+        tdownmax=20,
+        tupevent=60,
+        thr1=7.0,
+        thr2=12.0,
+        preset_len=100,
+        p_dur=100,
+    )
+    p_pick = cur_p_pick * dt
+    if p_wave_test(p_pick, 3):
+        return get_ix(p_pick, sample_rate), None
+
+    # If all algorithms fail, pick p-wave at 5% record duration, but not less than 3s in.
+    p_pick = np.max([3, 0.05 * t[-1]])
+    return get_ix(p_pick, sample_rate), None

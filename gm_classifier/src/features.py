@@ -13,10 +13,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import cumtrapz
 from scipy.interpolate import interp1d
-from obspy.signal.trigger import ar_pick, pk_baer
 from obspy.signal.konnoohmachismoothing import calculate_smoothing_matrix
 
-from . import GeoNet_File
+from .geoNet_file import GeoNet_File
+from .utils import get_p_wave_ix
 
 
 class FeatureErrorType(Enum):
@@ -370,83 +370,13 @@ def log_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray):
     return np.exp(interp1d(ln_x, ln_y, kind="linear", bounds_error=True)(ln_x_new))
 
 
-def get_p_wave_ix(
-    acc_X: np.ndarray,
-    acc_Y: np.ndarray,
-    acc_Z: np.ndarray,
-    dt: float,
-    t: np.ndarray = None,
-):
-    def p_wave_test(p_wave: float, acc_t_threshold: float):
-        """Tests if a specific p-wave pick is 'good', based on
-        the picked position exceeding the specified acc position"""
-        return p_wave >= acc_t_threshold
-
-    t = t if t is not None else np.arange(acc_X.shape[0]) * dt
-    sample_rate = 1.0 / dt
-
-    p_pick, s_pick = ar_pick(
-        a=acc_Z,
-        b=acc_X,
-        c=acc_Y,
-        samp_rate=sample_rate,  # sample_rate
-        f1=dt * 20.0,  # low_pass
-        f2=sample_rate / 20.0,  # high_pass
-        lta_p=1.0,  # P-LTA
-        sta_p=0.2,  # P-STA,
-        lta_s=2.0,  # S-LTA
-        sta_s=0.4,  # S-STA
-        m_p=8,  # P-AR coefficients
-        m_s=8,  # S-coefficients
-        l_p=0.4,  # P-length
-        l_s=0.2,  # S-length
-        s_pick=True,  # S-pick
-    )
-    if not p_wave_test(p_pick, t[10]):
-        p_pick, s_pick = ar_pick(
-            a=acc_Z,
-            b=acc_X,
-            c=acc_Y,
-            samp_rate=1 / dt,
-            f1=5,
-            f2=7,
-            lta_p=5.0,
-            sta_p=0.5,
-            lta_s=5.0,
-            sta_s=0.5,
-            m_p=12,
-            m_s=4,
-            l_p=0.2,
-            l_s=2.0,
-            s_pick=True,
-        )
-    if not p_wave_test(p_pick, t[10]):
-        cur_p_pick, _ = pk_baer(
-            reltrc=acc_Z,
-            samp_int=sample_rate,
-            tdownmax=20,
-            tupevent=60,
-            thr1=7.0,
-            thr2=12.0,
-            preset_len=100,
-            p_dur=100,
-        )
-        p_pick = cur_p_pick * dt
-
-    # If all algorithms fail, pick p-wave at 5% record duration, but not less than 3s in.
-    if not p_wave_test(p_pick, t[10]):
-        p_pick = np.max([3, 0.05 * t[-1]])
-
-    p_wave_ix = int(np.floor(np.multiply(p_pick, sample_rate)))
-    return p_wave_ix
-
-
 def get_features(
     gf: GeoNet_File, ko_matrices: Dict[int, np.ndarray] = None
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # Create the time vector
-    t = np.arange(gf.comp_1st.acc.size) * gf.comp_1st.delta_t
+    dt = gf.comp_1st.delta_t
+    t = np.arange(gf.comp_1st.acc.size) * dt
 
     # Get acceleration time series
     acc_1, acc_2 = gf.comp_1st.acc, gf.comp_2nd.acc
@@ -469,7 +399,7 @@ def get_features(
     )
 
     sample_rate = 1.0 / gf.comp_1st.delta_t
-    p_wave_ix = get_p_wave_ix(acc_1, acc_2, acc_v, gf.comp_1st.delta_t)
+    p_wave_ix, s_wave_ix = get_p_wave_ix(acc_1, acc_2, acc_v, dt)
 
     # Calculate max amplitudes of acc time series
     pga_1, pga_2 = compute_pga(acc_1), compute_pga(acc_2)
@@ -791,6 +721,7 @@ def get_features(
 
     additional_data = {
         "p_wave_ix": p_wave_ix,
+        "s_wave_ix": s_wave_ix,
         "gm": {
             "fas_0p1_0p2": fas_0p1_0p2_gm,
             "fas_0p2_0p5": fas_0p2_0p5_gm,
@@ -848,347 +779,347 @@ def get_features(
     return features_dict, additional_data
 
 
-def generate_plots():
-    plt.figure(figsize=(21, 14), dpi=75)
-    plt.suptitle(stat_code, fontsize=20)
-    ax = plt.subplot(431)
-    plt.plot(t, acc1, color="k")
-    ymin, ymax = ax.get_ylim()
-    plt.vlines(p_pick, ymin, ymax, color="r", linewidth=2)
-    plt.vlines(s_pick, ymin, ymax, color="b", linewidth=2)
-    #    plt.vlines(min(hindex1_10)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
-    #    plt.vlines(max(hindex1_10)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
-    #    plt.vlines(min(hindex1_20)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
-    #    plt.vlines(max(hindex1_20)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
-    #    plt.vlines(min(hindex1_30)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
-    #    plt.vlines(max(hindex1_30)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
-    #    plt.vlines(min(hindex1_40)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
-    #    plt.vlines(max(hindex1_40)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
-    #    plt.vlines(min(hindex1_50)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
-    #    plt.vlines(max(hindex1_50)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
-    #    plt.vlines(husid_index1_75*gf.comp_1st.delta_t, ymin, ymax, color='grey', linewidth=2, linestyle='--')
-    #    plt.vlines(husid_index1_95*gf.comp_1st.delta_t, ymin, ymax, color='grey', linewidth=2, linestyle='--')
-    #    plt.hlines([0.10*PGA1], 0, t[-1], color=['g'], linestyle='--')
-    #    plt.hlines([-0.10*PGA1], 0, t[-1], color=['g'], linestyle='--')
-    plt.xlabel("Time (s)")
-    plt.ylabel("Acceleration (g)")
-    ax.text(
-        0.99,
-        0.97,
-        PGA1,
-        horizontalalignment="right",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.99,
-        0.90,
-        [round(p_pick, 3), round(s_pick, 3)],
-        horizontalalignment="right",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.99,
-        0.03,
-        [
-            round(average_tail_ratio1, 5),
-            round(max_tail_ratio1, 5),
-            round(max_head_ratio1, 5),
-        ],
-        horizontalalignment="right",
-        verticalalignment="bottom",
-        transform=ax.transAxes,
-    )
-    ax.set_ylim([ymin, ymax])
-    plt.title("Comp 1")
-    ax = plt.subplot(432)
-    plt.plot(t, acc2, color="k")
-    ymin, ymax = ax.get_ylim()
-    plt.vlines(p_pick, ymin, ymax, color="r", linewidth=2)
-    plt.vlines(s_pick, ymin, ymax, color="b", linewidth=2)
-
-    plt.xlabel("Time (s)")
-    plt.ylabel("Acceleration (g)")
-    ax.text(
-        0.99,
-        0.97,
-        PGA2,
-        horizontalalignment="right",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.99,
-        0.90,
-        [round(p_pick, 3), round(s_pick, 3)],
-        horizontalalignment="right",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.99,
-        0.03,
-        [
-            round(average_tail_ratio2, 5),
-            round(max_tail_ratio2, 5),
-            round(max_head_ratio2, 5),
-        ],
-        horizontalalignment="right",
-        verticalalignment="bottom",
-        transform=ax.transAxes,
-    )
-    ax.set_ylim([ymin, ymax])
-    plt.title("Comp 2")
-    ax = plt.subplot(433)
-    plt.plot(t, accv, color="k")
-    ymin, ymax = ax.get_ylim()
-    plt.vlines(p_pick, ymin, ymax, color="r", linewidth=2)
-    plt.vlines(s_pick, ymin, ymax, color="b", linewidth=2)
-    plt.xlabel("Time (s)")
-    plt.ylabel("Acceleration (g)")
-    ax.text(
-        0.99,
-        0.97,
-        PGAv,
-        horizontalalignment="right",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.99,
-        0.90,
-        [round(p_pick, 3), round(s_pick, 3)],
-        horizontalalignment="right",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.99,
-        0.03,
-        [
-            round(average_tail_ratiov, 5),
-            round(max_tail_ratiov, 5),
-            round(max_head_ratiov, 5),
-        ],
-        horizontalalignment="right",
-        verticalalignment="bottom",
-        transform=ax.transAxes,
-    )
-    plt.title("Comp Up")
-
-    ax = plt.subplot(434)
-    plt.plot(t, AI1, "k")
-    plt.vlines(p_pick, 0, 1, color="r", linewidth=2)
-    plt.vlines(
-        husid_index1_75 * gf.comp_1st.delta_t,
-        0,
-        1,
-        color="grey",
-        linewidth=2,
-        linestyle="--",
-    )
-    plt.vlines(
-        husid_index1_95 * gf.comp_1st.delta_t,
-        0,
-        1,
-        color="grey",
-        linewidth=2,
-        linestyle="--",
-    )
-    plt.hlines([0.05], 0, t[-1], color=["r"], linestyle="--")
-    plt.hlines([0.75], 0, t[-1], color=["r"], linestyle="--")
-    plt.hlines([0.95], 0, t[-1], color=["r"], linestyle="--")
-    plt.xlabel("Time (s)")
-    plt.ylabel("Normalized cumulative Arias Intensity")
-    ax = plt.subplot(435)
-    plt.plot(t, AI2, "k")
-    plt.vlines(p_pick, 0, 1, color="r", linewidth=2)
-    plt.vlines(
-        husid_index2_75 * gf.comp_1st.delta_t,
-        0,
-        1,
-        color="grey",
-        linewidth=2,
-        linestyle="--",
-    )
-    plt.vlines(
-        husid_index2_95 * gf.comp_1st.delta_t,
-        0,
-        1,
-        color="grey",
-        linewidth=2,
-        linestyle="--",
-    )
-    plt.hlines([0.05], 0, t[-1], color=["r"], linestyle="--")
-    plt.hlines([0.75], 0, t[-1], color=["r"], linestyle="--")
-    plt.hlines([0.95], 0, t[-1], color=["r"], linestyle="--")
-    plt.xlabel("Time (s)")
-    plt.ylabel("Normalized cumulative Arias Intensity")
-    ax = plt.subplot(436)
-    plt.plot(t, AIv, "k")
-    plt.vlines(p_pick, 0, 1, color="r", linewidth=2)
-    plt.hlines([0.05], 0, t[-1], color=["r"], linestyle="--")
-    plt.xlabel("Time (s)")
-    plt.ylabel("Normalized cumulative Arias Intensity")
-    #    ax.text(0.99, 0.97, t_husid_threshold, horizontalalignment='right', verticalalignment='top', transform = ax.transAxes)
-
-    ax = plt.subplot(437)
-    plt.loglog(ft1_freq, np.abs(ft1), label="Full motion", color="blue")
-    plt.loglog(ft1_freq_pe, np.abs(ft1_pe), label="Pre-event trace", color="red")
-    plt.loglog(ft1_freq, smooth_ft1, label="Smoothed fm", color="green", linewidth=1.5)
-    plt.loglog(
-        ft1_freq, smooth_ft1_pe, label="Smoothed pe", color="grey", linewidth=1.5
-    )
-    ymin, ymax = ax.get_ylim()
-    plt.vlines(0.1, ymin, ymax, color="r", linewidth=1)
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Fourier amplitude")
-    plt.legend(loc=3, prop={"size": 10})
-    ax.set_xlim([0.001, 100])
-    #    ax.text(0.01, 0.97, snr1_min, horizontalalignment='left', verticalalignment='top', transform = ax.transAxes)
-    ax.text(
-        0.01,
-        0.97,
-        [round(lf1_pe / signal1_max, 5), round(lf1_pe, 4), round(signal1_max, 4)],
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.01,
-        0.90,
-        [round(lf1 / signal1_max, 5), round(lf1, 4), round(signal1_max, 4)],
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax = plt.subplot(438)
-    plt.loglog(ft2_freq, np.abs(ft2), label="Full motion", color="blue")
-    plt.loglog(ft2_freq_pe, np.abs(ft2_pe), label="Pre-event trace", color="red")
-    plt.loglog(ft2_freq, smooth_ft2, label="Smoothed fm", color="green", linewidth=1.5)
-    plt.loglog(
-        ft2_freq, smooth_ft2_pe, label="Smoothed pe", color="grey", linewidth=1.5
-    )
-    ymin, ymax = ax.get_ylim()
-    plt.vlines(0.1, ymin, ymax, color="r", linewidth=1)
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Fourier amplitude")
-    plt.legend(loc=3, prop={"size": 10})
-    ax.set_xlim([0.001, 100])
-    #    ax.text(0.01, 0.97, snr2_min, horizontalalignment='left', verticalalignment='top', transform = ax.transAxes)
-    ax.text(
-        0.01,
-        0.97,
-        [round(lf2_pe / signal2_max, 5), round(lf2_pe, 4), round(signal2_max, 4)],
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.01,
-        0.90,
-        [round(lf2 / signal2_max, 5), round(lf2, 4), round(signal2_max, 4)],
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax = plt.subplot(439)
-    plt.loglog(ftv_freq, np.abs(ftv), label="Full motion", color="blue")
-    plt.loglog(ftv_freq_pe, np.abs(ftv_pe), label="Pre-event trace", color="red")
-    plt.loglog(ftv_freq, smooth_ftv, label="Smoothed fm", color="green", linewidth=1.5)
-    plt.loglog(
-        ftv_freq, smooth_ftv_pe, label="Smoothed pe", color="grey", linewidth=1.5
-    )
-    ymin, ymax = ax.get_ylim()
-    plt.vlines(0.1, ymin, ymax, color="r", linewidth=1)
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Fourier amplitude")
-    plt.legend(loc=3, prop={"size": 10})
-    ax.set_xlim([0.001, 100])
-    #    ax.text(0.01, 0.97, snr3_min, horizontalalignment='left', verticalalignment='top', transform = ax.transAxes)
-    ax.text(
-        0.01,
-        0.97,
-        [round(lfv_pe / signalv_max, 5), round(lfv_pe, 4), round(signalv_max, 4)],
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.01,
-        0.90,
-        [round(lfv / signalv_max, 5), round(lfv, 4), round(signalv_max, 4)],
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-
-    ax = plt.subplot(4, 3, 10)
-    plt.loglog(ft1_freq, np.divide(smooth_ft1, smooth_ft1_pe), c="k")
-    ymin, ymax = ax.get_ylim()
-    plt.hlines([2.0], ft1_freq[1], ft1_freq[-1], color=["r"], linestyle="--")
-    plt.vlines(0.1, ymin, ymax, color="r", linewidth=1)
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Signal to noise ratio")
-    ax.set_xlim([0.001, 100])
-    ax.text(
-        0.01,
-        0.97,
-        snr1_min,
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax = plt.subplot(4, 3, 11)
-    plt.loglog(ft2_freq, np.divide(smooth_ft2, smooth_ft2_pe), c="k")
-    ymin, ymax = ax.get_ylim()
-    plt.hlines([2.0], ft1_freq[1], ft1_freq[-1], color=["r"], linestyle="--")
-    plt.vlines(0.1, ymin, ymax, color="r", linewidth=1)
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Signal to noise ratio")
-    ax.set_xlim([0.001, 100])
-    ax.text(
-        0.01,
-        0.97,
-        snr2_min,
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax = plt.subplot(4, 3, 12)
-    plt.loglog(ftv_freq, np.divide(smooth_gm_ft, smooth_gm_ft_pe), c="k")
-    ymin, ymax = ax.get_ylim()
-    plt.hlines([2.0], ft1_freq[1], ft1_freq[-1], color=["r"], linestyle="--")
-    plt.vlines([0.1, fmin], ymin, ymax, color=["r", "b"], linewidth=1, linestyle="--")
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Geomean Signal to noise ratio")
-    ax.set_xlim([0.001, 100])
-    ax.text(
-        0.01,
-        0.97,
-        snr_min,
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.01,
-        0.90,
-        [round(fmin, 2), round(1 / fmin, 1)],
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.01,
-        0.83,
-        [snr_max],
-        horizontalalignment="left",
-        verticalalignment="top",
-        transform=ax.transAxes,
-    )
-    plt.savefig(loc_plot, dpi=75)
-    plt.clf()
-    plt.close("all")
-    gc.collect()
+# def generate_plots():
+#     plt.figure(figsize=(21, 14), dpi=75)
+#     plt.suptitle(stat_code, fontsize=20)
+#     ax = plt.subplot(431)
+#     plt.plot(t, acc1, color="k")
+#     ymin, ymax = ax.get_ylim()
+#     plt.vlines(p_pick, ymin, ymax, color="r", linewidth=2)
+#     plt.vlines(s_pick, ymin, ymax, color="b", linewidth=2)
+#     #    plt.vlines(min(hindex1_10)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
+#     #    plt.vlines(max(hindex1_10)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
+#     #    plt.vlines(min(hindex1_20)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
+#     #    plt.vlines(max(hindex1_20)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
+#     #    plt.vlines(min(hindex1_30)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
+#     #    plt.vlines(max(hindex1_30)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
+#     #    plt.vlines(min(hindex1_40)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
+#     #    plt.vlines(max(hindex1_40)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
+#     #    plt.vlines(min(hindex1_50)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
+#     #    plt.vlines(max(hindex1_50)*gf.comp_1st.delta_t, ymin, ymax, color='g', linewidth=2, linestyle='--')
+#     #    plt.vlines(husid_index1_75*gf.comp_1st.delta_t, ymin, ymax, color='grey', linewidth=2, linestyle='--')
+#     #    plt.vlines(husid_index1_95*gf.comp_1st.delta_t, ymin, ymax, color='grey', linewidth=2, linestyle='--')
+#     #    plt.hlines([0.10*PGA1], 0, t[-1], color=['g'], linestyle='--')
+#     #    plt.hlines([-0.10*PGA1], 0, t[-1], color=['g'], linestyle='--')
+#     plt.xlabel("Time (s)")
+#     plt.ylabel("Acceleration (g)")
+#     ax.text(
+#         0.99,
+#         0.97,
+#         PGA1,
+#         horizontalalignment="right",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.99,
+#         0.90,
+#         [round(p_pick, 3), round(s_pick, 3)],
+#         horizontalalignment="right",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.99,
+#         0.03,
+#         [
+#             round(average_tail_ratio1, 5),
+#             round(max_tail_ratio1, 5),
+#             round(max_head_ratio1, 5),
+#         ],
+#         horizontalalignment="right",
+#         verticalalignment="bottom",
+#         transform=ax.transAxes,
+#     )
+#     ax.set_ylim([ymin, ymax])
+#     plt.title("Comp 1")
+#     ax = plt.subplot(432)
+#     plt.plot(t, acc2, color="k")
+#     ymin, ymax = ax.get_ylim()
+#     plt.vlines(p_pick, ymin, ymax, color="r", linewidth=2)
+#     plt.vlines(s_pick, ymin, ymax, color="b", linewidth=2)
+#
+#     plt.xlabel("Time (s)")
+#     plt.ylabel("Acceleration (g)")
+#     ax.text(
+#         0.99,
+#         0.97,
+#         PGA2,
+#         horizontalalignment="right",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.99,
+#         0.90,
+#         [round(p_pick, 3), round(s_pick, 3)],
+#         horizontalalignment="right",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.99,
+#         0.03,
+#         [
+#             round(average_tail_ratio2, 5),
+#             round(max_tail_ratio2, 5),
+#             round(max_head_ratio2, 5),
+#         ],
+#         horizontalalignment="right",
+#         verticalalignment="bottom",
+#         transform=ax.transAxes,
+#     )
+#     ax.set_ylim([ymin, ymax])
+#     plt.title("Comp 2")
+#     ax = plt.subplot(433)
+#     plt.plot(t, accv, color="k")
+#     ymin, ymax = ax.get_ylim()
+#     plt.vlines(p_pick, ymin, ymax, color="r", linewidth=2)
+#     plt.vlines(s_pick, ymin, ymax, color="b", linewidth=2)
+#     plt.xlabel("Time (s)")
+#     plt.ylabel("Acceleration (g)")
+#     ax.text(
+#         0.99,
+#         0.97,
+#         PGAv,
+#         horizontalalignment="right",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.99,
+#         0.90,
+#         [round(p_pick, 3), round(s_pick, 3)],
+#         horizontalalignment="right",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.99,
+#         0.03,
+#         [
+#             round(average_tail_ratiov, 5),
+#             round(max_tail_ratiov, 5),
+#             round(max_head_ratiov, 5),
+#         ],
+#         horizontalalignment="right",
+#         verticalalignment="bottom",
+#         transform=ax.transAxes,
+#     )
+#     plt.title("Comp Up")
+#
+#     ax = plt.subplot(434)
+#     plt.plot(t, AI1, "k")
+#     plt.vlines(p_pick, 0, 1, color="r", linewidth=2)
+#     plt.vlines(
+#         husid_index1_75 * gf.comp_1st.delta_t,
+#         0,
+#         1,
+#         color="grey",
+#         linewidth=2,
+#         linestyle="--",
+#     )
+#     plt.vlines(
+#         husid_index1_95 * gf.comp_1st.delta_t,
+#         0,
+#         1,
+#         color="grey",
+#         linewidth=2,
+#         linestyle="--",
+#     )
+#     plt.hlines([0.05], 0, t[-1], color=["r"], linestyle="--")
+#     plt.hlines([0.75], 0, t[-1], color=["r"], linestyle="--")
+#     plt.hlines([0.95], 0, t[-1], color=["r"], linestyle="--")
+#     plt.xlabel("Time (s)")
+#     plt.ylabel("Normalized cumulative Arias Intensity")
+#     ax = plt.subplot(435)
+#     plt.plot(t, AI2, "k")
+#     plt.vlines(p_pick, 0, 1, color="r", linewidth=2)
+#     plt.vlines(
+#         husid_index2_75 * gf.comp_1st.delta_t,
+#         0,
+#         1,
+#         color="grey",
+#         linewidth=2,
+#         linestyle="--",
+#     )
+#     plt.vlines(
+#         husid_index2_95 * gf.comp_1st.delta_t,
+#         0,
+#         1,
+#         color="grey",
+#         linewidth=2,
+#         linestyle="--",
+#     )
+#     plt.hlines([0.05], 0, t[-1], color=["r"], linestyle="--")
+#     plt.hlines([0.75], 0, t[-1], color=["r"], linestyle="--")
+#     plt.hlines([0.95], 0, t[-1], color=["r"], linestyle="--")
+#     plt.xlabel("Time (s)")
+#     plt.ylabel("Normalized cumulative Arias Intensity")
+#     ax = plt.subplot(436)
+#     plt.plot(t, AIv, "k")
+#     plt.vlines(p_pick, 0, 1, color="r", linewidth=2)
+#     plt.hlines([0.05], 0, t[-1], color=["r"], linestyle="--")
+#     plt.xlabel("Time (s)")
+#     plt.ylabel("Normalized cumulative Arias Intensity")
+#     #    ax.text(0.99, 0.97, t_husid_threshold, horizontalalignment='right', verticalalignment='top', transform = ax.transAxes)
+#
+#     ax = plt.subplot(437)
+#     plt.loglog(ft1_freq, np.abs(ft1), label="Full motion", color="blue")
+#     plt.loglog(ft1_freq_pe, np.abs(ft1_pe), label="Pre-event trace", color="red")
+#     plt.loglog(ft1_freq, smooth_ft1, label="Smoothed fm", color="green", linewidth=1.5)
+#     plt.loglog(
+#         ft1_freq, smooth_ft1_pe, label="Smoothed pe", color="grey", linewidth=1.5
+#     )
+#     ymin, ymax = ax.get_ylim()
+#     plt.vlines(0.1, ymin, ymax, color="r", linewidth=1)
+#     plt.xlabel("Frequency (Hz)")
+#     plt.ylabel("Fourier amplitude")
+#     plt.legend(loc=3, prop={"size": 10})
+#     ax.set_xlim([0.001, 100])
+#     #    ax.text(0.01, 0.97, snr1_min, horizontalalignment='left', verticalalignment='top', transform = ax.transAxes)
+#     ax.text(
+#         0.01,
+#         0.97,
+#         [round(lf1_pe / signal1_max, 5), round(lf1_pe, 4), round(signal1_max, 4)],
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.01,
+#         0.90,
+#         [round(lf1 / signal1_max, 5), round(lf1, 4), round(signal1_max, 4)],
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax = plt.subplot(438)
+#     plt.loglog(ft2_freq, np.abs(ft2), label="Full motion", color="blue")
+#     plt.loglog(ft2_freq_pe, np.abs(ft2_pe), label="Pre-event trace", color="red")
+#     plt.loglog(ft2_freq, smooth_ft2, label="Smoothed fm", color="green", linewidth=1.5)
+#     plt.loglog(
+#         ft2_freq, smooth_ft2_pe, label="Smoothed pe", color="grey", linewidth=1.5
+#     )
+#     ymin, ymax = ax.get_ylim()
+#     plt.vlines(0.1, ymin, ymax, color="r", linewidth=1)
+#     plt.xlabel("Frequency (Hz)")
+#     plt.ylabel("Fourier amplitude")
+#     plt.legend(loc=3, prop={"size": 10})
+#     ax.set_xlim([0.001, 100])
+#     #    ax.text(0.01, 0.97, snr2_min, horizontalalignment='left', verticalalignment='top', transform = ax.transAxes)
+#     ax.text(
+#         0.01,
+#         0.97,
+#         [round(lf2_pe / signal2_max, 5), round(lf2_pe, 4), round(signal2_max, 4)],
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.01,
+#         0.90,
+#         [round(lf2 / signal2_max, 5), round(lf2, 4), round(signal2_max, 4)],
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax = plt.subplot(439)
+#     plt.loglog(ftv_freq, np.abs(ftv), label="Full motion", color="blue")
+#     plt.loglog(ftv_freq_pe, np.abs(ftv_pe), label="Pre-event trace", color="red")
+#     plt.loglog(ftv_freq, smooth_ftv, label="Smoothed fm", color="green", linewidth=1.5)
+#     plt.loglog(
+#         ftv_freq, smooth_ftv_pe, label="Smoothed pe", color="grey", linewidth=1.5
+#     )
+#     ymin, ymax = ax.get_ylim()
+#     plt.vlines(0.1, ymin, ymax, color="r", linewidth=1)
+#     plt.xlabel("Frequency (Hz)")
+#     plt.ylabel("Fourier amplitude")
+#     plt.legend(loc=3, prop={"size": 10})
+#     ax.set_xlim([0.001, 100])
+#     #    ax.text(0.01, 0.97, snr3_min, horizontalalignment='left', verticalalignment='top', transform = ax.transAxes)
+#     ax.text(
+#         0.01,
+#         0.97,
+#         [round(lfv_pe / signalv_max, 5), round(lfv_pe, 4), round(signalv_max, 4)],
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.01,
+#         0.90,
+#         [round(lfv / signalv_max, 5), round(lfv, 4), round(signalv_max, 4)],
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#
+#     ax = plt.subplot(4, 3, 10)
+#     plt.loglog(ft1_freq, np.divide(smooth_ft1, smooth_ft1_pe), c="k")
+#     ymin, ymax = ax.get_ylim()
+#     plt.hlines([2.0], ft1_freq[1], ft1_freq[-1], color=["r"], linestyle="--")
+#     plt.vlines(0.1, ymin, ymax, color="r", linewidth=1)
+#     plt.xlabel("Frequency (Hz)")
+#     plt.ylabel("Signal to noise ratio")
+#     ax.set_xlim([0.001, 100])
+#     ax.text(
+#         0.01,
+#         0.97,
+#         snr1_min,
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax = plt.subplot(4, 3, 11)
+#     plt.loglog(ft2_freq, np.divide(smooth_ft2, smooth_ft2_pe), c="k")
+#     ymin, ymax = ax.get_ylim()
+#     plt.hlines([2.0], ft1_freq[1], ft1_freq[-1], color=["r"], linestyle="--")
+#     plt.vlines(0.1, ymin, ymax, color="r", linewidth=1)
+#     plt.xlabel("Frequency (Hz)")
+#     plt.ylabel("Signal to noise ratio")
+#     ax.set_xlim([0.001, 100])
+#     ax.text(
+#         0.01,
+#         0.97,
+#         snr2_min,
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax = plt.subplot(4, 3, 12)
+#     plt.loglog(ftv_freq, np.divide(smooth_gm_ft, smooth_gm_ft_pe), c="k")
+#     ymin, ymax = ax.get_ylim()
+#     plt.hlines([2.0], ft1_freq[1], ft1_freq[-1], color=["r"], linestyle="--")
+#     plt.vlines([0.1, fmin], ymin, ymax, color=["r", "b"], linewidth=1, linestyle="--")
+#     plt.xlabel("Frequency (Hz)")
+#     plt.ylabel("Geomean Signal to noise ratio")
+#     ax.set_xlim([0.001, 100])
+#     ax.text(
+#         0.01,
+#         0.97,
+#         snr_min,
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.01,
+#         0.90,
+#         [round(fmin, 2), round(1 / fmin, 1)],
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     ax.text(
+#         0.01,
+#         0.83,
+#         [snr_max],
+#         horizontalalignment="left",
+#         verticalalignment="top",
+#         transform=ax.transAxes,
+#     )
+#     plt.savefig(loc_plot, dpi=75)
+#     plt.clf()
+#     plt.close("all")
+#     gc.collect()

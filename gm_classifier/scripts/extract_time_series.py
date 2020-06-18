@@ -17,7 +17,7 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
     # Error checking & pre-processing
     gf = gm.records.record_preprocesing(gf)
 
-    p_wave_ix = gm.features.get_p_wave_ix(
+    p_wave_ix, s_wave_ix = gm.utils.get_p_wave_ix(
         gf.comp_1st.acc, gf.comp_2nd.acc, gf.comp_up.acc, gf.comp_1st.delta_t
     )
 
@@ -78,6 +78,7 @@ def get_series_data(record_ffp: str, ko_matrices: Union[str, Dict[int, np.ndarra
         "ft_pe_length": ft_smooth_pe.shape[0],
         "snr_length": snr.shape[0],
         "p_wave_ix": p_wave_ix,
+        "s_wave_ix": s_wave_ix,
     }
 
     return (
