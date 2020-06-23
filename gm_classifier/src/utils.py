@@ -535,47 +535,49 @@ def get_p_wave_ix(
     if p_wave_test(p_wave_ix * dt, 3):
         return p_wave_ix, s_wave_ix
 
-    # Obspy picker 1, Argument set 1
-    p_pick, s_pick = ar_pick(
-        a=acc_Z,
-        b=acc_X,
-        c=acc_Y,
-        samp_rate=sample_rate,  # sample_rate
-        f1=dt * 20.0,  # low_pass
-        f2=sample_rate / 20.0,  # high_pass
-        lta_p=1.0,  # P-LTA
-        sta_p=0.2,  # P-STA,
-        lta_s=2.0,  # S-LTA
-        sta_s=0.4,  # S-STA
-        m_p=8,  # P-AR coefficients
-        m_s=8,  # S-coefficients
-        l_p=0.4,  # P-length
-        l_s=0.2,  # S-length
-        s_pick=True,  # S-pick
-    )
-    if p_wave_test(p_pick, 3):
-        return get_ix(p_pick, sample_rate), get_ix(s_pick, sample_rate)
-
-    # Obspy picker 1, Argument set 2
-    p_pick, s_pick = ar_pick(
-        a=acc_Z,
-        b=acc_X,
-        c=acc_Y,
-        samp_rate=1 / dt,
-        f1=5,
-        f2=7,
-        lta_p=5.0,
-        sta_p=0.5,
-        lta_s=5.0,
-        sta_s=0.5,
-        m_p=12,
-        m_s=4,
-        l_p=0.2,
-        l_s=2.0,
-        s_pick=True,
-    )
-    if p_wave_test(p_pick, 3):
-        return get_ix(p_pick, sample_rate), get_ix(s_pick, sample_rate)
+    # Disabled due to this issue
+    # https://github.com/obspy/obspy/issues/1801
+    # # Obspy picker 1, Argument set 1
+    # p_pick, s_pick = ar_pick(
+    #     a=acc_Z,
+    #     b=acc_X,
+    #     c=acc_Y,
+    #     samp_rate=sample_rate,  # sample_rate
+    #     f1=dt * 20.0,  # low_pass
+    #     f2=sample_rate / 20.0,  # high_pass
+    #     lta_p=1.0,  # P-LTA
+    #     sta_p=0.2,  # P-STA,
+    #     lta_s=2.0,  # S-LTA
+    #     sta_s=0.4,  # S-STA
+    #     m_p=8,  # P-AR coefficients
+    #     m_s=8,  # S-coefficients
+    #     l_p=0.4,  # P-length
+    #     l_s=0.2,  # S-length
+    #     s_pick=True,  # S-pick
+    # )
+    # if p_wave_test(p_pick, 3):
+    #     return get_ix(p_pick, sample_rate), get_ix(s_pick, sample_rate)
+    #
+    # # Obspy picker 1, Argument set 2
+    # p_pick, s_pick = ar_pick(
+    #     a=acc_Z,
+    #     b=acc_X,
+    #     c=acc_Y,
+    #     samp_rate=1 / dt,
+    #     f1=5,
+    #     f2=7,
+    #     lta_p=5.0,
+    #     sta_p=0.5,
+    #     lta_s=5.0,
+    #     sta_s=0.5,
+    #     m_p=12,
+    #     m_s=4,
+    #     l_p=0.2,
+    #     l_s=2.0,
+    #     s_pick=True,
+    # )
+    # if p_wave_test(p_pick, 3):
+    #     return get_ix(p_pick, sample_rate), get_ix(s_pick, sample_rate)
 
     # Obspy picker 2
     cur_p_pick, _ = pk_baer(
