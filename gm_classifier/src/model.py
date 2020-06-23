@@ -56,9 +56,9 @@ class DenseModel(keras.models.Model):
 
 class CnnSnrModel(keras.models.Model):
     """Represents a model of format
-     SNR -> CNN -> Flatten ---->
+     SNR series -> CNN -> Flatten ---->
                                   Concatenate -> Dense -> Outputs
-     Other features -> FC-NN ->
+     Scalar features -> FC-NN ->
      """
 
     def __init__(

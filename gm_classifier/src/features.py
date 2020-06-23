@@ -18,7 +18,6 @@ from obspy.signal.konnoohmachismoothing import calculate_smoothing_matrix
 from .geoNet_file import GeoNet_File
 from .utils import get_p_wave_ix
 
-
 class FeatureErrorType(Enum):
     # PGA is zero
     PGA_zero = 1
@@ -401,6 +400,10 @@ def get_features(
     sample_rate = 1.0 / gf.comp_1st.delta_t
     p_wave_ix, s_wave_ix = get_p_wave_ix(acc_1, acc_2, acc_v, dt)
 
+    # Compute the ratio (t_swave - t_pwave) / (t_end - t_swave)
+    # For detecting records truncated to early
+    s_wave_ratio = ((s_wave_ix * dt) - (p_wave_ix * dt)) / (t[-1] - (s_wave_ix * dt))
+
     # Calculate max amplitudes of acc time series
     pga_1, pga_2 = compute_pga(acc_1), compute_pga(acc_2)
     pga_v = compute_pga(acc_v)
@@ -637,6 +640,7 @@ def get_features(
             "snr_average_2.0_5.0": snr_values_1[4],
             "snr_average_5.0_10.0": snr_values_1[5],
             "is_vertical": 0,
+            "s_wave_ratio": s_wave_ratio
         },
         "2": {
             "pn_pga_ratio": pn_pga_ratio_2,
@@ -702,6 +706,7 @@ def get_features(
             "snr_average_1.0_2.0": snr_values_gm[3],
             "snr_average_2.0_5.0": snr_values_gm[4],
             "snr_average_5.0_10.0": snr_values_gm[5],
+            "s_wave_ratio": s_wave_ratio,
         },
     }
 
