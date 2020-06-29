@@ -180,6 +180,7 @@ def main(
             "ft_length",
             "snr_length",
             "p_wave_ix",
+            "s_wave_ix"
         ],
     )
     meta_df.to_csv(output_dir / "meta_data.csv", index_label="record_id")

@@ -307,6 +307,8 @@ def create_record_eval_plots(
             ax_2.set_ylim((cur_snr[1:, comp_ix].min(), cur_snr[1:, comp_ix].max()))
             fig.tight_layout()
 
+        if not output_dir.is_dir():
+            output_dir.mkdir(parents=True)
         fig.savefig(output_dir / f"{cur_id}.png")
         plt.close()
 

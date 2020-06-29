@@ -487,7 +487,7 @@ def run_phase_net(input_data: np.ndarray, dt: float, t: np.ndarray = None):
 
     t = t if t is not None else np.arange(input_data.shape[1]) * dt
 
-    # Have to resample
+    # Have to re-sample
     if not np.isclose(dt, 1/100):
         dt_new = 1/100
         t_new = np.arange(t.max() / dt_new) * dt_new
