@@ -592,8 +592,8 @@ def get_p_wave_ix(
     )
     p_pick = cur_p_pick * dt
     if p_wave_test(p_pick, 3):
-        return get_ix(p_pick, sample_rate), None
+        return get_ix(p_pick, sample_rate), s_wave_ix
 
     # If all algorithms fail, pick p-wave at 5% record duration, but not less than 3s in.
     p_pick = np.max([3, 0.05 * t[-1]])
-    return get_ix(p_pick, sample_rate), None
+    return get_ix(p_pick, sample_rate), s_wave_ix
