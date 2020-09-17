@@ -93,6 +93,16 @@ result_df = gm.training.run_k_means(
     eval_loss_fn=eval_loss_fn,
 )
 
+# Save the config
+config = {
+    "feature_config": str(feature_config),
+    "model_config": str(gm.RecordCompModel.model_config),
+    "compiler_kwargs": str(compile_kwargs),
+    "fit_kwargs": str(fit_kwargs),
+}
+with open(output_dir / "config.json", "w") as f:
+    json.dump(config, f)
+
 result_df.to_csv(output_dir / "results.csv", index_label="record_id")
 
 # --- Plots ---
@@ -225,7 +235,10 @@ for rec_ix, cur_id in enumerate(result_df.index.values):
         cur_score_true = result_df.loc[cur_id, f"score_{cur_comp}"]
         cur_score_est = result_df.loc[cur_id, f"score_{cur_comp}_est"]
 
-        ax_1.plot(np.arange(cur_acc.shape[0]) * cur_dt,cur_acc[:, comp_ix], label="X")
+        t = np.arange(cur_acc.shape[0]) * cur_dt
+        ax_1.plot(t, cur_acc[:, comp_ix], label="X")
+        ax_1.axvline(x=t[int(meta_df.loc[cur_id, "p_wave_ix"])], c="orange", linestyle="--", label="p-wave arrival")
+        # ax_1.axvline(x=t[int(meta_df.loc[cur_id, "s_wave_ix"])], c="green", linestyle="--", label="s-wave arrival")
         ax_1.set_ylabel("Acc")
         ax_1.set_xlabel("Time")
         ax_1.set_title(
