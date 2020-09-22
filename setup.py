@@ -6,10 +6,11 @@ setup(
     packages=find_packages(),
     url="",
     description="Ground motion record classifier",
-    install_requires=["numpy", "pandas", "matplotlib", "scipy", "tensorflow>=2.1.0"],
+    install_requires=["tensorflow==2.3.0", "pandas", "scipy==1.4.1", "obspy", "numpy<1.19.0",
+                      "matplotlib", "seaborn", "h5py", "scikit-learn", "tqdm"],
     scripts=["gm_classifier/scripts/extract_features.py",
              "gm_classifier/scripts/gen_konno_matrices.py",
-             "gm_classifier/scripts/run_predict.py"],
-    package_data={"gm_classifier": ["original_models/*", "tests/benchmark_tests/original_models/*.csv"]},
+             "gm_classifier/scripts/predict.py"],
+    package_data={"gm_classifier": ["model/*"]},
     include_package_data=True
 )

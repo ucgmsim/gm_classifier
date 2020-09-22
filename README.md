@@ -3,22 +3,28 @@
 Note: Still in development
 
 The GMC returns 6 predictions for each record:
-- A quality Score for each component, between 0 - 1
+- A quality Score for each component, generally between 0 - 1  
 - A f-min value for each component, between 0.1 - 10 Hz
 
+There is no logic restricting the model to the output ranges so at times they might exceed
+the "limits" (have only encountered this for the score, not f-min, but that doesn't mean it isn't possible). 
+
+The results should be used as input for a mapping function that returns a binary classification
+for each record, i.e. either usable or not\
+This allows task specific classification instead of enforcing certain thresholds via the model.\
+A simple mapping function `qqqfff_to_binary` can found in the utils source file.
 
 ### Setup
 Its recommended to create a new virtual environment see https://docs.python.org/3/library/venv.html  
 
-  
-Install via git using `SSH`
-```shell script
-pip install git+ssh://git@github.com:ucgmsim/gm_classifier.git
+Clone using
 ```
+git clone git@github.com:ucgmsim/gm_classifier.git
+``` 
 
-or `HTTPS`
+Install using
 ```shell script
-pip install git+https://github.com/ucgmsim/gm_classifier.git
+pip install -e ./gm_classifier
 ```
 
 \
@@ -36,6 +42,8 @@ or via `HTTPS`
 ```shell script
 pip install git+https://github.com/claudio525/PhaseNet.git
 ```
+
+Or just clone it and then install as with the `gm_classifier` repo 
 
 ### Making predictions
 
@@ -87,7 +95,10 @@ Example call for `extract_features.py`:
 ```shell script
 python extract_features.py --ko_matrices_dir /home/claudy/dev/work/data/gm_classifier/konno_matrices /home/claudy/dev/work/tmp/gmc_record_test/features /home/claudy/dev/work/tmp/gmc_record_test/2003
 ```
-Note: The feature extraction is quite slow, so if the number of recrods is large can easily take multiple hours.
+Note I: The feature extraction is quite slow, so if the number of recrods is large it can easily take multiple hours.\
+Note II: Its probably a good idea to pipe the output into a log file, in case some records fail. 
+This can be done by adding `> log.txt` to the call above, however this will no longer print the output. To get around this
+I suggest to add `|& tee log.txt` to the end of the call instead, which will still periodically print stdout to the terminal (and write to the log file).  
 
 ---
 Once feature extraction is complete prediction can be done using the `predict.py` script:
@@ -114,8 +125,13 @@ python predict.py /home/claudy/dev/work/tmp/gmc_record_test/features /home/claud
 #### Approach B:
 Not yet implemented 
 
-
-
+### Other
+- If a compatible GPU is available tensorflow will attempt to use it, however 
+unless might cause issues if the GPU memory is not large enough, and since prediction
+performance is fast anyways I recommend disabling it using:
+```shell script
+export CUDA_VISIBLE_DEVICES=-1
+```
  
 
    

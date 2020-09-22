@@ -488,8 +488,8 @@ def run_phase_net(input_data: np.ndarray, dt: float, t: np.ndarray = None):
     t = t if t is not None else np.arange(input_data.shape[1]) * dt
 
     # Have to re-sample
-    if not np.isclose(dt, 1/100):
-        dt_new = 1/100
+    if not np.isclose(dt, 1 / 100):
+        dt_new = 1 / 100
         t_new = np.arange(t.max() / dt_new) * dt_new
         input_resampled = np.full((1, t_new.shape[0], 3), np.nan)
         input_resampled[0, :, 0] = np.interp(t_new, t, input_data[0, :, 0])
@@ -509,6 +509,7 @@ def run_phase_net(input_data: np.ndarray, dt: float, t: np.ndarray = None):
         p_wave_ix, s_wave_ix = np.argmax(probs[0, :, 1]), np.argmax(probs[0, :, 2])
 
     return p_wave_ix, s_wave_ix
+
 
 def get_p_wave_ix(
     acc_X: np.ndarray,
@@ -531,53 +532,11 @@ def get_p_wave_ix(
     sample_rate = 1.0 / dt
 
     # PhaseNet
-    p_wave_ix, s_wave_ix = run_phase_net(np.stack((acc_X, acc_Y, acc_Z), axis=1)[np.newaxis, ...], dt, t=t)
+    p_wave_ix, s_wave_ix = run_phase_net(
+        np.stack((acc_X, acc_Y, acc_Z), axis=1)[np.newaxis, ...], dt, t=t
+    )
     if p_wave_test(p_wave_ix * dt, 3):
         return p_wave_ix, s_wave_ix
-
-    # Disabled due to this issue
-    # https://github.com/obspy/obspy/issues/1801
-    # # Obspy picker 1, Argument set 1
-    # p_pick, s_pick = ar_pick(
-    #     a=acc_Z,
-    #     b=acc_X,
-    #     c=acc_Y,
-    #     samp_rate=sample_rate,  # sample_rate
-    #     f1=dt * 20.0,  # low_pass
-    #     f2=sample_rate / 20.0,  # high_pass
-    #     lta_p=1.0,  # P-LTA
-    #     sta_p=0.2,  # P-STA,
-    #     lta_s=2.0,  # S-LTA
-    #     sta_s=0.4,  # S-STA
-    #     m_p=8,  # P-AR coefficients
-    #     m_s=8,  # S-coefficients
-    #     l_p=0.4,  # P-length
-    #     l_s=0.2,  # S-length
-    #     s_pick=True,  # S-pick
-    # )
-    # if p_wave_test(p_pick, 3):
-    #     return get_ix(p_pick, sample_rate), get_ix(s_pick, sample_rate)
-    #
-    # # Obspy picker 1, Argument set 2
-    # p_pick, s_pick = ar_pick(
-    #     a=acc_Z,
-    #     b=acc_X,
-    #     c=acc_Y,
-    #     samp_rate=1 / dt,
-    #     f1=5,
-    #     f2=7,
-    #     lta_p=5.0,
-    #     sta_p=0.5,
-    #     lta_s=5.0,
-    #     sta_s=0.5,
-    #     m_p=12,
-    #     m_s=4,
-    #     l_p=0.2,
-    #     l_s=2.0,
-    #     s_pick=True,
-    # )
-    # if p_wave_test(p_pick, 3):
-    #     return get_ix(p_pick, sample_rate), get_ix(s_pick, sample_rate)
 
     # Obspy picker 2
     cur_p_pick, _ = pk_baer(
@@ -612,3 +571,52 @@ def to_path(input: Union[str, List[str], List[Path]] = None):
         ]
 
     return input
+
+
+def qqqfff_to_binary(
+    est_df: pd.DataFrame,
+    score_x_th: float = 0.5,
+    score_y_th: float = 0.5,
+    score_z_th: float = 0.5,
+    f_x_th=0.3,
+    f_y_th=0.3,
+    f_z_th=0.3,
+):
+    """
+    Mapping function for model output to binary classification
+    using simple thresholds for each of the outputs
+
+    Parameters
+    ----------
+    est_df: Dataframe
+        Model output dataframe, expected to have columns
+        [score_X, score_Y, score_Z, f_min_X, f_min_Y, f_min_Z]
+    score_x_th: float
+    score_y_th: float
+    score_z_th: float
+    f_x_th: float
+    f_y_th: float
+    f_z_th: float
+        Thresholds a record has to meet in order to be classified as good.
+        Records have to be below f-min thresholds and above the score thresholds
+
+    Returns
+    -------
+    Series
+        Binary classification (True/False) for each record
+    """
+    quality_mask = (
+        (est_df.loc[:, "score_X"].values > score_x_th)
+        & (est_df.loc[:, "score_Y"].values > score_y_th)
+        & (est_df.loc[:, "score_Z"].values > score_z_th)
+    )
+    f_min_mask = (
+        (est_df.loc[:, "f_min_X"].values > f_x_th)
+        & (est_df.loc[:, "f_min_Y"].values > f_y_th)
+        & (est_df.loc[:, "f_min_Z"].values > f_z_th)
+    )
+
+    usable_mask = quality_mask & f_min_mask
+
+    result_df = pd.Series(index=est_df.index, data=usable_mask)
+    return result_df

@@ -25,8 +25,7 @@ def main(input_dir: Path, model_base_dir: Path, output_ffp: Path):
     est_df = pd.DataFrame(index=feature_df.index.values, data=y_hat, columns=model.label_names)
 
     print(f"Writing the result to {output_ffp}")
-    result_df = pd.merge(feature_df, est_df, how="inner", left_index=True, right_index=True)
-    result_df.to_csv(output_ffp, index_label="record_id")
+    est_df.to_csv(output_ffp, index_label="record_id")
 
 
 if __name__ == "__main__":
