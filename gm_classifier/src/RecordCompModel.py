@@ -14,9 +14,10 @@ from .model import CnnSnrModel
 from . import training
 from . import plots
 from . import pre
+from . import utils
+
 
 class RecordCompModel:
-
     label_names = ["score_X", "f_min_X", "score_Y", "f_min_Y", "score_Z", "f_min_Z"]
 
     feature_config = {
@@ -152,13 +153,14 @@ class RecordCompModel:
 
     def __init__(
         self,
-        model_dir: str,
+        base_dir: Union[str, Path],
         label_names: List[str] = None,
         feature_config: Dict = None,
         snr_freq_values: np.ndarray = None,
         model_config: Dict = None,
     ):
-        self.model_dir = Path(model_dir)
+        self.base_dir = utils.to_path(base_dir)
+        self.model_dir = self.base_dir / "best_model" / "model"
 
         self.label_names = (
             RecordCompModel.label_names if label_names is None else label_names
@@ -208,22 +210,22 @@ class RecordCompModel:
         self.y_val, self.ids_val = None, None
 
     def load(self):
-        inputs = {"features": keras.Input(shape=[len(self.feature_config)]),
-                  "snr_series": keras.Input(shape=[len(self.snr_feature_keys), 3])}
-        self.gm_model._set_inputs(inputs)
-        self.gm_model.load_weights(str(self.model_dir / "model.h5"))
+        self.gm_model.load_weights(self.model_dir)
 
     def predict(self, feature_df: pd.DataFrame):
         X_features = feature_df.loc[:, self.feature_names].copy()
 
-        # Pre-procesisng
+        # Pre-processing
         X_features = pre.apply(
             X_features,
             self.feature_config,
-            mu=pd.read_csv(self.model_dir / "features_mu.csv", index_col=0, squeeze=True),
-            sigma=pd.read_csv(self.model_dir / "features_sigma.csv", index_col=0,
-                              squeeze=True),
-            W=np.load(self.model_dir / "features_W.npy"),
+            mu=pd.read_csv(
+                self.base_dir / "features_mu.csv", index_col=0, squeeze=True
+            ),
+            sigma=pd.read_csv(
+                self.base_dir / "features_sigma.csv", index_col=0, squeeze=True
+            ),
+            W=np.load(self.base_dir / "features_W.npy"),
         )
 
         X_snr = np.log(
@@ -237,7 +239,9 @@ class RecordCompModel:
             )
         )
 
-        y_hat = self.gm_model.predict({"features": X_features.values, "snr_series": X_snr})
+        y_hat = self.gm_model.predict(
+            {"features": X_features.values, "snr_series": X_snr}
+        )
         return y_hat
 
     def train(
@@ -267,7 +271,7 @@ class RecordCompModel:
             Tensorboard callback keyword arguments
         """
         self.train_df = train_df
-        train_df.to_csv(self.model_dir / "training_data.csv")
+        train_df.to_csv(self.base_dir / "training_data.csv")
 
         assert np.all(
             np.isin(self.feature_names, train_df.columns.values)
@@ -292,9 +296,12 @@ class RecordCompModel:
         # Split into training and validation
         if val_size > 0.0:
             data = train_test_split(X_features, X_snr, y, ids, test_size=val_size)
-            self.X_features_train, self.X_snr_train, self.y_train, self.ids_train = data[
-                ::2
-            ]
+            (
+                self.X_features_train,
+                self.X_snr_train,
+                self.y_train,
+                self.ids_train,
+            ) = data[::2]
             self.X_features_val, self.X_snr_val, self.y_val, self.ids_val = data[1::2]
         else:
             self.X_features_train, self.X_snr_train = X_features, X_snr
@@ -304,7 +311,7 @@ class RecordCompModel:
         self.X_features_train, self.X_features_val = training.apply_pre(
             self.X_features_train.copy(),
             self.feature_config,
-            self.model_dir,
+            self.base_dir,
             val_data=self.X_features_val.copy()
             if self.X_features_val is not None
             else None,
@@ -322,6 +329,11 @@ class RecordCompModel:
             )
             if val_size > 0.0
             else None
+        )
+
+        print(
+            f"Using {self.X_features_train.shape[0]} sample for training and "
+            f"{self.X_features_val.shape[0]} for validation"
         )
         self.fit(
             self.X_features_train.values,
@@ -403,7 +415,7 @@ class RecordCompModel:
         )
 
         self.train_history, _ = training.fit(
-            self.model_dir,
+            self.base_dir,
             self.gm_model,
             training_data,
             val_data=val_data,
@@ -417,19 +429,21 @@ class RecordCompModel:
         config = {
             "feature_config": str(self.feature_config),
             "model_config": str(self.model_config),
-            "compiler_kwargs": str(compile_kwargs),
+            "compiler_kwargs": str(self.compile_kwargs),
             "fit_kwargs": str(fit_kwargs),
         }
-        with open(self.model_dir / "config.json", "w") as f:
+        with open(self.base_dir / "config.json", "w") as f:
             json.dump(config, f)
 
         # Load the best model
-        self.gm_model.load_weights(str(self.model_dir / "model.h5"))
+        self.gm_model.load_weights(str(self.base_dir / "best_model" / "model"))
 
     def create_eval_plots(self):
         if not self.is_trained:
-            print(f"Model is either loaded or not trained, "
-                  f"unable to create eval plots in this situation.")
+            print(
+                f"Model is either loaded or not trained, "
+                f"unable to create eval plots in this situation."
+            )
             return
 
         with sns.axes_style("whitegrid"):
@@ -441,12 +455,15 @@ class RecordCompModel:
                 fig_kwargs={"figsize": fig_size},
             )
             ax.set_ylim((0, 1))
-            plt.savefig(str(self.model_dir / "loss_plot.png"))
+            plt.savefig(str(self.base_dir / "loss_plot.png"))
             plt.close()
 
             # Predict train and validation
             y_train_est = self.gm_model.predict(
-                {"features": self.X_features_train.values, "snr_series": self.X_snr_train}
+                {
+                    "features": self.X_features_train.values,
+                    "snr_series": self.X_snr_train,
+                }
             )
             y_val_est = self.gm_model.predict(
                 {"features": self.X_features_val.values, "snr_series": self.X_snr_val}
@@ -457,7 +474,7 @@ class RecordCompModel:
                 index=np.concatenate((self.ids_train, self.ids_val)),
                 columns=self.label_names,
             )
-            est_df.to_csv(self.model_dir / "est_df.csv", index_label="record_id")
+            est_df.to_csv(self.base_dir / "est_df.csv", index_label="record_id")
 
             cmap = "coolwarm"
             # cmap = sns.color_palette("coolwarm")
@@ -484,7 +501,7 @@ class RecordCompModel:
                     min_max=(score_min, score_max),
                     scatter_kwargs={"s": m_size},
                     fig_kwargs={"figsize": fig_size},
-                    output_ffp=self.model_dir / f"score_true_vs_est_{cur_comp}.png",
+                    output_ffp=self.base_dir / f"score_true_vs_est_{cur_comp}.png",
                 )
 
                 f_min_min, f_min_max = (
@@ -508,7 +525,7 @@ class RecordCompModel:
                 )
                 cbar = fig.colorbar(train_scatter)
                 cbar.set_label("Quality score (True)")
-                plt.savefig(self.model_dir / f"f_min_true_vs_est_{cur_comp}.png")
+                plt.savefig(self.base_dir / f"f_min_true_vs_est_{cur_comp}.png")
                 plt.close()
 
                 fig, ax, train_scatter = plots.plot_true_vs_est(
@@ -530,6 +547,5 @@ class RecordCompModel:
                 ax.set_ylim((0.0, 2.0))
                 cbar = fig.colorbar(train_scatter)
                 cbar.set_label("Quality score (True)")
-                plt.savefig(self.model_dir / f"f_min_true_vs_est_zoomed_{cur_comp}.png")
+                plt.savefig(self.base_dir / f"f_min_true_vs_est_zoomed_{cur_comp}.png")
                 plt.close()
-

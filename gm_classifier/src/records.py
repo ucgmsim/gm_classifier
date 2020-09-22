@@ -280,11 +280,6 @@ def process_records(
             record_files, event_list_ffp=event_list_ffp, record_list_ffp=record_list_ffp
         )
 
-    # Hack that (partially) allows getting around obspy issue, when running this
-    # function on a loop...
-    np.random.seed(int(time.time()))
-    np.random.shuffle(record_files)
-
     # Load the Konno matrices into memory
     if ko_matrices_dir is not None and not low_mem_usage:
         print(f"Loading Konno matrices into memory")

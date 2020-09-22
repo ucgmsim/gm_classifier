@@ -14,7 +14,7 @@ import phase_net as ph
 
 
 def load_features_from_dir(
-    feature_dir: str,
+    feature_dir: Union[str, Path],
     glob_filter: str = "*comp*.csv",
     merge: bool = True,
     drop_duplicates: bool = True,
@@ -597,3 +597,18 @@ def get_p_wave_ix(
     # If all algorithms fail, pick p-wave at 5% record duration, but not less than 3s in.
     p_pick = np.max([3, 0.05 * t[-1]])
     return get_ix(p_pick, sample_rate), s_wave_ix
+
+
+def to_path(input: Union[str, List[str], List[Path]] = None):
+    """Converts a string or list of string to
+    Path object/s if required
+    """
+    if isinstance(input, str):
+        return Path(input)
+    elif isinstance(input, List):
+        return [
+            Path(cur_input) if isinstance(cur_input, str) else cur_input
+            for cur_input in input
+        ]
+
+    return input

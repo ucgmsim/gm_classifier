@@ -221,7 +221,7 @@ def fit(
         shutil.rmtree(tensorboard_output_dir)
     callbacks = [
         keras.callbacks.ModelCheckpoint(
-            str(output_dir / "model.h5"), save_best_only=True, save_weights_only=True
+            str(output_dir / "best_model" / "model"), save_best_only=True, save_weights_only=True
         ),
         keras.callbacks.TensorBoard(
             tensorboard_output_dir, write_graph=True, **tensorboard_cb_kwargs
@@ -601,14 +601,3 @@ def create_custom_act_fn(score_act_fn: tf.function, f_min_act_fn: tf.function):
         return output
 
     return tf.function(custom_act_fn)
-
-
-
-
-
-
-
-
-
-
-

@@ -107,10 +107,6 @@ class CnnSnrModel(keras.models.Model):
         else:
             return self.model_output(x)
 
-    def save(self, *args, **kwargs):
-        print(f"Saving with arguments {args} and kwargs {kwargs}")
-        super(CnnSnrModel, self).save(*args, **kwargs)
-
     @classmethod
     def from_custom_config(cls, model_config: Dict):
         return CnnSnrModel(

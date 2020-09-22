@@ -33,7 +33,7 @@ if __name__ == "__main__":
         "record_dir",
         type=str,
         help="Root directory for the records, "
-        "will search for records recursively from here",
+        "will search for V1A records recursively from here",
     )
     parser.add_argument(
         "--output_prefix",
