@@ -1,5 +1,4 @@
-import time
-import copy
+import traceback
 import os
 import math
 import glob
@@ -378,7 +377,8 @@ def process_records(
             failed_records["empty_file"].append(record_name)
             cur_features, cur_add_data = None, None
         except Exception as ex:
-            print(f"Record {record_name} failed due to the error:\n{ex}")
+            print(f"Record {record_name} failed due to the error: ")
+            traceback.print_exc()
             failed_records["other"].append(record_name)
             cur_features, cur_add_data = None, None
 
