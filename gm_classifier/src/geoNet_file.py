@@ -362,13 +362,13 @@ class FileComponent(object):
         # width is hard coded here as 8
         lenpre = (len(self.acc) - 1) * 10 + (len(self.acc[-1]) - 1) / 8
         firstacc = self.acc[0][0:8]
-        if (len(self.vel) is not 0):
+        if len(self.vel) != 0:
             self.lines.append(self.vel)
             self.lines.append(self.disp)
 
         self.acc = read_geoNet_list(self.acc)
         lenpost = (len(self.acc))
-        if (len(self.vel) is not 0):
+        if (len(self.vel) != 0):
             self.vel = read_geoNet_list(self.vel)
             self.disp = read_geoNet_list(self.disp)
 

@@ -378,6 +378,7 @@ def process_records(
             failed_records["empty_file"].append(record_name)
             cur_features, cur_add_data = None, None
         except Exception as ex:
+            print(f"Record {record_name} failed due to the error:\n{ex}")
             failed_records["other"].append(record_name)
             cur_features, cur_add_data = None, None
 

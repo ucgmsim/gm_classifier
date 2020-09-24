@@ -26,24 +26,19 @@ Install using
 ```shell script
 pip install -e ./gm_classifier
 ```
+All requirements should be install automatically
 
 \
-Navigate into the `gm_classifier` directory and install requirements using   
+PhaseNet dependency:\
+Clone using
 ```shell script
-pip install -r requirements.txt 
-```
-\
-Install the PhaseNet dependency   
-via `SSH`
-```shell script
-pip install git+ssh://git@github.com:claudio525/PhaseNet.git
-```
-or via `HTTPS`
-```shell script
-pip install git+https://github.com/claudio525/PhaseNet.git
-```
+git clone git@github.com:claudio525/PhaseNet.git
+```   
 
-Or just clone it and then install as with the `gm_classifier` repo 
+Install using
+```shell script
+pip install -e ./PhaseNet
+``` 
 
 ### Making predictions
 
