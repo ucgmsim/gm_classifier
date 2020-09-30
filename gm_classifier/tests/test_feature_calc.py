@@ -1,0 +1,49 @@
+import pickle
+from pathlib import Path
+
+import pytest
+import numpy as np
+import pandas as pd
+
+import gm_classifier as gmc
+
+
+@pytest.mark.parametrize("record_name", ["20190131_155600_SEAS_20", "20120901_161043_RQGS"])
+def test_feature_calc(record_name: str):
+    cur_dir = Path(__file__).parent
+
+    # Run the feature extraction
+    record_ffp = cur_dir / "bench_data" / f"{record_name}.V1A"
+    input_data, add_data = gmc.records.process_record(str(record_ffp), str(cur_dir / "konno_matrices"))
+
+    # Load the benchmark data
+    with open(cur_dir / "bench_data" / f"{record_name}.pickle", "rb") as f:
+        bench_data = pickle.load(f)
+    bench_input_data = bench_data["input_data"]
+    bench_add_data = bench_data["add_data"]
+
+    for cur_key in ["1", "2", "v", "gm"]:
+        cur_input_data = pd.Series(input_data[cur_key])
+        cur_add_data = pd.Series(add_data[cur_key])
+
+        cur_bench_input_data = pd.Series(bench_input_data[cur_key])
+        cur_bench_add_data = pd.Series(bench_add_data[cur_key])
+
+
+        assert np.allclose(cur_input_data.values, cur_bench_input_data.values)
+        assert np.allclose(cur_add_data.values, cur_bench_add_data.values)
+
+    assert input_data["record_id"] == bench_input_data["record_id"]
+    assert input_data["event_id"] == bench_input_data["event_id"]
+    assert input_data["station"] == bench_input_data["station"]
+
+    assert add_data["p_wave_ix"] == bench_add_data["p_wave_ix"]
+    assert add_data["s_wave_ix"] == bench_add_data["s_wave_ix"]
+
+    return
+
+
+if __name__ == '__main__':
+    test_feature_calc("20190131_155600_SEAS_20")
+
+
