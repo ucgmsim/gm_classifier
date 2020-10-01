@@ -22,16 +22,11 @@ def test_feature_calc(record_name: str):
     bench_input_data = bench_data["input_data"]
     bench_add_data = bench_data["add_data"]
 
-    for cur_key in ["1", "2", "v", "gm"]:
-        cur_input_data = pd.Series(input_data[cur_key])
-        cur_add_data = pd.Series(add_data[cur_key])
-
-        cur_bench_input_data = pd.Series(bench_input_data[cur_key])
-        cur_bench_add_data = pd.Series(bench_add_data[cur_key])
-
+    for cur_key in ["1", "2", "v"]:
+        cur_input_data = pd.Series(input_data[cur_key]).sort_index()
+        cur_bench_input_data = pd.Series(bench_input_data[cur_key]).sort_index()
 
         assert np.allclose(cur_input_data.values, cur_bench_input_data.values)
-        assert np.allclose(cur_add_data.values, cur_bench_add_data.values)
 
     assert input_data["record_id"] == bench_input_data["record_id"]
     assert input_data["event_id"] == bench_input_data["event_id"]
