@@ -92,16 +92,20 @@ def record_preprocesing(gf: GeoNet_File) -> GeoNet_File:
     """Performs some checks on the record and de-means and de-trends
     the acceleration time-series"""
     record_filename = os.path.basename(gf.record_ffp)
+    has_horizontal = gf.comp_1st is not None
 
     # Check that record is more than 5 seconds
-    if gf.comp_1st.acc.size < 5.0 / gf.comp_1st.delta_t:
+    if gf.comp_up.acc.size < 5.0 / gf.comp_up.delta_t:
         raise RecordError(
             f"Record {record_filename} - length is less than 5 seconds, ignored.",
             RecordErrorType.TotalTime,
         )
 
     # Check that all the time-series of the record have the same length
-    if not gf.comp_1st.acc.size == gf.comp_2nd.acc.size == gf.comp_up.acc.size:
+    if (
+        has_horizontal
+        and not gf.comp_1st.acc.size == gf.comp_2nd.acc.size == gf.comp_up.acc.size
+    ):
         raise RecordError(
             f"Record {record_filename} - The size of the acceleration time-series is "
             f"different between components",
@@ -110,40 +114,54 @@ def record_preprocesing(gf: GeoNet_File) -> GeoNet_File:
 
     # Ensure time delay adjusted timeseries still has more than 10 elements
     # Time delay < 0 when buffer start time is before event start time
-    if gf.comp_1st.time_delay < 0:
-        event_start_ix = math.floor(-1 * gf.comp_1st.time_delay / gf.comp_1st.delta_t)
-        if gf.comp_1st.acc.size - event_start_ix < 10:
+    if gf.comp_up.time_delay < 0:
+        event_start_ix = math.floor(-1 * gf.comp_up.time_delay / gf.comp_up.delta_t)
+        if gf.comp_up.acc.size - event_start_ix < 10:
             raise RecordError(
                 f"Record {record_filename} - less than 10 elements between earthquake "
                 f"rupture origin time and end of record",
                 RecordErrorType.NQuakePoints,
             )
 
-    # Quick and simple (not the best) baseline correction with demean and detrend
-    gf.comp_1st.acc -= gf.comp_1st.acc.mean()
-    gf.comp_2nd.acc -= gf.comp_2nd.acc.mean()
+    # Base line correct and de-trending, and compute the number
+    # of zero crossing for sanity checking
     gf.comp_up.acc -= gf.comp_up.acc.mean()
-
-    gf.comp_1st.acc = signal.detrend(gf.comp_1st.acc, type="linear")
-    gf.comp_2nd.acc = signal.detrend(gf.comp_2nd.acc, type="linear")
     gf.comp_up.acc = signal.detrend(gf.comp_up.acc, type="linear")
-
-    # Check number of zero crossings by
-    zeroc_1 = np.count_nonzero(
-        np.multiply(gf.comp_1st.acc[0:-2], gf.comp_1st.acc[1:-1]) < 0
-    )
-    zeroc_2 = np.count_nonzero(
-        np.multiply(gf.comp_2nd.acc[0:-2], gf.comp_2nd.acc[1:-1]) < 0
-    )
-    zeroc_3 = np.count_nonzero(
+    zeroc_up = np.count_nonzero(
         np.multiply(gf.comp_up.acc[0:-2], gf.comp_up.acc[1:-1]) < 0
     )
 
-    zeroc = (
-        10
-        * np.min([zeroc_1, zeroc_2, zeroc_3])
-        / (gf.comp_1st.acc.size * gf.comp_1st.delta_t)
-    )
+    if has_horizontal:
+        gf.comp_1st.acc -= gf.comp_1st.acc.mean()
+        gf.comp_2nd.acc -= gf.comp_2nd.acc.mean()
+
+        gf.comp_1st.acc = signal.detrend(gf.comp_1st.acc, type="linear")
+        gf.comp_2nd.acc = signal.detrend(gf.comp_2nd.acc, type="linear")
+
+        # Check number of zero crossings by
+        zeroc_1 = np.count_nonzero(
+            np.multiply(gf.comp_1st.acc[0:-2], gf.comp_1st.acc[1:-1]) < 0
+        )
+        zeroc_2 = np.count_nonzero(
+            np.multiply(gf.comp_2nd.acc[0:-2], gf.comp_2nd.acc[1:-1]) < 0
+        )
+
+        zeroc = (
+            10
+            * np.min([zeroc_1, zeroc_2, zeroc_up])
+            / (gf.comp_up.acc.size * gf.comp_up.delta_t)
+        )
+
+        if not (
+            np.isclose(gf.comp_1st.delta_t, gf.comp_2nd.delta_t)
+            and np.isclose(gf.comp_1st.delta_t, gf.comp_up.delta_t)
+        ):
+            raise RecordError(
+                f"Record { record_filename} - Not all dt values are the "
+                f"same across the channels."
+            )
+    else:
+        zeroc = 10 * zeroc_up / (gf.comp_up.acc.size * gf.comp_up.delta_t)
 
     # Number of zero crossings per 10 seconds less than 10 equals
     # means malfunctioned record
@@ -180,7 +198,15 @@ def process_record(
     gf = GeoNet_File(record_ffp)
     record_preprocesing(gf)
 
-    input_data, add_data = features.get_features(gf, ko_matrices=konno_matrices)
+    dt = gf.comp_1st.delta_t if gf.comp_1st.delta_t is not None else gf.comp_up.dt
+    input_data, add_data = features.get_features(
+        gf,
+        dt,
+        acc_1=gf.comp_1st.acc,
+        acc_2=gf.comp_2nd.acc,
+        acc_v=gf.comp_up.acc,
+        ko_matrices=konno_matrices,
+    )
 
     input_data["record_id"] = get_record_id(record_ffp)
     input_data["event_id"] = get_event_id(record_ffp)
@@ -376,11 +402,11 @@ def process_records(
         except EmptyFile as ex:
             failed_records["empty_file"].append(record_name)
             cur_features, cur_add_data = None, None
-        except Exception as ex:
-            print(f"Record {record_name} failed due to the error: ")
-            traceback.print_exc()
-            failed_records["other"].append(record_name)
-            cur_features, cur_add_data = None, None
+        # except Exception as ex:
+        #     print(f"Record {record_name} failed due to the error: ")
+        #     traceback.print_exc()
+        #     failed_records["other"].append(record_name)
+        #     cur_features, cur_add_data = None, None
 
         if cur_features is not None:
             feature_rows_1.append(cur_features["1"])
@@ -400,7 +426,9 @@ def process_records(
                     (feature_df_v, feature_rows_v, output_comp_v_ffp),
                     (feature_df_gm, feature_rows_gm, output_gm_ffp),
                 ],
-                record_ids, event_ids, stations
+                record_ids,
+                event_ids,
+                stations,
             )
             record_ids, event_ids, stations = [], [], []
             feature_rows_1, feature_rows_2 = [], []
@@ -415,7 +443,9 @@ def process_records(
                 (feature_df_v, feature_rows_v, output_comp_v_ffp),
                 (feature_df_gm, feature_rows_gm, output_gm_ffp),
             ],
-            record_ids, event_ids, stations
+            record_ids,
+            event_ids,
+            stations,
         )
     # Just return the results
     else:
