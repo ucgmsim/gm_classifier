@@ -14,9 +14,9 @@ def gen_bench_data(record_ffp: Path, ko_matrices_dir: str, bench_data_dir: Path)
 def main(ko_matrices_dir: str):
     bench_data_dir = Path(__file__).parent / "bench_data"
 
-    record_files = bench_data_dir.glob("*.V1A")
+    record_files_v1a = bench_data_dir.glob("*.V1A")
 
-    for record_file in record_files:
+    for record_file in record_files_v1a:
         gen_bench_data(record_file, ko_matrices_dir, bench_data_dir)
 
 if __name__ == '__main__':

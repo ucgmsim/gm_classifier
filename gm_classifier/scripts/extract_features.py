@@ -6,6 +6,7 @@ import gm_classifier as gm
 def main(
     output_dir: str,
     record_dir: str,
+    record_format: str,
     output_prefix: str = "features",
     event_list_ffp: str = None,
     record_list_ffp: str = None,
@@ -14,6 +15,7 @@ def main(
 ):
     feature_df, failed_records = gm.records.process_records(
         record_dir,
+        gm.records.RecordFormat.V1A if record_format == "V1A" else gm.records.RecordFormat.MiniSeed,
         event_list_ffp=event_list_ffp,
         record_list_ffp=record_list_ffp,
         ko_matrices_dir=ko_matrices_dir,
@@ -33,7 +35,13 @@ if __name__ == "__main__":
         "record_dir",
         type=str,
         help="Root directory for the records, "
-        "will search for V1A records recursively from here",
+        "will search for V1A or mseed records recursively from here",
+    )
+    parser.add_argument(
+        "record_format",
+        type=str,
+        choices=["V1A", "mseed"],
+        help="Format of the records, either V1A or mseed",
     )
     parser.add_argument(
         "--output_prefix",
@@ -77,6 +85,7 @@ if __name__ == "__main__":
     main(
         args.output_dir,
         args.record_dir,
+        args.record_format,
         output_prefix=args.output_prefix,
         event_list_ffp=args.event_list_ffp,
         record_list_ffp=args.record_list_ffp,
