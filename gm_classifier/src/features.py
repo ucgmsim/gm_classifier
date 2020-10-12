@@ -342,6 +342,12 @@ def compute_snr(
 ):
     """Computes the SNR for the specified frequency range"""
     lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
+
+    # Can occur in certain cases (20161113_131547_NNZ_10.V1A)
+    # TODO: This is silly.., should just interpolate all the time?
+    if lower_ix == upper_ix:
+        return snr[lower_ix]
+
     return np.trapz(snr[lower_ix:upper_ix], ft_freq[lower_ix:upper_ix]) / (
         ft_freq[upper_ix] - ft_freq[lower_ix]
     )
@@ -350,16 +356,19 @@ def compute_snr(
 def compute_fas(
     ft_smooth: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float
 ):
-    """Computes the Fourier amplitude spectra (FAS) for the specified frequency range
-    Not sure, what ft_s actually is?
-    """
-    lower_index, upper_index_average = get_freq_ix(ft_freq, lower_freq, upper_freq)
-    fas = np.trapz(
-        ft_smooth[lower_index:upper_index_average],
-        ft_freq[lower_index:upper_index_average],
-    ) / (ft_freq[upper_index_average] - ft_freq[lower_index])
-    ft_s = (ft_smooth[upper_index_average] - ft_smooth[lower_index]) / (
-        ft_freq[upper_index_average] / ft_freq[lower_index]
+    """Computes the Fourier amplitude spectra (FAS) for the specified frequency range"""
+    lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
+
+    # Can occur in certain cases (20161113_131547_NNZ_10.V1A)
+    # TODO: This is silly.., should just interpolate all the time?
+    if lower_ix == upper_ix:
+        return ft_smooth[lower_ix], None
+
+    fas = np.trapz(ft_smooth[lower_ix:upper_ix], ft_freq[lower_ix:upper_ix],) / (
+        ft_freq[upper_ix] - ft_freq[lower_ix]
+    )
+    ft_s = (ft_smooth[upper_ix] - ft_smooth[lower_ix]) / (
+        ft_freq[upper_ix] / ft_freq[lower_ix]
     )
 
     return fas, ft_s
