@@ -10,7 +10,7 @@ def main(output_dir):
     # Generate the Konno matrices
     dt = 0.005
 
-    ft_lens = [2048, 4096, 8192, 16384, 32768, 65536]
+    ft_lens = [1024, 2048, 4096, 8192, 16384, 32768, 65536]
     for ft_len in ft_lens:
         print(f"Computing konno {int(ft_len / 2)}")
         start_time = time.time()
