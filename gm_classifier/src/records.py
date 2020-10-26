@@ -183,39 +183,40 @@ class Record:
     @classmethod
     def load_mseed(cls, mseed_ffp: str, inventory: Inventory = None):
         inventory = inventory if inventory is not None else cls.inventory
-
         st = read(mseed_ffp)
+        if len(st) == 3:
+            # Converts it to acceleration in m/s^2
+            st_acc = st.remove_response(inventory=inventory, output="ACC")
 
-        # Converts it to acceleration in m/s^2
-        st.remove_response(inventory=inventory, output="acc")
+            # This is a tad awkward, couldn't think of a better way
+            # of doing this though.
+            # Gets and converts the acceleration data to units g and
+            # singles out the vertical component (order of the horizontal
+            # ones does not matter)
+            acc_data, dt = {}, st_acc[0].stats["delta"]
+            for ix, cur_trace in enumerate(st_acc.traces):
+                if not np.isclose(cur_trace.stats["delta"], dt):
+                    raise RecordError(
+                        f"Record {os.path.basename(mseed_ffp).split('.')[0]} - "
+                        f"The delta_t values are not matching across the components",
+                        RecordErrorType.DtNotMatching,
+                    )
 
-        # This is a tad awkward, couldn't think of a better way
-        # of doing this though.
-        # Gets and converts the acceleration data to units g and
-        # singles out the vertical component (order of the horizontal
-        # ones does not matter)
-        acc_data, dt = {}, st[0].stats["delta"]
-        for ix, cur_trace in enumerate(st.traces):
-            if not np.isclose(cur_trace.stats["delta"], dt):
-                raise RecordError(
-                    f"Record {os.path.basename(mseed_ffp).split('.')[0]} - "
-                    f"The delta_t values are not matching across the components",
-                    RecordErrorType.DtNotMatching,
-                )
+                # Vertical channel
+                if "Z" in cur_trace.stats["channel"]:
+                    acc_data["z"] = cur_trace.data / G
+                else:
+                    acc_data[ix + 1] = cur_trace.data / G
 
-            # Vertical channel
-            if "Z" in cur_trace.stats["channel"]:
-                acc_data["z"] = cur_trace.data / G
-            else:
-                acc_data[ix + 1] = cur_trace.data / G
-
-        return cls(
-            acc_data.get(1),
-            acc_data.get(2),
-            acc_data.get("z"),
-            dt,
-            os.path.basename(mseed_ffp).split(".")[0],
-        )
+            return cls(
+                acc_data.get(1),
+                acc_data.get(2),
+                acc_data.get("z"),
+                dt,
+                os.path.basename(mseed_ffp).split(".")[0],
+            )
+        else:
+            raise ValueError(f"Record {os.path.basename(mseed_ffp).split('.')[0]} has less than 3 traces")
 
     @classmethod
     def load(cls, ffp: str):
@@ -225,7 +226,7 @@ class Record:
             if cls.inventory is None:
                 print("Loading the station inventory (this may take a few seconds)")
                 client = FDSN_Client("GEONET")
-                cls.inventory = client.get_stations(station='OXZ', level='response')
+                cls.inventory = client.get_stations(station='*', level='response')
 
             return cls.load_mseed(ffp, cls.inventory)
 
@@ -264,6 +265,8 @@ def get_station(record_ffp: str) -> Union[str, None]:
         return str(split_fname[-1].split(".")[0])
     elif len(split_fname) in [2, 4]:
         return str(split_fname[-2])
+    elif len(split_fname) == 5:
+        return str(split_fname[-3])
     else:
         return None
 
