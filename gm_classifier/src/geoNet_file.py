@@ -406,30 +406,25 @@ class GeoNet_File(object):
         if len(lines) == 0:
             raise EmptyFile(f"This GeoNet file {self.record_ffp} is empty.")
 
-        self.comp_1st, self.comp_2nd, self.comp_up = (
-                    FileComponent() for i in range(3))
+        self.comp_1st, self.comp_2nd,  = FileComponent(), FileComponent()
+        self.comp_up = FileComponent()
         
         lines = self.comp_1st.extract(lines)
-        lines = self.comp_2nd.extract(lines)
-        lines = self.comp_up.extract(lines)
-        
-        assert (len(lines) is 0), "D'oh! Final list must be empty"
+
+        if len(lines) > 0:
+            lines = self.comp_2nd.extract(lines)
+            lines = self.comp_up.extract(lines)
+        # File only contains the vertical component
+        else:
+            self.comp_up = self.comp_1st
+            self.comp_1st, self.comp_2nd = None, None
+
+        assert (len(lines) == 0), "D'oh! Final list must be empty"
         
         if self.vol == 1:
-            #normalize with g=9810. and get acc in cm/s^2
-            g = 9810. #mm/s^2
-            #self.comp_up.acc  *= g/self.comp_up.C_header["line_23"]["local_g"]/10.
-            #self.comp_1st.acc *= g/self.comp_1st.C_header["line_23"]["local_g"]/10.
-            #self.comp_2nd.acc *= g/self.comp_2nd.C_header["line_23"]["local_g"]/10.
-
-            #we get acceleration in units of g
+            # Get acceleration in units of g
             self.comp_up.acc  /= self.comp_up.C_header["line_23"]["local_g"]
-            self.comp_1st.acc /= self.comp_1st.C_header["line_23"]["local_g"]
-            self.comp_2nd.acc /= self.comp_2nd.C_header["line_23"]["local_g"]
+            if self.comp_1st is not None:
+                self.comp_1st.acc /= self.comp_1st.C_header["line_23"]["local_g"]
+                self.comp_2nd.acc /= self.comp_2nd.C_header["line_23"]["local_g"]
 
-        return
-    
-if __name__ == "__main__":
-    gf = GeoNet_File("/".join(["tests","data",
-                     "20160214_001345_NBLC_20.V1A"]),vol=1)
-    print(gf.comp_1st)
