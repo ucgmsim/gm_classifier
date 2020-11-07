@@ -223,7 +223,7 @@ def process_records(
     low_mem_usage: bool = False,
     output_dir: str = None,
     output_prefix: str = "features",
-) -> Tuple[pd.DataFrame, Dict]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
     """Processes a set of record files, allows filtering of which
     records to process
 
@@ -265,7 +265,6 @@ def process_records(
         output_comp_1_ffp = output_dir / f"{output_prefix}_comp_X.csv"
         output_comp_2_ffp = output_dir / f"{output_prefix}_comp_Y.csv"
         output_comp_v_ffp = output_dir / f"{output_prefix}_comp_Z.csv"
-        output_gm_ffp = output_dir / f"{output_prefix}_gm.csv"
     else:
         print(f"No output directory, results are not saved and only returned")
 
@@ -332,7 +331,7 @@ def process_records(
     print(f"Starting processing of {record_files.size} record files")
 
     feature_df_1, feature_df_2 = None, None
-    feature_df_v, feature_df_gm = None, None
+    feature_df_v = None
 
     # Load existing results if they exists
     if (
@@ -345,7 +344,6 @@ def process_records(
                     output_comp_1_ffp,
                     output_comp_2_ffp,
                     output_comp_v_ffp,
-                    output_gm_ffp,
                 ]
             ]
         )
@@ -357,23 +355,21 @@ def process_records(
         feature_df_1 = pd.read_csv(output_comp_1_ffp, index_col="record_id")
         feature_df_2 = pd.read_csv(output_comp_2_ffp, index_col="record_id")
         feature_df_v = pd.read_csv(output_comp_v_ffp, index_col="record_id")
-        feature_df_gm = pd.read_csv(output_gm_ffp, index_col="record_id")
 
         # Ensure all the existing results are consistent
         assert (
             np.all(feature_df_1.index.values == feature_df_2.index.values)
             and np.all(feature_df_1.index.values == feature_df_v.index.values)
-            and np.all(feature_df_1.index.values == feature_df_gm.index.values)
         )
 
         # Filter, as to not process already processed records
         record_ids = [get_record_id(record_ffp) for record_ffp in record_files]
-        record_files = record_files[~np.isin(record_ids, feature_df_gm.index.values)]
+        record_files = record_files[~np.isin(record_ids, feature_df_1.index.values)]
     elif output_dir.is_dir() == False:
         output_dir.mkdir()
 
     feature_rows_1, feature_rows_2 = [], []
-    feature_rows_v, feature_rows_gm = [], []
+    feature_rows_v = []
     failed_records = {
         RecordError: {err_type: [] for err_type in RecordErrorType},
         features.FeatureError: {err_type: [] for err_type in features.FeatureErrorType},
@@ -402,29 +398,27 @@ def process_records(
         except EmptyFile as ex:
             failed_records["empty_file"].append(record_name)
             cur_features, cur_add_data = None, None
-        # except Exception as ex:
-        #     print(f"Record {record_name} failed due to the error: ")
-        #     traceback.print_exc()
-        #     failed_records["other"].append(record_name)
-        #     cur_features, cur_add_data = None, None
+        except Exception as ex:
+            print(f"Record {record_name} failed due to the error: ")
+            traceback.print_exc()
+            failed_records["other"].append(record_name)
+            cur_features, cur_add_data = None, None
 
         if cur_features is not None:
             feature_rows_1.append(cur_features["1"])
             feature_rows_2.append(cur_features["2"])
             feature_rows_v.append(cur_features["v"])
-            feature_rows_gm.append(cur_features["gm"])
         if (
             output_dir is not None
             and ix % 100 == 0
             and ix > 0
-            and len(feature_rows_gm) > 0
+            and len(feature_rows_1) > 0
         ):
-            feature_df_1, feature_df_2, feature_df_v, feature_df_gm = write(
+            feature_df_1, feature_df_2, feature_df_v = write(
                 [
                     (feature_df_1, feature_rows_1, output_comp_1_ffp),
                     (feature_df_2, feature_rows_2, output_comp_2_ffp),
                     (feature_df_v, feature_rows_v, output_comp_v_ffp),
-                    (feature_df_gm, feature_rows_gm, output_gm_ffp),
                 ],
                 record_ids,
                 event_ids,
@@ -432,27 +426,22 @@ def process_records(
             )
             record_ids, event_ids, stations = [], [], []
             feature_rows_1, feature_rows_2 = [], []
-            feature_rows_v, feature_rows_gm = [], []
+            feature_rows_v = []
 
     # Save
     if output_dir is not None:
-        feature_df_1, feature_df_2, feature_df_v, feature_df_gm = write(
+        feature_df_1, feature_df_2, feature_df_v = write(
             [
                 (feature_df_1, feature_rows_1, output_comp_1_ffp),
                 (feature_df_2, feature_rows_2, output_comp_2_ffp),
                 (feature_df_v, feature_rows_v, output_comp_v_ffp),
-                (feature_df_gm, feature_rows_gm, output_gm_ffp),
             ],
             record_ids,
             event_ids,
             stations,
         )
-    # Just return the results
-    else:
-        feature_df_gm = pd.DataFrame(feature_rows_gm)
-        feature_df_gm.index = record_ids
 
-    return feature_df_gm, failed_records
+    return feature_df_1, feature_df_2, feature_df_v, failed_records
 
 
 def print_errors(failed_records: Dict[Any, Dict[Any, List]]):

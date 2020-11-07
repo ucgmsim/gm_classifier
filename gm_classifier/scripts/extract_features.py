@@ -12,7 +12,7 @@ def main(
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
 ):
-    feature_df, failed_records = gm.records.process_records(
+    feature_df_1, feature_df_2, feature_df_v, failed_records = gm.records.process_records(
         record_dir,
         event_list_ffp=event_list_ffp,
         record_list_ffp=record_list_ffp,
