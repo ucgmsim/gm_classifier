@@ -234,14 +234,7 @@ def comp_fourier_data(
     # Noise scaling, scale factor = (signal length / noise length)**(1/2)
     ft_pe = np.abs(ft_pe) * np.sqrt(signal_acc.size / noise_acc.size)
 
-    # Apply smoothing, might require two different smoothing matrices due to different number of frequencies
-    # smooth_matrix = load_konno_matrix(ko_matrices, ft_freq)
-    # smooth_ft = np.dot(np.abs(ft), smooth_matrix)
-
-    # if ft_freq.size == ft_freq_signal.size:
-    #     smooth_signal_matrix = smooth_matrix
-    # else:
-    # del smooth_matrix
+    # Apply smoothing
     smooth_signal_matrix = load_konno_matrix(ko_matrices, ft_freq_signal)
 
     # Smooth ft with konno ohmachi matrix
@@ -444,12 +437,6 @@ def compute_channel_features(
     snr_min = compute_snr_min(snr, ft_freq_signal, 0.1, 20)
     snr_max = compute_snr_max(snr, ft_freq_signal, 0.1, 20)
     snr_avg = compute_snr_avg(snr, ft_freq_signal, 0.1, 20)
-
-    # Computing average SNR for the different frequency ranges
-    snr_values_v = [
-        compute_snr(snr, ft_freq_signal, lower_freq, upper_freq)
-        for lower_freq, upper_freq in SNR_FREQ_BINS
-    ]
 
     # Compute SNR for a range of different frequency values
     snr_freq = np.logspace(np.log(0.01), np.log(25), 100, base=np.e)

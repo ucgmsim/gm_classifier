@@ -60,7 +60,8 @@ def load_features_from_dir(
             print(f"Dropped {np.count_nonzero(dup_mask)} duplicates")
 
         if drop_nan:
-            nan_mask = np.any(cur_df.isna(), axis=1)
+            feature_cols = cur_df.columns.values[~np.isin(cur_df.columns, ["event_id", "station"])].astype(str)
+            nan_mask = np.any(cur_df.loc[:, feature_cols].isna(), axis=1)
             cur_df = cur_df.loc[~nan_mask]
             print(f"Dropped {np.count_nonzero(nan_mask)} samples due to nan-values")
 

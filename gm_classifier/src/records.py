@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import scipy.signal as signal
 from obspy.clients.fdsn import Client as FDSN_Client
-from obspy import read, Inventory
+from obspy import read, Inventory, read_events
 
 from .geoNet_file import GeoNet_File, EmptyFile
 from . import features
@@ -186,7 +186,10 @@ class Record:
         st = read(mseed_ffp)
         if len(st) == 3:
             # Converts it to acceleration in m/s^2
-            st_acc = st.remove_response(inventory=inventory, output="ACC")
+            if st[0].stats.channel[1] == 'N':  # Checks whether data is strong motion
+                st_acc = st.copy().remove_sensitivity(inventory=inventory)
+            else:
+                st_acc = st.copy().remove_sensitivity(inventory=inventory).differentiate()
 
             # This is a tad awkward, couldn't think of a better way
             # of doing this though.
@@ -225,8 +228,11 @@ class Record:
         elif os.path.basename(ffp).split(".")[-1].lower() == "mseed":
             if cls.inventory is None:
                 print("Loading the station inventory (this may take a few seconds)")
-                client = FDSN_Client("GEONET")
-                cls.inventory = client.get_stations(station='*', level='response')
+                client_NZ = FDSN_Client("GEONET")
+                inventory_NZ = client_NZ.get_stations(level='response')
+                client_IU = FDSN_Client("IRIS")
+                inventory_IU = client_IU.get_stations(network='IU',station='SNZO',level='response')
+                cls.inventory = inventory_NZ+inventory_IU
 
             return cls.load_mseed(ffp, cls.inventory)
 
@@ -235,20 +241,24 @@ class Record:
 
 
 def get_event_id(record_ffp: str) -> Union[str, None]:
-    """Attempts to get the event ID from the record path.
-    Might not always be correct"""
+    """Attempts to get the event ID from an event xml file, otherwise from the record path.
+    Might not always work or be correct"""
     event_id = None
-    for part in record_ffp.split("/"):
-        if "p" in part:
-            split_part = part.split("p")
-            if (
-                len(split_part) == 2
-                and split_part[0] in EVENT_YEARS
-                and split_part[1].isdigit()
-            ):
-                return part
-        elif part.isdigit() and event_id is None:
-            event_id = part
+    try:
+        event = read_events(os.path.abspath(os.path.join(os.path.dirname(record_ffp), '../..', '*.xml')))[0]
+        event_id = str(event.resource_id).split("/")[-1]
+    except:
+        for part in record_ffp.split("/"):
+            if "p" in part:
+                split_part = part.split("p")
+                if (
+                    len(split_part) == 2
+                    and split_part[0] in EVENT_YEARS
+                    and split_part[1].isdigit()
+                ):
+                    return part
+            elif part.isdigit() and event_id is None:
+                event_id = part
     return event_id
 
 
@@ -334,7 +344,7 @@ def process_records(
     low_mem_usage: bool = False,
     output_dir: str = None,
     output_prefix: str = "features",
-) -> Tuple[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Dict]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
     """Processes a set of record files, allows filtering of which
     records to process
 
@@ -478,7 +488,7 @@ def process_records(
 
         # Filter, as to not process already processed records
         record_ids = [get_record_id(record_ffp) for record_ffp in record_files]
-        record_files = record_files[~np.isin(record_ids, feature_df_v.index.values)]
+        record_files = record_files[~np.isin(record_ids, feature_df_1.index.values)]
     elif not output_dir.is_dir():
         output_dir.mkdir()
 
@@ -505,7 +515,7 @@ def process_records(
             failed_records[RecordError][ex.error_type].append(record_name)
             cur_features, cur_add_data = None, None
         except features.FeatureError as ex:
-            failed_records[features.FeatureError][features.FeatureErrorType].append(
+            failed_records[features.FeatureError][ex.error_type].append(
                 record_name
             )
             cur_features, cur_add_data = None, None
@@ -526,7 +536,7 @@ def process_records(
             output_dir is not None
             and ix % 100 == 0
             and ix > 0
-            and len(feature_rows_v) > 0
+            and len(feature_rows_1) > 0
         ):
             feature_df_1, feature_df_2, feature_df_v = write(
                 [
@@ -540,7 +550,7 @@ def process_records(
             )
             record_ids, event_ids, stations = [], [], []
             feature_rows_1, feature_rows_2 = [], []
-            feature_rows_v, feature_rows_gm = [], []
+            feature_rows_v = []
 
     # Save
     if output_dir is not None:
@@ -555,7 +565,7 @@ def process_records(
             stations,
         )
 
-    return (feature_df_1, feature_df_2, feature_df_v), failed_records
+    return feature_df_1, feature_df_2, feature_df_v, failed_records
 
 
 def print_errors(failed_records: Dict[Any, Dict[Any, List]]):
@@ -608,7 +618,7 @@ def print_errors(failed_records: Dict[Any, Dict[Any, List]]):
         print(
             "The following records failed processing due to "
             "one PGA being zero for one (or more) of the components:\n{}".format(
-                "\n".join(feature_erros["other"])
+                "\n".join(feature_erros[features.FeatureErrorType.PGA_zero])
             )
         )
 
