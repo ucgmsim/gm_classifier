@@ -17,6 +17,7 @@ from obspy.signal.konnoohmachismoothing import calculate_smoothing_matrix
 
 from .geoNet_file import GeoNet_File
 from .utils import get_p_wave_ix
+from .records import Record
 
 
 class FeatureErrorType(Enum):
@@ -390,6 +391,7 @@ def compute_channel_features(
     s_wave_ix: int,
     ko_matrices: Dict[int, np.ndarray] = None,
 ):
+    """Computes the features for the acceleration time-series"""
     sample_rate = 1.0 / dt
 
     husid, AI, arias, husid_5_ix, husid_75_ix, husid_95_ix = compute_husid(acc, t)
@@ -484,35 +486,23 @@ def compute_channel_features(
 
 
 def get_features(
-    record_id: str,
-    dt: float,
-    acc_1: np.ndarray = None,
-    acc_2: np.ndarray = None,
-    acc_v: np.ndarray = None,
+    record: Record,
     ko_matrices: Dict[int, np.ndarray] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    # Ensure that at least one channel exists & that all given channels have the same length
-    acc_lengths = [
-        cur_acc.size for cur_acc in [acc_1, acc_2, acc_v] if cur_acc is not None
-    ]
-    assert len(acc_lengths) > 0
-    assert all([len == acc_lengths[0] for len in acc_lengths])
-    acc_length = acc_lengths[0]
-
     # Create the time vector
-    t = np.arange(acc_length) * dt
+    t = np.arange(record.size) * record.dt
 
-    p_wave_ix, s_wave_ix = get_p_wave_ix(acc_1, acc_2, acc_v, dt)
+    p_wave_ix, s_wave_ix = get_p_wave_ix(record.acc_1, record.acc_2, record.acc_v, record.dt)
 
     # Compute the ratio (t_swave - t_pwave) / (t_end - t_swave)
     # For detecting records truncated to early
-    s_wave_ratio = ((s_wave_ix * dt) - (p_wave_ix * dt)) / (t[-1] - (s_wave_ix * dt))
+    s_wave_ratio = ((s_wave_ix * record.dt) - (p_wave_ix * record.dt)) / (t[-1] - (s_wave_ix * record.dt))
 
     features_dict = {}
-    for cur_key, cur_acc in zip(["1", "2", "v"], [acc_1, acc_2, acc_v]):
+    for cur_key, cur_acc in zip(["1", "2", "v"], [record.acc_1, record.acc_2, record.acc_v]):
         try:
             features_dict[cur_key] = compute_channel_features(
-                cur_acc, t, dt, p_wave_ix, s_wave_ix, ko_matrices=ko_matrices
+                cur_acc, t, record.dt, p_wave_ix, s_wave_ix, ko_matrices=ko_matrices
             )
             features_dict[cur_key]["is_vertical"] = 1 if cur_key == "v" else 0
 
@@ -522,7 +512,7 @@ def get_features(
         except FeatureError as ex:
             if ex.error_type is FeatureErrorType.PGA_zero:
                 raise FeatureError(
-                    f"Record {record_id} - PGA is zero"
+                    f"Record {record.id} - PGA is zero"
                     f" for one (or more) of the components",
                     FeatureErrorType.PGA_zero,
                 )

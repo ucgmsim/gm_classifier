@@ -55,12 +55,13 @@ arguments:
 usage: extract_features.py [-h] [--output_prefix OUTPUT_PREFIX] [--event_list_ffp EVENT_LIST_FFP]
                            [--record_list_ffp RECORD_LIST_FFP] [--ko_matrices_dir KO_MATRICES_DIR]
                            [--low_memory]
-                           output_dir record_dir
+                           output_dir record_dir {V1A,mseed}
 
 positional arguments:
   output_dir            Path to the output directory
-  record_dir            Root directory for the records, will search for V1A records recursively from
-                        here
+  record_dir            Root directory for the records, will search for V1A or mseed records recursively
+                        from here
+  {V1A,mseed}           Format of the records, either V1A or mseed
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -81,6 +82,7 @@ optional arguments:
 ```
 Most of the arguments are optional, however it is recommended to generate the konno matrices 
 manually first and pass in the directory.
+
 And if the computer has < 16GB of RAM the `low_memory` option should be used.
 
 To generate the konno matrices use script `gen_konno_matrices.py`, which just requires an output
@@ -90,7 +92,7 @@ Example call for `extract_features.py`:
 ```shell script
 python extract_features.py --ko_matrices_dir /home/claudy/dev/work/data/gm_classifier/konno_matrices /home/claudy/dev/work/tmp/gmc_record_test/features /home/claudy/dev/work/tmp/gmc_record_test/2003
 ```
-Note I: The feature extraction is quite slow, so if the number of recrods is large it can easily take multiple hours.\
+Note I: The feature extraction is quite slow, so if the number of records is large it can easily take multiple hours.\
 Note II: Its probably a good idea to pipe the output into a log file, in case some records fail. 
 This can be done by adding `> log.txt` to the call above, however this will no longer print the output. To get around this
 I suggest to add `|& tee log.txt` to the end of the call instead, which will still periodically print stdout to the terminal (and write to the log file).  

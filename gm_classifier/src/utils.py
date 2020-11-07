@@ -116,7 +116,7 @@ def load_comp_features_from_dir(feature_dir: str, glob_filter: str = "*comp*.csv
         # Change the index to sample_id instead of record_id
         cur_df["record_id"] = cur_df.index.values
         cur_df["sample_id"] = get_sample_id(
-            cur_df.record_id.values.astype(str), cur_comp
+            cur_df.id.values.astype(str), cur_comp
         )
         cur_df.set_index("sample_id", drop=True, inplace=True)
 
