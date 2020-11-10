@@ -377,10 +377,10 @@ def compute_low_freq_fas(
     )
 
 
-def log_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray):
+def log_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray, fill_value: Tuple[float, float] = (0, 0)):
     """Performs log interpolation"""
     ln_x, ln_y, ln_x_new = np.log(x), np.log(y), np.log(x_new)
-    return np.exp(interp1d(ln_x, ln_y, kind="linear", bounds_error=True)(ln_x_new))
+    return np.exp(interp1d(ln_x, ln_y, kind="linear", bounds_error=False, fill_value=fill_value)(ln_x_new))
 
 
 def compute_channel_features(
