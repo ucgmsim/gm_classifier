@@ -21,11 +21,13 @@ def main(input_dir: Path, model_base_dir: Path, output_ffp: Path):
     model.load()
 
     print("Running the predictions")
-    y_hat = model.predict(feature_df)
+    y_hat, y_hat_std = model.predict(feature_df, n_preds=100)
     est_df = pd.DataFrame(index=feature_df.index.values, data=y_hat, columns=model.label_names)
+    std_df = pd.DataFrame(index=feature_df.index.values, data=y_hat_std, columns=[f"{cur_col}_std" for cur_col in model.label_names])
+    result_df = pd.merge(est_df, std_df, right_index=True, left_index=True)
 
     print(f"Writing the result to {output_ffp}")
-    est_df.to_csv(output_ffp, index_label="record_id")
+    result_df.to_csv(output_ffp, index_label="record_id")
 
 
 if __name__ == "__main__":

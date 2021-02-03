@@ -1,3 +1,4 @@
+import datetime
 import os
 import glob
 import multiprocessing as mp
@@ -7,10 +8,16 @@ from typing import Dict, Union, Tuple, List, Iterable
 
 import pandas as pd
 import numpy as np
-from obspy.signal.trigger import ar_pick, pk_baer
+from obspy.signal.trigger import pk_baer
 from scipy.signal import detrend
 
 import phase_net as ph
+
+
+def create_run_id() -> str:
+    """Creates a run ID based on the month, day & time"""
+    id = datetime.datetime.now().strftime("%m%d_%H%M")
+    return id
 
 
 def load_features_from_dir(

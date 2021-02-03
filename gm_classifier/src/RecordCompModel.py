@@ -17,6 +17,11 @@ from . import pre
 from . import utils
 
 
+class MCDropout(tf.keras.layers.Dropout):
+    def call(self, inputs, **kwargs):
+        return super().call(inputs, training=True)
+
+
 class RecordCompModel:
     label_names = ["score_X", "f_min_X", "score_Y", "f_min_Y", "score_Z", "f_min_Z"]
 
@@ -53,7 +58,7 @@ class RecordCompModel:
                     "kernel_initializer": "glorot_uniform",
                 },
             ),
-            (keras.layers.Dropout, {"rate": 0.3}),
+            (MCDropout, {"rate": 0.3}),
             (
                 keras.layers.Dense,
                 {
@@ -62,7 +67,7 @@ class RecordCompModel:
                     "kernel_initializer": "glorot_uniform",
                 },
             ),
-            (keras.layers.Dropout, {"rate": 0.3}),
+            (MCDropout, {"rate": 0.3}),
         ],
         "dense_input_name": "features",
         "cnn_layer_config": [
@@ -78,7 +83,7 @@ class RecordCompModel:
                 },
             ),
             (keras.layers.MaxPooling1D, {"pool_size": 2}),
-            (keras.layers.Dropout, {"rate": 0.3}),
+            (MCDropout, {"rate": 0.3}),
             (
                 keras.layers.Conv1D,
                 {
@@ -91,7 +96,7 @@ class RecordCompModel:
                 },
             ),
             (keras.layers.MaxPooling1D, {"pool_size": 2}),
-            (keras.layers.Dropout, {"rate": 0.3}),
+            (MCDropout, {"rate": 0.3}),
         ],
         "cnn_input_name": "snr_series",
         "comb_layer_config": [
@@ -103,7 +108,7 @@ class RecordCompModel:
                     "kernel_initializer": "glorot_uniform",
                 },
             ),
-            (keras.layers.Dropout, {"rate": 0.3}),
+            (MCDropout, {"rate": 0.3}),
             (
                 keras.layers.Dense,
                 {
@@ -112,7 +117,7 @@ class RecordCompModel:
                     "kernel_initializer": "glorot_uniform",
                 },
             ),
-            (keras.layers.Dropout, {"rate": 0.3}),
+            (MCDropout, {"rate": 0.3}),
             (
                 keras.layers.Dense,
                 {
@@ -212,7 +217,7 @@ class RecordCompModel:
     def load(self):
         self.gm_model.load_weights(self.model_dir)
 
-    def predict(self, feature_df: pd.DataFrame):
+    def predict(self, feature_df: pd.DataFrame, n_preds: int = 1):
         X_features = feature_df.loc[:, self.feature_names].copy()
 
         # Pre-processing
@@ -239,10 +244,20 @@ class RecordCompModel:
             )
         )
 
-        y_hat = self.gm_model.predict(
-            {"features": X_features.values, "snr_series": X_snr}
-        )
-        return y_hat
+        if n_preds == 1:
+            y_hat = self.gm_model.predict(
+                {"features": X_features.values, "snr_series": X_snr}
+            )
+            return y_hat
+        else:
+            y_hats = []
+            for ix in range(n_preds):
+                y_hats.append(self.gm_model.predict(
+                    {"features": X_features.values, "snr_series": X_snr}
+                ))
+            y_hats = np.stack(y_hats, axis=2)
+            y_hat_mean, y_hat_std = np.mean(y_hats, axis=2), np.std(y_hats, axis=2)
+            return y_hat_mean, y_hat_std
 
     def train(
         self,
