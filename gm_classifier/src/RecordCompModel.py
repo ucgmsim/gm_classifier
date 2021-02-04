@@ -6,20 +6,16 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
-from tensorflow import keras
 from sklearn.model_selection import train_test_split
 import seaborn as sns
 
-from .model import CnnSnrModel
+from . import model
 from . import training
 from . import plots
 from . import pre
 from . import utils
 
-
-class MCDropout(tf.keras.layers.Dropout):
-    def call(self, inputs, **kwargs):
-        return super().call(inputs, training=True)
+import ml_tools
 
 
 class RecordCompModel:
@@ -46,95 +42,30 @@ class RecordCompModel:
         "is_vertical": None,
     }
 
-    snr_freq_values = np.logspace(np.log(0.01), np.log(25), 100, base=np.e)
-
     model_config = {
-        "dense_layer_config": [
-            (
-                keras.layers.Dense,
-                {
-                    "units": 32,
-                    "activation": "elu",
-                    "kernel_initializer": "glorot_uniform",
-                },
-            ),
-            (MCDropout, {"rate": 0.3}),
-            (
-                keras.layers.Dense,
-                {
-                    "units": 16,
-                    "activation": "elu",
-                    "kernel_initializer": "glorot_uniform",
-                },
-            ),
-            (MCDropout, {"rate": 0.3}),
-        ],
-        "dense_input_name": "features",
-        "cnn_layer_config": [
-            (
-                keras.layers.Conv1D,
-                {
-                    "filters": 32,
-                    "kernel_size": 5,
-                    "strides": 1,
-                    "activation": "elu",
-                    "kernel_initializer": "glorot_uniform",
-                    "padding": "same",
-                },
-            ),
-            (keras.layers.MaxPooling1D, {"pool_size": 2}),
-            (MCDropout, {"rate": 0.3}),
-            (
-                keras.layers.Conv1D,
-                {
-                    "filters": 16,
-                    "kernel_size": 5,
-                    "strides": 1,
-                    "activation": "elu",
-                    "kernel_initializer": "glorot_uniform",
-                    "padding": "same",
-                },
-            ),
-            (keras.layers.MaxPooling1D, {"pool_size": 2}),
-            (MCDropout, {"rate": 0.3}),
-        ],
-        "cnn_input_name": "snr_series",
-        "comb_layer_config": [
-            (
-                keras.layers.Dense,
-                {
-                    "units": 64,
-                    "activation": "elu",
-                    "kernel_initializer": "glorot_uniform",
-                },
-            ),
-            (MCDropout, {"rate": 0.3}),
-            (
-                keras.layers.Dense,
-                {
-                    "units": 32,
-                    "activation": "elu",
-                    "kernel_initializer": "glorot_uniform",
-                },
-            ),
-            (MCDropout, {"rate": 0.3}),
-            (
-                keras.layers.Dense,
-                {
-                    "units": 16,
-                    "activation": "elu",
-                    "kernel_initializer": "glorot_uniform",
-                },
-            ),
-        ],
-        "output": keras.layers.Dense(
-            6,
-            activation=training.create_custom_act_fn(
-                keras.activations.linear,
-                training.create_soft_clipping(30, z_min=0.1, z_max=10.0),
-            ),
-        ),
+        "dense_config": {
+            "hidden_layer_func": ml_tools.hidden_layers.elu_mc_dropout,
+            "hidden_layer_config": {"dropout": 0.3},
+            "units": [32, 16],
+        },
+        "snr_config": {
+            "filters": [16, 32],
+            "kernel_sizes": [11, 5],
+            "layer_config": {
+                "activation": "elu",
+                "kernel_initializer": "glorot_uniform",
+            },
+            "dropout": 0.1,
+            "lstm_units": [64, 32]
+        },
+        "dense_final_config": {
+            "hidden_layer_func": ml_tools.hidden_layers.elu_mc_dropout,
+            "hidden_layer_config": {"dropout": 0.3},
+            "units": [32, 16],
+        },
     }
+
+    snr_freq_values = np.logspace(np.log(0.01), np.log(25), 100, base=np.e)
 
     score_values = np.asarray([0.0, 0.25, 0.5, 0.75, 1.0])
     f_min_weights = np.asarray(training.f_min_loss_weights(score_values))
@@ -197,7 +128,18 @@ class RecordCompModel:
         )
 
         # Build the model
-        self.gm_model = CnnSnrModel.from_custom_config(self.model_config)
+        self.gm_model = model.build_dense_cnn_model(
+            self.model_config["dense_config"],
+            self.model_config["snr_config"],
+            self.model_config["dense_final_config"],
+            len(self.feature_names),
+            len(snr_freq_values),
+            6,
+            training.create_custom_act_fn(
+                tf.keras.activations.linear,
+                training.create_soft_clipping(30, z_min=0.1, z_max=10.0),
+            ),
+        )
 
         self.compile_kwargs = None
         self.fit_kwargs = None
@@ -252,9 +194,11 @@ class RecordCompModel:
         else:
             y_hats = []
             for ix in range(n_preds):
-                y_hats.append(self.gm_model.predict(
-                    {"features": X_features.values, "snr_series": X_snr}
-                ))
+                y_hats.append(
+                    self.gm_model.predict(
+                        {"features": X_features.values, "snr_series": X_snr}
+                    )
+                )
             y_hats = np.stack(y_hats, axis=2)
             y_hat_mean, y_hat_std = np.mean(y_hats, axis=2), np.std(y_hats, axis=2)
             return y_hat_mean, y_hat_std

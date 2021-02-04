@@ -17,12 +17,12 @@ import gm_classifier as gmc
 
 # ----- Config -----
 label_dir = (
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels"
+    "/Users/Clus/dev/work/data/gm_classifier/training_data/labels"
 )
 
-features_dir = "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210121"
+features_dir = "/Users/Clus/dev/work/data/gm_classifier/training_data/features/210121"
 
-base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
+base_output_dir = Path("/Users/Clus/dev/work/data/gm_classifier/results/test")
 
 # ---- Training ----
 output_dir = base_output_dir / gmc.utils.create_run_id()
@@ -38,7 +38,7 @@ train_df = pd.merge(
 gm_model = gmc.RecordCompModel(output_dir)
 
 # Run training of the model
-fit_kwargs = {"batch_size": 32, "epochs": 300, "verbose": 2}
+fit_kwargs = {"batch_size": 32, "epochs": 10, "verbose": 2}
 gm_model.train(train_df, val_size=0.1, fit_kwargs=fit_kwargs)
 
 # Create eval plots

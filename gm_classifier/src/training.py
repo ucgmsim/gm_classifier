@@ -223,9 +223,9 @@ def fit(
         keras.callbacks.ModelCheckpoint(
             str(output_dir / "best_model" / "model"), save_best_only=True, save_weights_only=True
         ),
-        keras.callbacks.TensorBoard(
-            tensorboard_output_dir, write_graph=True, **tensorboard_cb_kwargs
-        ),
+        # keras.callbacks.TensorBoard(
+        #     tensorboard_output_dir, write_graph=True, **tensorboard_cb_kwargs
+        # ),
     ]
     gm_model.compile(**compile_kwargs)
     history = gm_model.fit(
@@ -239,6 +239,14 @@ def fit(
     # Save the history
     hist_df = pd.DataFrame.from_dict(history.history, orient="columns")
     hist_df.to_csv(output_dir / "history.csv", index_label="epoch")
+
+    keras.utils.plot_model(
+        gm_model,
+        output_dir / "model.png",
+        show_shapes=True,
+        show_layer_names=True,
+        expand_nested=True,
+    )
 
     return history.history, gm_model
 

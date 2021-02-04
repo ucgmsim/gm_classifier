@@ -1,119 +1,64 @@
 import os
 from typing import List, Dict, Tuple, Union, Callable
 
-import numpy as np
+import tensorflow as tf
 import tensorflow.keras as keras
-import tensorflow.keras.layers as layers
+
+import ml_tools
 
 
-class GenericLayer(layers.Layer):
-    """Represents a generic layer as per the specified
-    config. This layer can be made up of many other sub-layers."""
+def build_dense_cnn_model(
+    dense_config: Dict,
+    snr_config: Dict,
+    dense_final_config: Dict,
+    n_features: int,
+    n_snr_steps: int,
+    n_outputs: int,
+    out_act_func: tf.function,
+):
+    hidden_layer_func = dense_config["hidden_layer_func"]
+    hidden_layer_config = dense_config["hidden_layer_config"]
 
-    def __init__(
-        self, layer_config: List[Tuple[layers.Layer, Dict]], name: str, **kwargs
-    ):
-        super(GenericLayer, self).__init__(name=name, **kwargs)
-        self.layer_config = layer_config
+    # Build the scalar features dense layers
+    scalar_inputs = keras.Input(n_features, name="features")
+    x_nn = hidden_layer_func(
+        scalar_inputs, dense_config["units"][0], **hidden_layer_config
+    )
+    for n_units in dense_config["units"][1:]:
+        x_nn = hidden_layer_func(x_nn, n_units, **hidden_layer_config)
 
-        self._layers = []
+    # Build the CNN + LSTM layers
+    cnn_filters, cnn_kernels = snr_config["filters"], snr_config["kernel_sizes"]
+    dropout, cnn_layer_config = snr_config["dropout"], snr_config["layer_config"]
+    lstm_units = snr_config["lstm_units"]
 
-        # Build the layer
-        self._build()
-
-    def _build(self):
-        for layer_type, layer_kwargs in self.layer_config:
-            self._layers.append(layer_type(**layer_kwargs))
-
-    def call(self, inputs, training=None, **kwargs):
-        x = self._layers[0](inputs)
-        for cur_layer in self._layers[1:]:
-            x = cur_layer(x, training=training)
-
-        return x
-
-
-class DenseModel(keras.models.Model):
-    """Represents a FC-NN based on the specified config"""
-
-    def __init__(
-        self,
-        name: str,
-        layer_config: List[Tuple[layers.Layer, Dict]],
-        n_outputs: int,
-        output_act: str = None,
-        **kwargs
-    ):
-        super(DenseModel, self).__init__(name, **kwargs)
-
-        self.dense = GenericLayer(layer_config, "Dense")
-        self.dense_output = layers.Dense(n_outputs, activation=output_act)
-
-    def call(self, inputs, training=None, mask=None):
-        x = self.dense(inputs, training=training)
-        return self.dense_output(x)
+    snr_input = keras.Input((n_snr_steps, 1), name="snr_series")
+    x_snr = keras.layers.Conv1D(
+        filters=cnn_filters[0], kernel_size=cnn_kernels[0], **cnn_layer_config
+    )(snr_input)
+    for n_filters, n_kernels in zip(cnn_filters[1:], cnn_kernels[1:]):
+        keras.layers.Conv1D(
+            filters=n_filters, kernel_size=n_kernels, **cnn_layer_config
+        )(x_snr)
+        if dropout is not None:
+            x_snr = ml_tools.hidden_layers.MCSpatialDropout1D(rate=dropout)(x_snr)
 
 
-class CnnSnrModel(keras.models.Model):
-    """Represents a model of format
-     SNR series -> CNN -> Flatten ---->
-                                  Concatenate -> Dense -> Outputs
-     Scalar features -> FC-NN ->
-     """
+    for ix, n_units in enumerate(lstm_units):
+        x_snr = keras.layers.Bidirectional(
+            layer=keras.layers.LSTM(
+                units=n_units,
+                return_sequences=True if ix + 1 < len(lstm_units) else False,
+            )
+        )(x_snr)
 
-    def __init__(
-        self,
-        dense_layer_config: List[Tuple[layers.Layer, Dict]],
-        dense_input_name: str,
-        cnn_layer_config: List[Tuple[layers.Layer, Dict]],
-        cnn_input_name: str,
-        comb_layer_config: List[Tuple[layers.Layer, Dict]],
-        output: Union[keras.layers.Layer, keras.layers.Layer],
-        **kwargs
-    ):
-        super(CnnSnrModel, self).__init__(**kwargs)
+    # Build the output layers
+    x = keras.layers.Concatenate()([x_nn, x_snr])
 
-        self.dense_layer_config = dense_layer_config
-        self.dense_input_name = dense_input_name
-
-        self.cnn_layer_config = cnn_layer_config
-        self.cnn_input_name = cnn_input_name
-
-        self.comb_layer_config = comb_layer_config
-
-        # Build the layers
-        self.dense = GenericLayer(self.dense_layer_config, "Dense")
-        self.cnn = GenericLayer(self.cnn_layer_config, "CNN")
-
-        self.flatten_cnn = layers.Flatten()
-        self.conc = layers.Concatenate()
-        self.comb_dense = GenericLayer(self.comb_layer_config, "Dense_Combined")
-
-        self.model_output = output
-
-    def call(self, inputs, training=None, mask=None):
-        x_dense = self.dense(inputs[self.dense_input_name], training=training)
-        x_cnn = self.cnn(inputs[self.cnn_input_name], training=training)
-
-        x_cnn = self.flatten_cnn(x_cnn)
-        x = self.conc([x_dense, x_cnn])
-        x = self.comb_dense(x, training=training)
-
-        if isinstance(self.model_output, list):
-            result = []
-            for cur_output in self.model_output:
-                result.append(cur_output(x))
-            return tuple(result)
-        else:
-            return self.model_output(x)
-
-    @classmethod
-    def from_custom_config(cls, model_config: Dict):
-        return CnnSnrModel(
-            model_config["dense_layer_config"],
-            model_config["dense_input_name"],
-            model_config["cnn_layer_config"],
-            model_config["cnn_input_name"],
-            model_config["comb_layer_config"],
-            model_config["output"],
+    for n_units in dense_final_config["units"]:
+        x = dense_final_config["hidden_layer_func"](
+            x, n_units, **dense_final_config["hidden_layer_config"]
         )
+
+    outputs = keras.layers.Dense(n_outputs, activation=out_act_func, name="output")(x)
+    return keras.Model(inputs=[scalar_inputs, snr_input], outputs=outputs)
