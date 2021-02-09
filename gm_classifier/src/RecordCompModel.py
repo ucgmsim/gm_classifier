@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, Sequence, Tuple, Union, List
 
 import numpy as np
 import pandas as pd
@@ -54,9 +54,12 @@ class RecordCompModel:
             "layer_config": {
                 "activation": "elu",
                 "kernel_initializer": "glorot_uniform",
+                "padding": "same",
             },
+            "pool_size": 2,
             "dropout": 0.1,
-            "lstm_units": [64, 32]
+            "lstm_units": [32, 16],
+            # "lstm_units": [],
         },
         "dense_final_config": {
             "hidden_layer_func": ml_tools.hidden_layers.elu_mc_dropout,
@@ -87,59 +90,34 @@ class RecordCompModel:
     compile_kwargs = {"optimizer": "Adam", "loss": loss}
     fit_kwargs = {"batch_size": 32, "epochs": 250, "verbose": 2}
 
+    components = ["X", "Y", "Z"]
+
     def __init__(
         self,
         base_dir: Union[str, Path],
-        label_names: List[str] = None,
-        feature_config: Dict = None,
-        snr_freq_values: np.ndarray = None,
+        models: Dict[str, tf.keras.Model],
+        feature_config: Dict,
+        snr_freq_values: np.ndarray,
         model_config: Dict = None,
     ):
         self.base_dir = utils.to_path(base_dir)
-        self.model_dir = self.base_dir / "best_model" / "model"
+        self.models = models
 
-        self.label_names = (
-            RecordCompModel.label_names if label_names is None else label_names
-        )
         self.feature_config = (
             RecordCompModel.feature_config if feature_config is None else feature_config
         )
 
-        feature_config_X = {f"{key}_X": val for key, val in self.feature_config.items()}
-        feature_config_Y = {f"{key}_Y": val for key, val in self.feature_config.items()}
-        feature_config_Z = {f"{key}_Z": val for key, val in self.feature_config.items()}
-        self.feature_config = {
-            **feature_config_X,
-            **{**feature_config_Y, **feature_config_Z},
-        }
-        self.feature_names = [
-            key for key in self.feature_config.keys() if not "*" in key
-        ]
-
-        snr_freq_values = (
+        self.feature_names = list(self.feature_config.keys())
+        self._snr_freq_values = (
             RecordCompModel.snr_freq_values
             if snr_freq_values is None
             else snr_freq_values
         )
-        self.snr_feature_keys = [f"snr_value_{freq:.3f}" for freq in snr_freq_values]
+        self.snr_feature_keys = [
+            f"snr_value_{freq:.3f}" for freq in self._snr_freq_values
+        ]
 
-        self.model_config = (
-            RecordCompModel.model_config if model_config is None else model_config
-        )
-
-        # Build the model
-        self.gm_model = model.build_dense_cnn_model(
-            self.model_config["dense_config"],
-            self.model_config["snr_config"],
-            self.model_config["dense_final_config"],
-            len(self.feature_names),
-            len(snr_freq_values),
-            6,
-            training.create_custom_act_fn(
-                tf.keras.activations.linear,
-                training.create_soft_clipping(30, z_min=0.1, z_max=10.0),
-            ),
-        )
+        self.model_config = model_config
 
         self.compile_kwargs = None
         self.fit_kwargs = None
@@ -147,65 +125,132 @@ class RecordCompModel:
         # Status flags
         self.is_trained = False
         self.train_df = None
-        self.train_history = None
+        self.train_history = {}
 
-        # These are one set when the model is trained via
-        # the train function not fit
-        self.X_features_train, self.X_snr_train = None, None
-        self.y_train, self.ids_train = None, None
-        self.X_features_val, self.X_snr_val = None, None
-        self.y_val, self.ids_val = None, None
-
-    def load(self):
-        self.gm_model.load_weights(self.model_dir)
-
-    def predict(self, feature_df: pd.DataFrame, n_preds: int = 1):
-        X_features = feature_df.loc[:, self.feature_names].copy()
-
-        # Pre-processing
-        X_features = pre.apply(
-            X_features,
-            self.feature_config,
-            mu=pd.read_csv(
-                self.base_dir / "features_mu.csv", index_col=0, squeeze=True
-            ),
-            sigma=pd.read_csv(
-                self.base_dir / "features_sigma.csv", index_col=0, squeeze=True
-            ),
-            W=np.load(self.base_dir / "features_W.npy"),
+    @classmethod
+    def from_config(
+        cls,
+        base_dir: Path,
+        model_config: Dict = None,
+        feature_config: Dict = None,
+        snr_freq_values: np.ndarray = None,
+    ):
+        model_config = model_config if model_config is not None else cls.model_config
+        feature_config = (
+            feature_config if feature_config is not None else cls.feature_config
+        )
+        snr_freq_values = (
+            snr_freq_values if snr_freq_values is not None else cls.snr_freq_values
         )
 
-        X_snr = np.log(
-            np.stack(
-                (
-                    feature_df.loc[:, np.char.add(self.snr_feature_keys, "_X")].values,
-                    feature_df.loc[:, np.char.add(self.snr_feature_keys, "_Y")].values,
-                    feature_df.loc[:, np.char.add(self.snr_feature_keys, "_Z")].values,
+        # Build the models
+        gm_models = {}
+        for cur_comp in cls.components:
+            gm_models[cur_comp] = model.build_dense_cnn_model(
+                model_config["dense_config"],
+                model_config["snr_config"],
+                model_config["dense_final_config"],
+                len(list(feature_config.keys())),
+                len(snr_freq_values),
+                2,
+                training.create_custom_act_fn(
+                    tf.keras.activations.linear,
+                    training.create_soft_clipping(30, z_min=0.1, z_max=10.0),
                 ),
-                axis=2,
             )
+
+        return cls(
+            base_dir,
+            gm_models,
+            feature_config,
+            snr_freq_values,
+            model_config=model_config,
         )
+
+    @classmethod
+    def load(cls, base_dir: Path):
+        models = {
+            cur_comp: tf.keras.models.load_model(base_dir / cur_comp / "best_model")
+            for cur_comp in cls.components
+        }
+
+        cls(
+            base_dir,
+            models,
+            ml_tools.utils.load_json(base_dir / "feature_config.json"),
+            np.load(str(base_dir / "snr_freq_values.npy")),
+        )
+
+    def predict(
+        self,
+        feature_dfs: Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame],
+        n_preds: int = 100,
+    ):
+
+        result_dict, model_uncertainty = {}, {}
+        for cur_comp, cur_feature_df in zip(self.components, feature_dfs):
+            cur_comp_dir = self.base_dir / cur_comp
+
+            cur_snr = np.log(cur_feature_df.loc[:, self.snr_feature_keys].values.copy())
+            cur_feature_df = cur_feature_df.loc[:, self.feature_names].copy()
+
+            # Pre-processing
+            cur_feature_df = pre.apply(
+                cur_feature_df,
+                self.feature_config,
+                mu=pd.read_csv(
+                    cur_comp_dir / f"features_{cur_comp}_mu.csv",
+                    index_col=0,
+                    squeeze=True,
+                ),
+                sigma=pd.read_csv(
+                    cur_comp_dir / f"features_{cur_comp}_sigma.csv",
+                    index_col=0,
+                    squeeze=True,
+                ),
+                W=np.load(cur_comp_dir / f"features_{cur_comp}_W.npy"),
+            )
+
+            if n_preds == 1:
+                y_hat = self.models[cur_comp].predict(
+                    {"features": cur_feature_df.values, "snr_series": cur_snr}
+                )
+                result_dict[f"score_{cur_comp}"] = y_hat[:, 0]
+                result_dict[f"f_min_{cur_comp}"] = y_hat[:, 1]
+            else:
+                y_hats = []
+                print("Running predictions")
+                for ix in range(n_preds):
+                    print(f"Prediction sample {ix + 1}/{n_preds}")
+                    y_hats.append(
+                        self.models[cur_comp].predict(
+                            {"features": cur_feature_df.values, "snr_series": cur_snr}
+                        )
+                    )
+                y_hats = np.stack(y_hats, axis=2)
+                y_hat_mean, y_hat_std = np.mean(y_hats, axis=2), np.std(y_hats, axis=2)
+
+                result_dict[f"score_{cur_comp}"] = y_hat_mean[:, 0]
+                result_dict[f"f_min_{cur_comp}"] = y_hat_mean[:, 1]
+
+                model_uncertainty[f"score_{cur_comp}"] = y_hat_std[:, 0]
+                model_uncertainty[f"f_min_{cur_comp}"] = y_hat_std[:, 1]
 
         if n_preds == 1:
-            y_hat = self.gm_model.predict(
-                {"features": X_features.values, "snr_series": X_snr}
+            return pd.DataFrame.from_dict(result_dict).set_index(
+                cur_feature_df.index
             )
-            return y_hat
-        else:
-            y_hats = []
-            for ix in range(n_preds):
-                y_hats.append(
-                    self.gm_model.predict(
-                        {"features": X_features.values, "snr_series": X_snr}
-                    )
-                )
-            y_hats = np.stack(y_hats, axis=2)
-            y_hat_mean, y_hat_std = np.mean(y_hats, axis=2), np.std(y_hats, axis=2)
-            return y_hat_mean, y_hat_std
+        return (
+            pd.DataFrame.from_dict(result_dict).set_index(cur_feature_df.index),
+            pd.DataFrame.from_dict(model_uncertainty).set_index(
+                cur_feature_df.index
+            ),
+        )
 
     def train(
         self,
-        train_df: pd.DataFrame,
+        feature_dfs: Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame],
+        label_dfs: Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame],
         val_size: float = 0.0,
         compile_kwargs: Dict = {},
         fit_kwargs: Dict = None,
@@ -229,90 +274,102 @@ class RecordCompModel:
         tensorboard_kwargs: dictionary, optional
             Tensorboard callback keyword arguments
         """
-        self.train_df = train_df
-        train_df.to_csv(self.base_dir / "training_data.csv")
 
-        assert np.all(
-            np.isin(self.feature_names, train_df.columns.values)
-        ), "Not all features are in the feature dataframe"
-
-        # Data preparation
-        X_features = train_df.loc[:, self.feature_names]
-
-        # Bit of hack atm, need to update
-        X_snr = np.stack(
-            (
-                train_df.loc[:, np.char.add(self.snr_feature_keys, "_X")].values,
-                train_df.loc[:, np.char.add(self.snr_feature_keys, "_Y")].values,
-                train_df.loc[:, np.char.add(self.snr_feature_keys, "_Z")].values,
-            ),
-            axis=2,
+        # Get the labelled record ids & split into training and validation
+        ids = (
+            label_dfs[0]
+            .loc[np.isin(label_dfs[0].index, feature_dfs[0].index)]
+            .index.values.astype(str)
         )
-
-        ids = train_df.index.values
-        y = train_df.loc[:, self.label_names]
-
-        # Split into training and validation
+        self.train_ids, self.val_ids = ids, None
         if val_size > 0.0:
-            data = train_test_split(X_features, X_snr, y, ids, test_size=val_size)
-            (
-                self.X_features_train,
-                self.X_snr_train,
-                self.y_train,
-                self.ids_train,
-            ) = data[::2]
-            self.X_features_val, self.X_snr_val, self.y_val, self.ids_val = data[1::2]
-        else:
-            self.X_features_train, self.X_snr_train = X_features, X_snr
-            self.y_train, self.ids_train = y, ids
+            self.train_ids, self.val_ids = train_test_split(ids, test_size=val_size)
 
-        # Pre-processing
-        self.X_features_train, self.X_features_val = training.apply_pre(
-            self.X_features_train.copy(),
-            self.feature_config,
-            self.base_dir,
-            val_data=self.X_features_val.copy()
-            if self.X_features_val is not None
-            else None,
-            output_prefix="features",
-        )
-        self.X_snr_train = np.log(self.X_snr_train)
-        self.X_snr_val = np.log(self.X_snr_val) if self.X_snr_val is not None else None
+        # Data preparation & model training for each component
+        for cur_comp, cur_feature_df, cur_y in zip(
+            ["X", "Y", "Z"], feature_dfs, label_dfs
+        ):
+            print(f"-------- Training model for component {cur_comp} ------------")
+            # Sanity checks
+            assert np.all(
+                np.isin(self.feature_names, cur_feature_df.columns.values)
+            ), "Not all features are in the feature dataframe"
+            assert np.all(
+                cur_y.index == label_dfs[0].index
+            ), "Labels records ids have to match"
 
-        val_data = (
-            (
-                self.X_features_val.values,
-                self.X_snr_val,
-                self.y_val.values,
-                self.ids_val,
+            cur_comp_dir = self.base_dir / cur_comp
+            cur_comp_dir.mkdir(exist_ok=False, parents=False)
+
+            # Get the relevant features and labels
+            cur_features = cur_feature_df.loc[ids, self.feature_names]
+            cur_snr = cur_feature_df.loc[ids, self.snr_feature_keys]
+
+            # Save
+            cur_features.to_csv(cur_comp_dir / f"features_{cur_comp}.csv")
+            cur_snr.to_csv(cur_comp_dir / f"labels_{cur_comp}.csv")
+
+            # Pre-processing
+            cur_features_train, cur_features_val = training.apply_pre(
+                cur_features.loc[self.train_ids].copy(),
+                self.feature_config,
+                cur_comp_dir,
+                val_data=cur_features.loc[self.val_ids].copy()
+                if self.val_ids is not None
+                else None,
+                output_prefix=f"features_{cur_comp}",
             )
-            if val_size > 0.0
-            else None
-        )
+            cur_snr_train = np.log(cur_snr.loc[self.train_ids])
 
-        print(
-            f"Using {self.X_features_train.shape[0]} sample for training and "
-            f"{self.X_features_val.shape[0]} for validation"
-        )
-        self.fit(
-            self.X_features_train.values,
-            self.X_snr_train,
-            self.y_train.values,
-            self.ids_train,
-            val_data=val_data,
-            compile_kwargs=compile_kwargs,
-            fit_kwargs=fit_kwargs,
-            tensorboard_kwargs=tensorboard_kwargs,
-        )
+            val_data = None
+            if self.val_ids is not None:
+                cur_snr_val = np.log(cur_snr.loc[self.val_ids])
+                val_data = (
+                    cur_features_val.values,
+                    cur_snr_val.values[:, :, None],
+                    cur_y.loc[self.val_ids].values,
+                    self.val_ids,
+                )
 
+            print(
+                f"Using {cur_features_train.shape[0]} sample for training and "
+                f"{cur_features_val.shape[0]} for validation"
+            )
+            self.train_history[cur_comp] = self.fit(
+                self.models[cur_comp],
+                cur_features_train.values,
+                cur_snr_train.values[:, :, None],
+                cur_y.loc[self.train_ids].values,
+                self.train_ids,
+                cur_comp_dir,
+                val_data=val_data,
+                compile_kwargs=compile_kwargs,
+                fit_kwargs=fit_kwargs,
+                tensorboard_kwargs=tensorboard_kwargs,
+            )
+
+            self.models[cur_comp] = tf.keras.models.load_model(
+                cur_comp_dir / "best_model", compile=False
+            )
+
+        ml_tools.utils.write_to_json(
+            self.model_config, self.base_dir / "model_config.json"
+        )
+        ml_tools.utils.write_to_json(
+            self.feature_config, self.base_dir / "feature_config.json"
+        )
+        np.save(self.base_dir / "snr_freq_values.npy", self._snr_freq_values)
         self.is_trained = True
+
 
     def fit(
         self,
+        gm_model: tf.keras.Model,
         X_features_train: np.ndarray,
         X_snr_train: np.ndarray,
         y_train: np.ndarray,
         ids_train: np.ndarray,
+        output_dir: Path,
         val_data: Union[
             None, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         ] = None,
@@ -373,12 +430,11 @@ class RecordCompModel:
             else None
         )
 
-        self.train_history, _ = training.fit(
-            self.base_dir,
-            self.gm_model,
+        history, _ = training.fit(
+            output_dir,
+            gm_model,
             training_data,
             val_data=val_data,
-            model_config=self.model_config,
             compile_kwargs=self.compile_kwargs,
             fit_kwargs=self.fit_kwargs,
             tensorboard_cb_kwargs=self.tensorboard_kwargs,
@@ -391,120 +447,8 @@ class RecordCompModel:
             "compiler_kwargs": str(self.compile_kwargs),
             "fit_kwargs": str(fit_kwargs),
         }
-        with open(self.base_dir / "config.json", "w") as f:
+        with open(output_dir / "config.json", "w") as f:
             json.dump(config, f)
 
-        # Load the best model
-        self.gm_model.load_weights(str(self.base_dir / "best_model" / "model"))
 
-    def create_eval_plots(self):
-        if not self.is_trained:
-            print(
-                f"Model is either loaded or not trained, "
-                f"unable to create eval plots in this situation."
-            )
-            return
-
-        with sns.axes_style("whitegrid"):
-            fig_size = (16, 10)
-
-            fig, ax = plots.plot_loss(
-                self.train_history,
-                # output_ffp=str(output_dir / "loss_plot.png"),
-                fig_kwargs={"figsize": fig_size},
-            )
-            ax.set_ylim((0, 1))
-            plt.savefig(str(self.base_dir / "loss_plot.png"))
-            plt.close()
-
-            # Predict train and validation
-            y_train_est = self.gm_model.predict(
-                {
-                    "features": self.X_features_train.values,
-                    "snr_series": self.X_snr_train,
-                }
-            )
-            y_val_est = self.gm_model.predict(
-                {"features": self.X_features_val.values, "snr_series": self.X_snr_val}
-            )
-
-            est_df = pd.DataFrame(
-                np.concatenate((y_train_est, y_val_est), axis=0),
-                index=np.concatenate((self.ids_train, self.ids_val)),
-                columns=self.label_names,
-            )
-            est_df.to_csv(self.base_dir / "est_df.csv", index_label="record_id")
-
-            cmap = "coolwarm"
-            # cmap = sns.color_palette("coolwarm")
-            m_size = 4.0
-            for cur_comp, (score_ix, f_min_ix) in zip(
-                ["X", "Y", "Z"], [(0, 1), (2, 3), (4, 5)]
-            ):
-                # for cur_comp, score_ix in zip(["X", "Y", "Z"], [0, 1, 2]):
-                # Plot true vs estimated
-                score_min, score_max = (
-                    np.min(self.train_df[f"score_{cur_comp}"]),
-                    np.max(self.train_df[f"score_{cur_comp}"]),
-                )
-                fig, ax, train_scatter = plots.plot_true_vs_est(
-                    y_train_est[:, score_ix],
-                    self.y_train.iloc[:, score_ix]
-                    + np.random.normal(0, 0.01, self.y_train.iloc[:, score_ix].size),
-                    c_train="b",
-                    c_val="r",
-                    y_val_est=y_val_est[:, score_ix],
-                    y_val_true=self.y_val.iloc[:, score_ix]
-                    + np.random.normal(0, 0.01, self.y_val.iloc[:, score_ix].size),
-                    title="Score",
-                    min_max=(score_min, score_max),
-                    scatter_kwargs={"s": m_size},
-                    fig_kwargs={"figsize": fig_size},
-                    output_ffp=self.base_dir / f"score_true_vs_est_{cur_comp}.png",
-                )
-
-                f_min_min, f_min_max = (
-                    np.min(self.train_df[f"f_min_{cur_comp}"]),
-                    np.max(self.train_df[f"f_min_{cur_comp}"]),
-                )
-                fig, ax, train_scatter = plots.plot_true_vs_est(
-                    y_train_est[:, f_min_ix],
-                    self.y_train.iloc[:, f_min_ix],
-                    # + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
-                    c_train=self.y_train.iloc[:, score_ix].values,
-                    c_val=self.y_val.iloc[:, score_ix].values,
-                    y_val_est=y_val_est[:, f_min_ix],
-                    y_val_true=self.y_val.iloc[:, f_min_ix],
-                    # + np.random.normal(0, 0.025, self.y_val.iloc[:, f_min_ix].size),
-                    title="f_min",
-                    min_max=(f_min_min, f_min_max),
-                    scatter_kwargs={"s": m_size, "cmap": cmap},
-                    fig_kwargs={"figsize": fig_size},
-                    # output_ffp=output_dir / f"f_min_true_vs_est_{cur_comp}.png",
-                )
-                cbar = fig.colorbar(train_scatter)
-                cbar.set_label("Quality score (True)")
-                plt.savefig(self.base_dir / f"f_min_true_vs_est_{cur_comp}.png")
-                plt.close()
-
-                fig, ax, train_scatter = plots.plot_true_vs_est(
-                    y_train_est[:, f_min_ix],
-                    self.y_train.iloc[:, f_min_ix],
-                    # + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
-                    c_train=self.y_train.iloc[:, score_ix].values,
-                    c_val=self.y_val.iloc[:, score_ix].values,
-                    y_val_est=y_val_est[:, f_min_ix],
-                    y_val_true=self.y_val.iloc[:, f_min_ix],
-                    # + np.random.normal(0, 0.025, y_val.iloc[:, f_min_ix].size),
-                    title="f_min",
-                    min_max=(f_min_min, f_min_max),
-                    scatter_kwargs={"s": m_size, "cmap": cmap},
-                    fig_kwargs={"figsize": fig_size},
-                    # output_ffp=output_dir / "f_min_true_vs_est.png"
-                )
-                ax.set_xlim((0.0, 2.0))
-                ax.set_ylim((0.0, 2.0))
-                cbar = fig.colorbar(train_scatter)
-                cbar.set_label("Quality score (True)")
-                plt.savefig(self.base_dir / f"f_min_true_vs_est_zoomed_{cur_comp}.png")
-                plt.close()
+        return history

@@ -30,7 +30,7 @@ def build_dense_cnn_model(
     # Build the CNN + LSTM layers
     cnn_filters, cnn_kernels = snr_config["filters"], snr_config["kernel_sizes"]
     dropout, cnn_layer_config = snr_config["dropout"], snr_config["layer_config"]
-    lstm_units = snr_config["lstm_units"]
+    pool_size, lstm_units = snr_config["pool_size"], snr_config["lstm_units"]
 
     snr_input = keras.Input((n_snr_steps, 1), name="snr_series")
     x_snr = keras.layers.Conv1D(
@@ -42,15 +42,23 @@ def build_dense_cnn_model(
         )(x_snr)
         if dropout is not None:
             x_snr = ml_tools.hidden_layers.MCSpatialDropout1D(rate=dropout)(x_snr)
+        if pool_size is not None:
+            x_snr = keras.layers.MaxPooling1D(pool_size)(x_snr)
 
-
-    for ix, n_units in enumerate(lstm_units):
-        x_snr = keras.layers.Bidirectional(
-            layer=keras.layers.LSTM(
-                units=n_units,
-                return_sequences=True if ix + 1 < len(lstm_units) else False,
-            )
-        )(x_snr)
+    if len(lstm_units) > 0:
+        for ix, n_units in enumerate(lstm_units):
+            last_lstm = True if ix + 1 == len(lstm_units) else False
+            x_snr = keras.layers.Bidirectional(
+                layer=keras.layers.LSTM(
+                    units=n_units,
+                    return_sequences=True if not last_lstm else False,
+                    return_state=True if last_lstm else False
+                )
+            )(x_snr)
+            if last_lstm:
+                x_snr = keras.layers.Concatenate()(x_snr[1:])
+    else:
+        x_snr = keras.layers.Flatten()(x_snr)
 
     # Build the output layers
     x = keras.layers.Concatenate()([x_nn, x_snr])

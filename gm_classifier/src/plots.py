@@ -5,12 +5,16 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import seaborn as sns
+
+from .RecordCompModel import RecordCompModel
 
 
 def plot_loss(
     history: Dict, ax: plt.Axes = None, output_ffp: str = None, fig_kwargs: Dict = None
 ):
     """Plots single output loss"""
+    fig = None
     if ax is None:
         fig, ax = plt.subplots(**fig_kwargs)
 
@@ -312,6 +316,7 @@ def create_record_eval_plots(
         fig.savefig(output_dir / f"{cur_id}.png")
         plt.close()
 
+
 def multi_fig(
     ind_fig_size: Tuple[float, float], n_rows: int, n_cols: int, dpi: int = 100
 ) -> plt.Figure:
@@ -333,3 +338,105 @@ def multi_fig(
     """
     fig_size = (ind_fig_size[0] * n_cols, ind_fig_size[1] * n_rows)
     return plt.figure(figsize=fig_size, dpi=dpi)
+
+
+def create_eval_plots(
+    output_dir: Path,
+    model: RecordCompModel,
+    feature_dfs: Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame],
+    label_dfs: Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame],
+    train_ids: np.ndarray,
+    val_ids: np.ndarray,
+    histories: Dict[str, Dict],
+    n_preds: int = 10,
+):
+    with sns.axes_style("whitegrid"):
+        fig_size = (16, 10)
+
+        for cur_comp, cur_hist in histories.items():
+            fig, ax = plot_loss(
+                cur_hist,
+                # output_ffp=str(output_dir / "loss_plot.png"),
+                fig_kwargs={"figsize": fig_size},
+            )
+            ax.set_ylim((0, 1))
+            plt.savefig(str(output_dir / f"loss_plot_{cur_comp}.png"))
+            plt.close()
+
+        # Predict train and validation
+        est_df, _ = model.predict(feature_dfs, n_preds=n_preds)
+        est_df.to_csv(output_dir / "est_df.csv", index_label="record_id")
+
+        cmap = "coolwarm"
+        # cmap = sns.color_palette("coolwarm")
+        m_size = 4.0
+        for ix, cur_comp in enumerate(["X", "Y", "Z"]):
+            cur_label_df = label_dfs[ix]
+            score_key, f_min_key = f"score_{cur_comp}", f"f_min_{cur_comp}"
+
+            # Plot true vs estimated
+            score_min, score_max = (
+                np.min(cur_label_df[score_key]),
+                np.max(cur_label_df[score_key]),
+            )
+            fig, ax, train_scatter = plot_true_vs_est(
+                est_df.loc[train_ids, score_key],
+                cur_label_df.loc[train_ids, score_key]
+                + np.random.normal(0, 0.01, train_ids.size),
+                c_train="b",
+                c_val="r",
+                y_val_est=est_df.loc[val_ids, score_key],
+                y_val_true=cur_label_df.loc[val_ids, score_key]
+                + np.random.normal(0, 0.01, val_ids.size),
+                title="Score",
+                min_max=(score_min, score_max),
+                scatter_kwargs={"s": m_size},
+                fig_kwargs={"figsize": fig_size},
+                output_ffp=output_dir / f"score_true_vs_est_{cur_comp}.png",
+            )
+
+            f_min_min, f_min_max = (
+                np.min(cur_label_df[f"f_min_{cur_comp}"]),
+                np.max(cur_label_df[f"f_min_{cur_comp}"]),
+            )
+            fig, ax, train_scatter = plot_true_vs_est(
+                est_df.loc[train_ids, f_min_key],
+                cur_label_df.loc[train_ids, f_min_key],
+                # + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
+                c_train=cur_label_df.loc[train_ids, score_key].values,
+                c_val=cur_label_df.loc[val_ids, score_key].values,
+                y_val_est=est_df.loc[val_ids, f_min_key],
+                y_val_true=cur_label_df.loc[val_ids, f_min_key],
+                # + np.random.normal(0, 0.025, self.y_val.iloc[:, f_min_ix].size),
+                title="f_min",
+                min_max=(f_min_min, f_min_max),
+                scatter_kwargs={"s": m_size, "cmap": cmap},
+                fig_kwargs={"figsize": fig_size},
+                # output_ffp=output_dir / f"f_min_true_vs_est_{cur_comp}.png",
+            )
+            cbar = fig.colorbar(train_scatter)
+            cbar.set_label("Quality score (True)")
+            plt.savefig(output_dir / f"f_min_true_vs_est_{cur_comp}.png")
+            plt.close()
+
+            fig, ax, train_scatter = plot_true_vs_est(
+                est_df.loc[train_ids, f_min_key],
+                cur_label_df.loc[train_ids, f_min_key],
+                # + np.random.normal(0, 0.025, y_train.iloc[:, f_min_ix].size),
+                c_train=cur_label_df.loc[train_ids, score_key].values,
+                c_val=cur_label_df.loc[val_ids, score_key].values,
+                y_val_est=est_df.loc[val_ids, f_min_key],
+                y_val_true=cur_label_df.loc[val_ids, f_min_key],
+                # + np.random.normal(0, 0.025, self.y_val.iloc[:, f_min_ix].size),
+                title="f_min",
+                min_max=(f_min_min, f_min_max),
+                scatter_kwargs={"s": m_size, "cmap": cmap},
+                fig_kwargs={"figsize": fig_size},
+                # output_ffp=output_dir / f"f_min_true_vs_est_{cur_comp}.png",
+            )
+            ax.set_xlim((0.0, 2.0))
+            ax.set_ylim((0.0, 2.0))
+            cbar = fig.colorbar(train_scatter)
+            cbar.set_label("Quality score (True)")
+            plt.savefig(output_dir / f"f_min_true_vs_est_zoomed_{cur_comp}.png")
+            plt.close()

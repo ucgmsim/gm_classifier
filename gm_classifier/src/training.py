@@ -1,7 +1,5 @@
 import shutil
 import fnmatch
-import json
-import os
 from pathlib import Path
 from typing import Dict, Tuple, Union, Callable, Any, Iterable, List, Type
 
@@ -9,12 +7,9 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
-import matplotlib.pyplot as plt
 from scipy import stats
-from sklearn.model_selection import KFold
 
 from . import pre_processing as pre
-from . import plots
 
 
 def get_multi_output_y(
@@ -47,116 +42,12 @@ def get_multi_output_y(
 
     return y
 
-def run_k_means(X_features: pd.DataFrame, X_snr: np.ndarray, y: pd.DataFrame, ids: np.ndarray,
-                feature_config: Dict, get_model_fn: Callable, compile_kwargs: Dict, fit_kwargs: Dict, output_dir: Path, n_folds: int = 10,
-                eval_loss_fn: Callable = None):
-    # Use K-fold to get estimated values for every labelled sample
-    kf = KFold(n_splits=n_folds, shuffle=True)
-    r_ids, r_y_val, r_y_val_est, r_val_loss = [], [], [], []
-    for ix, (train_ind, val_ind) in enumerate(kf.split(X_features)):
-        cur_id = f"iter_{ix}"
-
-        # Create the output directory
-        cur_output_dir = output_dir / cur_id
-        cur_output_dir.mkdir()
-
-        # Get the current training and validation data
-        X_features_train, X_snr_train, y_train, ids_train = (
-            X_features.iloc[train_ind].copy(),
-            X_snr[train_ind],
-            y.iloc[train_ind].copy(),
-            ids[train_ind],
-        )
-        X_features_val, X_snr_val, y_val, ids_val = (
-            X_features.iloc[val_ind].copy(),
-            X_snr[val_ind],
-            y.iloc[val_ind].copy(),
-            ids[val_ind],
-        )
-
-        # Pre-processing
-        X_features_train, X_features_val = apply_pre(
-            X_features_train.copy(),
-            feature_config,
-            output_dir,
-            val_data=X_features_val.copy(),
-            output_prefix="features",
-        )
-        X_snr_train, X_snr_val = np.log(X_snr_train), np.log(X_snr_val)
-
-        # Get the model
-        gm_model = get_model_fn()
-
-        # Run training of the model
-        history, gm_model = fit(cur_output_dir, gm_model, (
-            {"features": X_features_train.values, "snr_series": X_snr_train},
-            y_train.values,
-            ids_train
-        ),
-        val_data=(
-            {"features": X_features_val.values, "snr_series": X_snr_val},
-            y_val.values,
-            ids_val,
-        ),        compile_kwargs=compile_kwargs,
-        fit_kwargs=fit_kwargs,)
-
-        # Loss plot
-        fig, ax = plots.plot_loss(
-            history,
-            # output_ffp=str(output_dir / "loss_plot.png"),
-            fig_kwargs={"figsize": (16, 10)},
-        )
-        ax.set_ylim((0, 1))
-        plt.savefig(str(cur_output_dir / "loss_plot.png"))
-        plt.close()
-
-        # Load the best model
-        gm_model.load_weights(str(cur_output_dir / "model.h5"))
-        cur_y_est = gm_model.predict(
-            {"features": X_features_val.values, "snr_series": X_snr_val}
-        )
-
-        r_ids.append(ids_val)
-        r_y_val.append(y_val)
-        r_y_val_est.append(cur_y_est)
-
-        if eval_loss_fn is not None:
-            cur_val_loss = eval_loss_fn(y_val.values, cur_y_est).numpy()
-            r_val_loss.append(cur_val_loss)
-
-    r_ids = np.concatenate(r_ids)
-    r_y_val = np.concatenate(r_y_val)
-    r_y_val_est = np.concatenate(r_y_val_est)
-
-    # --- Combine the results ----
-    label_names = y.columns.values.astype(str)
-    if eval_loss_fn is None:
-        result_df = pd.DataFrame(
-            data=np.concatenate((r_y_val, r_y_val_est), axis=1),
-            index=r_ids,
-            columns=np.concatenate(
-                (label_names, np.char.add(label_names, "_est")), axis=0
-            ),
-        )
-    else:
-        r_val_loss = np.concatenate(r_val_loss)
-        result_df = pd.DataFrame(
-            data=np.concatenate((r_y_val, r_y_val_est, r_val_loss), axis=1),
-            index=r_ids,
-            columns=np.concatenate(
-                (label_names, np.char.add(label_names, "_est"), np.char.add(label_names, "_loss")),
-                axis=0
-            ),
-        )
-    return result_df
-
 def fit(
     output_dir: Path,
     model: Union[Type, keras.Model],
     training_data: Tuple[
         Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray
     ],
-    model_config: Dict = None,
     val_data: Union[
         None, Tuple[Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray]
     ] = None,
@@ -210,25 +101,22 @@ def fit(
     if ids_val is not None:
         np.save(output_dir / "val_ids.npy", ids_val)
 
-    # Build the model architecture (if required)
-    gm_model = (
-        model.from_custom_config(model_config) if isinstance(model, type) else model
-    )
-
-    # Train the model
     tensorboard_output_dir = output_dir / "tensorboard_log"
     if tensorboard_output_dir.is_dir():
         shutil.rmtree(tensorboard_output_dir)
+
+    # Train the model
     callbacks = [
         keras.callbacks.ModelCheckpoint(
-            str(output_dir / "best_model" / "model"), save_best_only=True, save_weights_only=True
+            str(output_dir / "best_model"), save_best_only=True
         ),
+        keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=50, verbose=1, min_lr=1e-6)
         # keras.callbacks.TensorBoard(
         #     tensorboard_output_dir, write_graph=True, **tensorboard_cb_kwargs
         # ),
     ]
-    gm_model.compile(**compile_kwargs)
-    history = gm_model.fit(
+    model.compile(**compile_kwargs)
+    history = model.fit(
         X_train,
         y_train,
         validation_data=(X_val, y_val),
@@ -241,14 +129,14 @@ def fit(
     hist_df.to_csv(output_dir / "history.csv", index_label="epoch")
 
     keras.utils.plot_model(
-        gm_model,
+        model,
         output_dir / "model.png",
         show_shapes=True,
         show_layer_names=True,
         expand_nested=True,
     )
 
-    return history.history, gm_model
+    return history.history, model
 
 
 def apply_pre(
@@ -496,11 +384,11 @@ class CustomScaledLoss(keras.losses.Loss):
 
     def call(self, y_true, y_pred):
         # Split into score & f_min tensors
-        scores_true = tf.cast(tf.gather(y_true, [0, 2, 4], axis=1), tf.float32)
-        scores_pred = tf.gather(y_pred, [0, 2, 4], axis=1)
+        scores_true = tf.cast(tf.gather(y_true, [0], axis=1), tf.float32)
+        scores_pred = tf.gather(y_pred, [0], axis=1)
 
-        f_min_true = tf.cast(tf.gather(y_true, [1, 3, 5], axis=1), tf.float32)
-        f_min_pred = tf.gather(y_pred, [1, 3, 5], axis=1)
+        f_min_true = tf.cast(tf.gather(y_true, [1], axis=1), tf.float32)
+        f_min_pred = tf.gather(y_pred, [1], axis=1)
 
         # Compute the score loss
         score_loss = self.score_loss_fn(scores_true, scores_pred)
@@ -527,10 +415,6 @@ class CustomScaledLoss(keras.losses.Loss):
             (
                 score_loss[:, 0],
                 f_min_loss[:, 0],
-                score_loss[:, 1],
-                f_min_loss[:, 1],
-                score_loss[:, 2],
-                f_min_loss[:, 2],
             ),
             axis=1,
         )
@@ -589,21 +473,24 @@ def soft_clipping(z: tf.Tensor, p: tf.Tensor):
     ), dtype=tf.float32)
 
 
+def create_scaled_sigmoid(shift: float = 0.0, scale: float = 1.0):
+    def scaled_sigmoid(z):
+        return (tf.sigmoid(z) + shift) * scale
+
+    return tf.function(scaled_sigmoid)
+
+
 def create_custom_act_fn(score_act_fn: tf.function, f_min_act_fn: tf.function):
     def custom_act_fn(z):
-        score_z = tf.gather(z, [0, 2, 4], axis=1)
+        score_z = tf.gather(z, [0], axis=1)
         score_res = score_act_fn(score_z)
 
-        f_min_z = tf.gather(z, [1, 3, 5], axis=1)
+        f_min_z = tf.gather(z, [1], axis=1)
         f_min_res = f_min_act_fn(f_min_z)
 
         output = tf.stack((
             score_res[:, 0],
             f_min_res[:, 0],
-            score_res[:, 1],
-            f_min_res[:, 1],
-            score_res[:, 2],
-            f_min_res[:, 2],
         ), axis=1)
 
         return output
