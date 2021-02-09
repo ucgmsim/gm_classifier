@@ -107,9 +107,10 @@ def fit(
 
     # Train the model
     callbacks = [
-        keras.callbacks.ModelCheckpoint(
-            str(output_dir / "best_model"), save_best_only=True
-        ),
+        # keras.callbacks.ModelCheckpoint(
+        #     str(output_dir / "best_model"), save_best_only=True
+        # ),
+        keras.callbacks.EarlyStopping(min_delta=0.005, patience=50, verbose=1, restore_best_weights=True),
         keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=50, verbose=1, min_lr=1e-6)
         # keras.callbacks.TensorBoard(
         #     tensorboard_output_dir, write_graph=True, **tensorboard_cb_kwargs
@@ -123,6 +124,9 @@ def fit(
         callbacks=callbacks,
         **fit_kwargs,
     )
+
+    # Save the model
+    model.save(output_dir / "best_model", save_format="tf")
 
     # Save the history
     hist_df = pd.DataFrame.from_dict(history.history, orient="columns")

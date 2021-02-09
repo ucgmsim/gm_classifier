@@ -58,7 +58,7 @@ class RecordCompModel:
             },
             "pool_size": 2,
             "dropout": 0.1,
-            "lstm_units": [32, 16],
+            "lstm_units": [64, 32],
             # "lstm_units": [],
         },
         "dense_final_config": {
@@ -71,7 +71,7 @@ class RecordCompModel:
     snr_freq_values = np.logspace(np.log(0.01), np.log(25), 100, base=np.e)
 
     score_values = np.asarray([0.0, 0.25, 0.5, 0.75, 1.0])
-    f_min_weights = np.asarray(training.f_min_loss_weights(score_values))
+    f_min_weights = np.asarray(training.f_min_loss_weights(score_values)) * 0.75
 
     score_loss_fn = training.create_huber(0.05)
     f_min_loss_fn = training.create_huber(0.5)
