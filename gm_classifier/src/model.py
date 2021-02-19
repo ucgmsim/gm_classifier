@@ -1,10 +1,78 @@
-import os
 from typing import List, Dict, Tuple, Union, Callable
 
+
+import wandb
+import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 
 import ml_tools
+
+
+class MetricRecorder(keras.callbacks.Callback):
+    def __init__(
+        self, comp: str, training_data: Tuple, val_data: Tuple, loss_fn: tf.function, log_wandb: bool = False
+    ):
+        super().__init__()
+
+        self.X_train, self.y_train, _ = training_data
+        self.X_val, self.y_val, _ = val_data
+
+        # self.X_train_rep = {cur_key: np.tile(cur_item, (10, 1)) for cur_key, cur_item in self.X_train.items()}
+        # self.X_val_rep = {cur_key: np.tile(cur_item, (10, -1)) for cur_key, cur_item in self.X_val.items()}
+
+        self.loss_fn = loss_fn
+
+        self.comp = comp
+        self.log_wandb = log_wandb
+
+    def on_epoch_end(self, epoch, logs=None):
+        y_train_est = self.model.predict(self.X_train)
+        y_val_est = self.model.predict(self.X_val)
+
+        score_train_mse = tf.losses.mse(self.y_train[:, 0], y_train_est[:, 0]).numpy()
+        f_min_train_mse = tf.losses.mse(self.y_train[:, 1], y_train_est[:, 1]).numpy()
+
+        score_val_mse = tf.losses.mse(self.y_val[:, 0], y_val_est[:, 0]).numpy()
+        f_min_val_mse = tf.losses.mse(self.y_val[:, 1], y_val_est[:, 1]).numpy()
+
+        logs["score_train_mse"], logs["f_min_train_mse"] = (
+            score_train_mse,
+            f_min_train_mse,
+        )
+        logs["score_val_mse"], logs["f_min_val_mse"] = score_val_mse, f_min_val_mse
+
+        if epoch % 25 == 0:
+            mc_loss = [self.loss_fn(self.y_train, self.model.predict(self.X_train)).numpy() for ix in range(10)]
+            mc_val_loss = [self.loss_fn(self.y_val, self.model.predict(self.X_val)).numpy() for ix in range(10)]
+
+            mc_loss, mc_loss_std = np.mean(mc_loss), np.std(mc_loss)
+            mc_val_loss, mc_val_loss_std = np.mean(mc_val_loss), np.std(mc_val_loss)
+
+            print(f"MC Loss: {mc_loss:.4f} +/- {mc_loss_std:.4f}, "
+                  f"MC Val Loss: {mc_val_loss:.4f} +/- {mc_val_loss_std:.4f}")
+
+
+        if self.log_wandb:
+            wandb.log(
+                {
+                    f"score_train_mse_{self.comp}": score_train_mse,
+                    f"f_min_train_mse_{self.comp}": f_min_train_mse,
+                    f"score_val_mse_{self.comp}": score_val_mse,
+                    f"f_min_val_mse_{self.comp}": f_min_val_mse,
+                    f"loss_{self.comp}": logs["loss"],
+                    f"val_loss_{self.comp}": logs["val_loss"],
+                    "epoch": epoch,
+                }
+            )
+
+
+        print(
+            f"Score - Train: {score_train_mse:.4f}, Val: {score_val_mse:.4f} -- "
+            f"F_min - Train: {f_min_train_mse:.4f}, Val: {f_min_val_mse:.4f}"
+        )
+
+        return
 
 
 def build_dense_cnn_model(
@@ -52,7 +120,7 @@ def build_dense_cnn_model(
                 layer=keras.layers.LSTM(
                     units=n_units,
                     return_sequences=True if not last_lstm else False,
-                    return_state=True if last_lstm else False
+                    return_state=True if last_lstm else False,
                 )
             )(x_snr)
             if last_lstm:

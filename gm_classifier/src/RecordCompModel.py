@@ -2,16 +2,15 @@ import json
 from pathlib import Path
 from typing import Dict, Sequence, Tuple, Union, List
 
+import wandb
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-import matplotlib.pyplot as plt
+from tensorflow import keras
 from sklearn.model_selection import train_test_split
-import seaborn as sns
 
 from . import model
 from . import training
-from . import plots
 from . import pre
 from . import utils
 
@@ -71,10 +70,13 @@ class RecordCompModel:
     snr_freq_values = np.logspace(np.log(0.01), np.log(25), 100, base=np.e)
 
     score_values = np.asarray([0.0, 0.25, 0.5, 0.75, 1.0])
-    f_min_weights = np.asarray(training.f_min_loss_weights(score_values)) * 0.75
+    f_min_weights = np.asarray(training.f_min_loss_weights(score_values)) * 0.25
 
-    score_loss_fn = training.create_huber(0.05)
-    f_min_loss_fn = training.create_huber(0.5)
+    # score_loss_fn = training.create_huber(0.05)
+    # f_min_loss_fn = training.create_huber(0.5)
+
+    score_loss_fn, f_min_loss_fn = training.squared_error, training.squared_error
+
     loss = training.CustomScaledLoss(
         score_loss_fn,
         f_min_loss_fn,
@@ -87,6 +89,7 @@ class RecordCompModel:
             tf.constant(0.1, dtype=tf.float32), tf.constant(2, dtype=tf.float32)
         ),
     )
+
     compile_kwargs = {"optimizer": "Adam", "loss": loss}
     fit_kwargs = {"batch_size": 32, "epochs": 250, "verbose": 2}
 
@@ -99,9 +102,12 @@ class RecordCompModel:
         feature_config: Dict,
         snr_freq_values: np.ndarray,
         model_config: Dict = None,
+        log_wandb: bool = False,
     ):
         self.base_dir = utils.to_path(base_dir)
         self.models = models
+
+        self.log_wandb = log_wandb
 
         self.feature_config = (
             RecordCompModel.feature_config if feature_config is None else feature_config
@@ -134,6 +140,8 @@ class RecordCompModel:
         model_config: Dict = None,
         feature_config: Dict = None,
         snr_freq_values: np.ndarray = None,
+        log_wandb: bool = False
+
     ):
         model_config = model_config if model_config is not None else cls.model_config
         feature_config = (
@@ -155,6 +163,7 @@ class RecordCompModel:
                 2,
                 training.create_custom_act_fn(
                     tf.keras.activations.linear,
+                    # training.create_soft_clipping(30, z_min=0.0, z_max=1.0, x_min=0.0, x_max=1.0),
                     training.create_soft_clipping(30, z_min=0.1, z_max=10.0),
                 ),
             )
@@ -165,6 +174,7 @@ class RecordCompModel:
             feature_config,
             snr_freq_values,
             model_config=model_config,
+            log_wandb=log_wandb
         )
 
     @classmethod
@@ -237,14 +247,10 @@ class RecordCompModel:
                 model_uncertainty[f"f_min_{cur_comp}"] = y_hat_std[:, 1]
 
         if n_preds == 1:
-            return pd.DataFrame.from_dict(result_dict).set_index(
-                cur_feature_df.index
-            )
+            return pd.DataFrame.from_dict(result_dict).set_index(cur_feature_df.index)
         return (
             pd.DataFrame.from_dict(result_dict).set_index(cur_feature_df.index),
-            pd.DataFrame.from_dict(model_uncertainty).set_index(
-                cur_feature_df.index
-            ),
+            pd.DataFrame.from_dict(model_uncertainty).set_index(cur_feature_df.index),
         )
 
     def train(
@@ -254,7 +260,6 @@ class RecordCompModel:
         val_size: float = 0.0,
         compile_kwargs: Dict = {},
         fit_kwargs: Dict = None,
-        tensorboard_kwargs: Dict = None,
     ):
         """Pre-processes the labelled data and trains the model
 
@@ -271,8 +276,6 @@ class RecordCompModel:
         fit_kwargs: dictionary
             Keyword arguments for the model fit functions,
             see https://www.tensorflow.org/api_docs/python/tf/keras/Model#fit
-        tensorboard_kwargs: dictionary, optional
-            Tensorboard callback keyword arguments
         """
 
         # Get the labelled record ids & split into training and validation
@@ -336,6 +339,7 @@ class RecordCompModel:
                 f"{cur_features_val.shape[0]} for validation"
             )
             self.train_history[cur_comp] = self.fit(
+                cur_comp,
                 self.models[cur_comp],
                 cur_features_train.values,
                 cur_snr_train.values[:, :, None],
@@ -345,7 +349,6 @@ class RecordCompModel:
                 val_data=val_data,
                 compile_kwargs=compile_kwargs,
                 fit_kwargs=fit_kwargs,
-                tensorboard_kwargs=tensorboard_kwargs,
             )
 
             self.models[cur_comp] = tf.keras.models.load_model(
@@ -361,10 +364,10 @@ class RecordCompModel:
         np.save(self.base_dir / "snr_freq_values.npy", self._snr_freq_values)
         self.is_trained = True
 
-
     def fit(
         self,
-        gm_model: tf.keras.Model,
+        cur_comp: str,
+        gmc_model: tf.keras.Model,
         X_features_train: np.ndarray,
         X_snr_train: np.ndarray,
         y_train: np.ndarray,
@@ -375,7 +378,6 @@ class RecordCompModel:
         ] = None,
         compile_kwargs: Dict = {},
         fit_kwargs: Dict = None,
-        tensorboard_kwargs: Dict = None,
     ):
         """
         Fits the model, does not do any pre-processing,
@@ -404,15 +406,10 @@ class RecordCompModel:
         fit_kwargs: dictionary
             Keyword arguments for the model fit functions,
             see https://www.tensorflow.org/api_docs/python/tf/keras/Model#fit
-        tensorboard_kwargs: dictionary, optional
-            Tensorboard callback keyword arguments
         """
         self.compile_kwargs = {**RecordCompModel.compile_kwargs, **compile_kwargs}
         self.fit_kwargs = (
             RecordCompModel.fit_kwargs if fit_kwargs is None else fit_kwargs
-        )
-        self.tensorboard_kwargs = (
-            tensorboard_kwargs if tensorboard_kwargs is not None else {}
         )
 
         training_data = (
@@ -432,13 +429,32 @@ class RecordCompModel:
 
         history, _ = training.fit(
             output_dir,
-            gm_model,
+            gmc_model,
             training_data,
             val_data=val_data,
             compile_kwargs=self.compile_kwargs,
             fit_kwargs=self.fit_kwargs,
-            tensorboard_cb_kwargs=self.tensorboard_kwargs,
+            callbacks=[
+                model.MetricRecorder(cur_comp, training_data, val_data, self.compile_kwargs["loss"], log_wandb=self.log_wandb),
+                keras.callbacks.EarlyStopping(
+                    min_delta=0.005, patience=100, verbose=1, restore_best_weights=True
+                ),
+                keras.callbacks.ReduceLROnPlateau(
+                    factor=0.5, patience=50, verbose=1, min_lr=1e-6, min_delta=5e-3
+                ),
+            ],
         )
+
+        best_train_loss = [self.compile_kwargs["loss"](y_train.astype(np.float32), gmc_model.predict(training_data[0])).numpy() for ix in range(100)]
+        best_train_loss, best_train_loss_std = np.mean(best_train_loss), np.std(best_train_loss)
+        best_val_loss = [self.compile_kwargs["loss"](val_data[1].astype(np.float32), gmc_model.predict(val_data[0])).numpy() for ix in range(100)]
+        best_val_loss, best_val_loss_std = np.mean(best_val_loss), np.std(best_val_loss)
+        print(f"Final model - Training loss: {best_train_loss:.4f} +/- {best_train_loss_std:.4f}, "
+              f"Validation loss: {best_val_loss:.4f} +/- {best_val_loss_std:.4f}")
+
+        if self.log_wandb is not None:
+            wandb.run.summary[f"best_train_loss_{cur_comp}"] = best_train_loss
+            wandb.run.summary[f"best_val_loss_{cur_comp}"] = best_val_loss
 
         # Save the config
         config = {
@@ -449,6 +465,5 @@ class RecordCompModel:
         }
         with open(output_dir / "config.json", "w") as f:
             json.dump(config, f)
-
 
         return history

@@ -1,13 +1,10 @@
 """Trains and evaluates a model that takes the features from all
 three components for a specific record and estimates a score & f_min
 for each of the components"""
-import json
 from pathlib import Path
 
 import tensorflow as tf
 import wandb
-from wandb.keras import WandbCallback
-import pandas as pd
 import seaborn as sns
 
 sns.set()
@@ -29,8 +26,6 @@ if gpus:
 import gm_classifier as gmc
 
 
-
-
 # ----- Config -----
 label_dir = (
     "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels"
@@ -40,20 +35,24 @@ features_dir = "/home/claudy/dev/work/data/gm_classifier/records/training_data/f
 
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
 
+use_wandb = True
+
 # ---- Training ----
-output_dir = base_output_dir / gmc.utils.create_run_id()
+run_id = gmc.utils.create_run_id()
+output_dir = base_output_dir / run_id
 output_dir.mkdir(exist_ok=False, parents=False)
 
 label_dfs = gmc.utils.load_labels_from_dir(label_dir, f_min_100_value=10, merge=False)
 feature_dfs = gmc.utils.load_features_from_dir(features_dir, merge=False)
 
-gm_model = gmc.RecordCompModel.from_config(output_dir)
+if use_wandb:
+    wandb.init(project="gmc", name=run_id)
+
+gm_model = gmc.RecordCompModel.from_config(output_dir, log_wandb=use_wandb)
 
 # Run training of the model
 fit_kwargs = {"batch_size": 32, "epochs": 300, "verbose": 1}
 gm_model.train(feature_dfs, label_dfs, val_size=0.2, fit_kwargs=fit_kwargs)
-
-# t = gm_model.predict((feature_df_X, feature_df_Y, feature_df_Z), n_preds=5)
 
 # Create eval plots
 gmc.plots.create_eval_plots(output_dir, gm_model, feature_dfs, label_dfs,

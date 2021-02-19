@@ -94,6 +94,7 @@ def load_labels_from_dir(
     glob_filter: str = "labels_*.csv",
     drop_invalid: bool = True,
     f_min_100_value: float = None,
+    drop_duplicates: bool = True,
     merge: bool = True
 ):
     """
@@ -157,6 +158,12 @@ def load_labels_from_dir(
             | df.f_min_Z.isna()
         )
         df = df.loc[~inv_mask]
+
+    # Drop duplicates
+    if drop_duplicates:
+        dup_mask = df.index.duplicated(keep=False)
+        df = df.loc[~dup_mask]
+        print(f"Dropped {np.count_nonzero(dup_mask)} duplicates")
 
     if merge:
         return df
@@ -363,7 +370,8 @@ def load_ts_data(
     return record_ids, acc_ts, snr, ft_freq
 
 
-def run_phase_net(input_data: np.ndarray, dt: float, t: np.ndarray = None):
+def run_phase_net(input_data: np.ndarray, dt: float, t: np.ndarray = None, return_prob_series: bool = False):
+    """Uses PhaseNet to get the p- & s-wave pick"""
     # Only supports a single record
     assert input_data.shape[0] == 1
 
@@ -389,6 +397,9 @@ def run_phase_net(input_data: np.ndarray, dt: float, t: np.ndarray = None):
     else:
         probs = ph.predict(input_data)
         p_wave_ix, s_wave_ix = np.argmax(probs[0, :, 1]), np.argmax(probs[0, :, 2])
+
+    if return_prob_series:
+        return p_wave_ix, s_wave_ix, probs
 
     return p_wave_ix, s_wave_ix
 

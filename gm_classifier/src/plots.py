@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
+import wandb
+import imageio
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -99,12 +101,14 @@ def plot_true_vs_est(
     y_val_true: np.ndarray = None,
     c_train: Union[str, np.ndarray] = None,
     c_val: Union[str, np.ndarray] = None,
+    y_est_unc: np.ndarray = None,
     output_ffp: str = None,
     ax: plt.Axes = None,
     min_max: Tuple[float, float] = None,
     title: str = None,
     fig_kwargs: Dict = {},
     scatter_kwargs: Dict = {},
+    error_plot_kwargs: Dict = {},
 ):
     """Plots true (y-axis) vs estimated (x-axis)"""
     fig = None
@@ -112,17 +116,19 @@ def plot_true_vs_est(
         fig, ax = plt.subplots(**fig_kwargs)
 
     label = None if y_val_est is None else "training"
+
     train_scatter = ax.scatter(
         y_est, y_true, label=label, c=c_train, marker=".", **scatter_kwargs
     )
     if y_val_est is not None and y_val_true is not None:
-        ax.scatter(
+        ax.errorbar(
             y_val_est,
             y_val_true,
+            xerr=y_est_unc,
             c=c_val,
             marker="s",
             label="validation",
-            **scatter_kwargs,
+            **error_plot_kwargs,
         )
         ax.legend()
 
@@ -364,7 +370,7 @@ def create_eval_plots(
             plt.close()
 
         # Predict train and validation
-        est_df, _ = model.predict(feature_dfs, n_preds=n_preds)
+        est_df, model_uncertainty = model.predict(feature_dfs, n_preds=n_preds)
         est_df.to_csv(output_dir / "est_df.csv", index_label="record_id")
 
         cmap = "coolwarm"
@@ -383,6 +389,7 @@ def create_eval_plots(
                 est_df.loc[train_ids, score_key],
                 cur_label_df.loc[train_ids, score_key]
                 + np.random.normal(0, 0.01, train_ids.size),
+                y_est_unc=model_uncertainty.loc[val_ids, score_key],
                 c_train="b",
                 c_val="r",
                 y_val_est=est_df.loc[val_ids, score_key],
@@ -391,8 +398,19 @@ def create_eval_plots(
                 title="Score",
                 min_max=(score_min, score_max),
                 scatter_kwargs={"s": m_size},
+                error_plot_kwargs={
+                    "linestyle": "None",
+                    "ms": m_size,
+                    "elinewidth": 0.75,
+                },
                 fig_kwargs={"figsize": fig_size},
                 output_ffp=output_dir / f"score_true_vs_est_{cur_comp}.png",
+            )
+
+            wandb.run.summary[f"score_true_vs_est_{cur_comp}"] = wandb.Image(
+                np.asarray(
+                    imageio.imread(output_dir / f"score_true_vs_est_{cur_comp}.png")
+                )
             )
 
             f_min_min, f_min_max = (

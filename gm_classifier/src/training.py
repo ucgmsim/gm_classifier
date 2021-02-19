@@ -1,7 +1,7 @@
 import shutil
 import fnmatch
 from pathlib import Path
-from typing import Dict, Tuple, Union, Callable, Any, Iterable, List, Type
+from typing import Dict, Tuple, Union, Callable, Any, Iterable, Type, Sequence
 
 import pandas as pd
 import numpy as np
@@ -53,7 +53,7 @@ def fit(
     ] = None,
     compile_kwargs: Dict[str, Any] = None,
     fit_kwargs: Dict[str, Any] = None,
-    tensorboard_cb_kwargs: Dict[str, Any] = {},
+    callbacks: Sequence[keras.callbacks.Callback] = None,
 ) -> Tuple[Dict, keras.Model]:
     """
     Performs the training for the specified
@@ -106,16 +106,6 @@ def fit(
         shutil.rmtree(tensorboard_output_dir)
 
     # Train the model
-    callbacks = [
-        # keras.callbacks.ModelCheckpoint(
-        #     str(output_dir / "best_model"), save_best_only=True
-        # ),
-        keras.callbacks.EarlyStopping(min_delta=0.005, patience=50, verbose=1, restore_best_weights=True),
-        keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=50, verbose=1, min_lr=1e-6)
-        # keras.callbacks.TensorBoard(
-        #     tensorboard_output_dir, write_graph=True, **tensorboard_cb_kwargs
-        # ),
-    ]
     model.compile(**compile_kwargs)
     history = model.fit(
         X_train,
@@ -237,6 +227,10 @@ def mape(y_true, y_pred):
     """Mean absolute percentage error"""
     return tf.reduce_sum(tf.abs(y_true - y_pred) / y_true, axis=1)
 
+
+@tf.function
+def squared_error(y_true, y_pred):
+    return tf.square(y_true - y_pred)
 
 def create_huber(threshold: float = 1.0):
     """Creates a huber loss function using the specified threshold"""
@@ -425,7 +419,7 @@ class CustomScaledLoss(keras.losses.Loss):
         return loss
 
 
-def create_soft_clipping(p, z_min: float = 0.0, z_max: float = 1.0):
+def create_soft_clipping(p, z_min: float = 0.0, z_max: float = 1.0, x_min: float = 0, x_max: float = 10):
     """Returns the scaled soft-clipping function
 
     Parameters
@@ -448,7 +442,7 @@ def create_soft_clipping(p, z_min: float = 0.0, z_max: float = 1.0):
 
     def scaled_soft_clipping(z):
         z_scaled = pre.tf_min_max_scale(
-            z, target_min=0, target_max=1, x_min=0, x_max=10
+            z, target_min=0, target_max=1, x_min=x_min, x_max=x_max
         )
         result = soft_clipping(z_scaled, p)
         result = pre.tf_min_max_scale(
