@@ -12,6 +12,7 @@ from obspy.signal.trigger import pk_baer
 from scipy.signal import detrend
 
 import phase_net as ph
+from . import constants as const
 
 
 def create_run_id() -> str:
@@ -92,7 +93,10 @@ def load_features_from_dir(
 def load_labels_from_dir(
     label_dir: str,
     glob_filter: str = "labels_*.csv",
-    drop_invalid: bool = True,
+    drop_na: bool = True,
+    drop_f_min_101: bool = True,
+    multi_eq_value: float = None,
+    malf_value: float = None,
     f_min_100_value: float = None,
     drop_duplicates: bool = True,
     merge: bool = True
@@ -107,7 +111,7 @@ def load_labels_from_dir(
     glob_filter: str, optional
         Glob filter that allows filtering which files to use
         (in the specified label_dir)
-    drop_invalid: bool, optional
+    drop_na: bool, optional
         If true, drops samples with invalid/bad scores or f_fmin
 
     Returns
@@ -116,7 +120,7 @@ def load_labels_from_dir(
     """
     # Load and combine
     label_files = glob.glob(os.path.join(label_dir, glob_filter))
-    dfs = [pd.read_csv(cur_file, index_col="Record_ID") for cur_file in label_files]
+    dfs = [pd.read_csv(cur_file, index_col=0) for cur_file in label_files]
     df = pd.concat(dfs)
 
     # Rename
@@ -135,29 +139,43 @@ def load_labels_from_dir(
     )
     df.index.name = "record_id"
 
-    # For components with f_min == 100, set this to the specified value
+    # Apply the f_min max value limit
     if f_min_100_value is not None:
-        df.loc[df.f_min_X == 100, "f_min_X"] = f_min_100_value
-        df.loc[df.f_min_Y == 100, "f_min_Y"] = f_min_100_value
-        df.loc[df.f_min_Z == 100, "f_min_Z"] = f_min_100_value
+        df.loc[(df.f_min_X > f_min_100_value) & (df.f_min_X <= 100), "f_min_X"] = f_min_100_value
+        df.loc[(df.f_min_Y > f_min_100_value) & (df.f_min_Y <= 100), "f_min_Y"] = f_min_100_value
+        df.loc[(df.f_min_Z > f_min_100_value) & (df.f_min_Z <= 100), "f_min_Z"] = f_min_100_value
 
     # Drop invalid
-    if drop_invalid:
-        inv_mask = (
-            (df.score_X > 1.0)
-            | df.score_X.isna()
-            | (df.f_min_X >= 100.0)
+    if drop_na:
+        na_mask = (df.score_X.isna()
             | df.f_min_X.isna()
-            | (df.score_Y > 1.0)
             | df.score_Y.isna()
-            | (df.f_min_Y >= 100.0)
             | df.f_min_Y.isna()
-            | (df.score_Z > 1.0)
             | df.score_Z.isna()
-            | (df.f_min_Z >= 100.0)
             | df.f_min_Z.isna()
         )
-        df = df.loc[~inv_mask]
+        df = df.loc[~na_mask]
+
+    if drop_f_min_101:
+        f_min_101_mask = (df.f_min_X >= 100.0) | (df.f_min_Y >= 100.0) | (df.f_min_Z >= 100.0)
+        print(f"Dropped {np.count_nonzero(na_mask)} na records records")
+        df = df.loc[~f_min_101_mask]
+
+    multi_eq_mask = (df.score_X == 2.0) | (df.score_Y == 2.0) | (df.score_Z == 2.0)
+    if multi_eq_value is not None:
+        df.loc[multi_eq_mask, ["score_X", "score_Y", "score_Z"]] = multi_eq_value
+        print(f"Set {np.count_nonzero(multi_eq_mask)} malfunctioned records score to {multi_eq_value}")
+    else:
+        print(f"Dropped {np.count_nonzero(multi_eq_mask)} malfunctioned records")
+        df = df.loc[~multi_eq_mask]
+
+    malf_mask = (df.score_X == 3.0) | (df.score_Y == 3.0) | (df.score_Z == 3.0)
+    if malf_value is not None:
+        df.loc[malf_mask, ["score_X", "score_Y", "score_Z"]] = malf_value
+        print(f"Set {np.count_nonzero(malf_mask)} multiple earthquake records score to {malf_value}")
+    else:
+        print(f"Dropped {np.count_nonzero(malf_mask)} multiple earthquake records")
+        df = df.loc[~malf_mask]
 
     # Drop duplicates
     if drop_duplicates:
@@ -168,7 +186,8 @@ def load_labels_from_dir(
     if merge:
         return df
     else:
-        return df.loc[:, ["score_X", "f_min_X"]], df.loc[:, ["score_Y", "f_min_Y"]], df.loc[:, ["score_Z", "f_min_Z"]]
+        label_dfs = [df.loc[:, ["score_X", "f_min_X"]], df.loc[:, ["score_Y", "f_min_Y"]], df.loc[:, ["score_Z", "f_min_Z"]]]
+        return [cur_df.rename(columns={f"score_{cur_comp}": "score", f"f_min_{cur_comp}": "f_min"}) for cur_comp, cur_df in  zip(const.COMPONENTS, label_dfs)]
 
 
 def get_sample_id(record_id: Union[str, np.ndarray], component: [str, np.ndarray]):
@@ -399,7 +418,7 @@ def run_phase_net(input_data: np.ndarray, dt: float, t: np.ndarray = None, retur
         p_wave_ix, s_wave_ix = np.argmax(probs[0, :, 1]), np.argmax(probs[0, :, 2])
 
     if return_prob_series:
-        return p_wave_ix, s_wave_ix, probs
+        return p_wave_ix, s_wave_ix, probs[0, :, 1], probs[0, :, 2]
 
     return p_wave_ix, s_wave_ix
 

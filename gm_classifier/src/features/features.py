@@ -2,7 +2,6 @@
 Based on existing implemention
 from Xavier Bellagamba (https://github.com/xavierbellagamba/GroundMotionRecordClassifier)
 """
-import gc
 import os
 import math
 from enum import Enum
@@ -10,14 +9,14 @@ from typing import Tuple, Dict, Union, Any
 from collections import namedtuple
 
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.integrate import cumtrapz
 from scipy.interpolate import interp1d
 from obspy.signal.konnoohmachismoothing import calculate_smoothing_matrix
 
-from .geoNet_file import GeoNet_File
-from .utils import get_p_wave_ix
-from .records import Record
+from ..utils import run_phase_net
+from ..records import Record
+from . import malfunction_features as mal_features
+from . import multiple_eq_features as multi_eq_features
 
 
 class FeatureErrorType(Enum):
@@ -377,10 +376,19 @@ def compute_low_freq_fas(
     )
 
 
-def log_interpolate(x: np.ndarray, y: np.ndarray, x_new: np.ndarray, fill_value: Tuple[float, float] = (0, 0)):
+def log_interpolate(
+    x: np.ndarray,
+    y: np.ndarray,
+    x_new: np.ndarray,
+    fill_value: Tuple[float, float] = (0, 0),
+):
     """Performs log interpolation"""
     ln_x, ln_y, ln_x_new = np.log(x), np.log(y), np.log(x_new)
-    return np.exp(interp1d(ln_x, ln_y, kind="linear", bounds_error=False, fill_value=fill_value)(ln_x_new))
+    return np.exp(
+        interp1d(ln_x, ln_y, kind="linear", bounds_error=False, fill_value=fill_value)(
+            ln_x_new
+        )
+    )
 
 
 def compute_channel_features(
@@ -389,9 +397,28 @@ def compute_channel_features(
     dt: float,
     p_wave_ix: int,
     s_wave_ix: int,
+    prob_series: Tuple[np.ndarray, np.ndarray],
     ko_matrices: Dict[int, np.ndarray] = None,
 ):
-    """Computes the features for the acceleration time-series"""
+    """
+    Computes the features for the acceleration time-series
+
+    Parameters
+    ----------
+    acc: array of floats
+    t: array of floats
+    dt: float
+    p_wave_ix: int
+    s_wave_ix: int
+    prob_series: pair of array of floats
+        The probability series from PhaseNet
+        (p_wave_prob_series, s_wave_prob_series)
+    ko_matrices: dictionary
+
+    Returns
+    -------
+
+    """
     sample_rate = 1.0 / dt
 
     husid, AI, arias, husid_5_ix, husid_75_ix, husid_95_ix = compute_husid(acc, t)
@@ -457,6 +484,8 @@ def compute_channel_features(
     signal_ratio_max = lf_fas / fas_max
     signal_pe_ratio_max = lf_pe_fas / fas_max
 
+    p_wave_prob_series, s_wave_prob_series = prob_series
+
     features_dict = {
         "pn_pga_ratio": pn_pga_ratio,
         "average_tail_ratio": avg_tail_ratio,
@@ -477,6 +506,25 @@ def compute_channel_features(
         "snr_average_1.0_2.0": snr_values[3],
         "snr_average_2.0_5.0": snr_values[4],
         "snr_average_5.0_10.0": snr_values[5],
+
+        # Malfunction record features
+        "spike_detector": mal_features.spike_detector(acc),
+        "jerk_detector": mal_features.jerk_detector(acc),
+        "lowres_detector": mal_features.lowres_detector(acc),
+        "gainjump_detector": mal_features.gainjump_detector(acc),
+        "flatline_detector": mal_features.flatline_detector(acc),
+
+        # Multiple earthquake record features
+        "p_numpeaks_detector": multi_eq_features.numpeaks_detector(p_wave_prob_series),
+        "p_multimax_detector": multi_eq_features.multimax_detector(p_wave_prob_series),
+        "p_multidist_detector": multi_eq_features.multidist_detector(
+            p_wave_prob_series
+        ),
+        "s_numpeaks_detector": multi_eq_features.numpeaks_detector(s_wave_prob_series),
+        "s_multimax_detector": multi_eq_features.multimax_detector(s_wave_prob_series),
+        "s_multidist_detector": multi_eq_features.multidist_detector(
+            s_wave_prob_series
+        ),
     }
     features_dict = {
         **features_dict,
@@ -486,23 +534,37 @@ def compute_channel_features(
 
 
 def get_features(
-    record: Record,
-    ko_matrices: Dict[int, np.ndarray] = None,
+    record: Record, ko_matrices: Dict[int, np.ndarray] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # Create the time vector
     t = np.arange(record.size) * record.dt
 
-    p_wave_ix, s_wave_ix = get_p_wave_ix(record.acc_1, record.acc_2, record.acc_v, record.dt)
+    p_wave_ix, s_wave_ix, p_prob_series, s_prob_series = run_phase_net(
+        np.stack((record.acc_1, record.acc_2, record.acc_v), axis=1)[np.newaxis, ...],
+        record.dt,
+        t,
+        return_prob_series=True,
+    )
 
     # Compute the ratio (t_swave - t_pwave) / (t_end - t_swave)
     # For detecting records truncated to early
-    s_wave_ratio = ((s_wave_ix * record.dt) - (p_wave_ix * record.dt)) / (t[-1] - (s_wave_ix * record.dt))
+    s_wave_ratio = ((s_wave_ix * record.dt) - (p_wave_ix * record.dt)) / (
+        t[-1] - (s_wave_ix * record.dt)
+    )
 
     features_dict = {}
-    for cur_key, cur_acc in zip(["1", "2", "v"], [record.acc_1, record.acc_2, record.acc_v]):
+    for cur_key, cur_acc in zip(
+        ["1", "2", "v"], [record.acc_1, record.acc_2, record.acc_v]
+    ):
         try:
             features_dict[cur_key] = compute_channel_features(
-                cur_acc, t, record.dt, p_wave_ix, s_wave_ix, ko_matrices=ko_matrices
+                cur_acc,
+                t,
+                record.dt,
+                p_wave_ix,
+                s_wave_ix,
+                (p_prob_series, s_prob_series),
+                ko_matrices=ko_matrices,
             )
             features_dict[cur_key]["is_vertical"] = 1 if cur_key == "v" else 0
 

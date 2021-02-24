@@ -11,7 +11,7 @@ import ml_tools
 
 class MetricRecorder(keras.callbacks.Callback):
     def __init__(
-        self, comp: str, training_data: Tuple, val_data: Tuple, loss_fn: tf.function, log_wandb: bool = False
+        self, training_data: Tuple, val_data: Tuple, loss_fn: tf.function, log_wandb: bool = False
     ):
         super().__init__()
 
@@ -23,7 +23,6 @@ class MetricRecorder(keras.callbacks.Callback):
 
         self.loss_fn = loss_fn
 
-        self.comp = comp
         self.log_wandb = log_wandb
 
     def on_epoch_end(self, epoch, logs=None):
@@ -56,12 +55,12 @@ class MetricRecorder(keras.callbacks.Callback):
         if self.log_wandb:
             wandb.log(
                 {
-                    f"score_train_mse_{self.comp}": score_train_mse,
-                    f"f_min_train_mse_{self.comp}": f_min_train_mse,
-                    f"score_val_mse_{self.comp}": score_val_mse,
-                    f"f_min_val_mse_{self.comp}": f_min_val_mse,
-                    f"loss_{self.comp}": logs["loss"],
-                    f"val_loss_{self.comp}": logs["val_loss"],
+                    f"score_train_mse": score_train_mse,
+                    f"f_min_train_mse": f_min_train_mse,
+                    f"score_val_mse": score_val_mse,
+                    f"f_min_val_mse": f_min_val_mse,
+                    f"loss": logs["loss"],
+                    f"val_loss": logs["val_loss"],
                     "epoch": epoch,
                 }
             )
