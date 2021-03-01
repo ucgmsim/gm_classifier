@@ -45,12 +45,19 @@ class MetricRecorder(keras.callbacks.Callback):
             mc_loss = [self.loss_fn(self.y_train, self.model.predict(self.X_train)).numpy() for ix in range(10)]
             mc_val_loss = [self.loss_fn(self.y_val, self.model.predict(self.X_val)).numpy() for ix in range(10)]
 
+            mc_score_train_mse = [tf.losses.mse(self.y_train[:, 0], self.model.predict(self.X_train)[:, 0]).numpy() for ix in range(10)]
+            mc_score_val_mse = [tf.losses.mse(self.y_val[:, 0], self.model.predict(self.X_val)[:, 0]).numpy() for ix in range(10)]
+
+            mc_score_train_mse, mc_score_train_mse_std = np.mean(mc_score_train_mse), np.std(mc_score_train_mse)
+            mc_score_val_mse, mc_score_val_mse_std = np.mean(mc_score_val_mse), np.std(mc_score_val_mse)
+
             mc_loss, mc_loss_std = np.mean(mc_loss), np.std(mc_loss)
             mc_val_loss, mc_val_loss_std = np.mean(mc_val_loss), np.std(mc_val_loss)
 
             print(f"MC Loss: {mc_loss:.4f} +/- {mc_loss_std:.4f}, "
                   f"MC Val Loss: {mc_val_loss:.4f} +/- {mc_val_loss_std:.4f}")
-
+            print(f"MC Score MSE - Training: {mc_score_train_mse:.4f} +/- {mc_score_train_mse_std:.4f}, "
+                  f"Validation: {mc_score_val_mse:.4f} +/- {mc_score_val_mse_std:.4f} ")
 
         if self.log_wandb:
             wandb.log(

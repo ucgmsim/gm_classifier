@@ -68,7 +68,9 @@ def load_features_from_dir(
             print(f"Dropped {np.count_nonzero(dup_mask)} duplicates")
 
         if drop_nan:
-            feature_cols = cur_df.columns.values[~np.isin(cur_df.columns, ["event_id", "station"])].astype(str)
+            feature_cols = cur_df.columns.values[
+                ~np.isin(cur_df.columns, ["event_id", "station"])
+            ].astype(str)
             nan_mask = np.any(cur_df.loc[:, feature_cols].isna(), axis=1)
             cur_df = cur_df.loc[~nan_mask]
             print(f"Dropped {np.count_nonzero(nan_mask)} samples due to nan-values")
@@ -99,7 +101,8 @@ def load_labels_from_dir(
     malf_value: float = None,
     f_min_100_value: float = None,
     drop_duplicates: bool = True,
-    merge: bool = True
+    merge: bool = True,
+    ignore_ids_ffp: Path = None,
 ):
     """
     Loads all labels, single row per record
@@ -141,13 +144,20 @@ def load_labels_from_dir(
 
     # Apply the f_min max value limit
     if f_min_100_value is not None:
-        df.loc[(df.f_min_X > f_min_100_value) & (df.f_min_X <= 100), "f_min_X"] = f_min_100_value
-        df.loc[(df.f_min_Y > f_min_100_value) & (df.f_min_Y <= 100), "f_min_Y"] = f_min_100_value
-        df.loc[(df.f_min_Z > f_min_100_value) & (df.f_min_Z <= 100), "f_min_Z"] = f_min_100_value
+        df.loc[
+            (df.f_min_X > f_min_100_value) & (df.f_min_X <= 100), "f_min_X"
+        ] = f_min_100_value
+        df.loc[
+            (df.f_min_Y > f_min_100_value) & (df.f_min_Y <= 100), "f_min_Y"
+        ] = f_min_100_value
+        df.loc[
+            (df.f_min_Z > f_min_100_value) & (df.f_min_Z <= 100), "f_min_Z"
+        ] = f_min_100_value
 
     # Drop invalid
     if drop_na:
-        na_mask = (df.score_X.isna()
+        na_mask = (
+            df.score_X.isna()
             | df.f_min_X.isna()
             | df.score_Y.isna()
             | df.f_min_Y.isna()
@@ -157,25 +167,35 @@ def load_labels_from_dir(
         df = df.loc[~na_mask]
 
     if drop_f_min_101:
-        f_min_101_mask = (df.f_min_X >= 100.0) | (df.f_min_Y >= 100.0) | (df.f_min_Z >= 100.0)
-        print(f"Dropped {np.count_nonzero(na_mask)} na records records")
+        f_min_101_mask = (
+            (df.f_min_X >= 100.0) | (df.f_min_Y >= 100.0) | (df.f_min_Z >= 100.0)
+        )
+        print(f"Dropped {np.count_nonzero(na_mask)} bad p-wave pick records")
         df = df.loc[~f_min_101_mask]
 
-    multi_eq_mask = (df.score_X == 2.0) | (df.score_Y == 2.0) | (df.score_Z == 2.0)
+    malf_mask = (df.score_X == 2.0) | (df.score_Y == 2.0) | (df.score_Z == 2.0)
     if multi_eq_value is not None:
-        df.loc[multi_eq_mask, ["score_X", "score_Y", "score_Z"]] = multi_eq_value
-        print(f"Set {np.count_nonzero(multi_eq_mask)} malfunctioned records score to {multi_eq_value}")
+        df.loc[malf_mask, ["score_X", "score_Y", "score_Z"]] = multi_eq_value
+        df["malf"] = False
+        df.loc[malf_mask, "malf"] = True
+        print(
+            f"Set {np.count_nonzero(malf_mask)} malfunctioned records score to {multi_eq_value}"
+        )
     else:
-        print(f"Dropped {np.count_nonzero(multi_eq_mask)} malfunctioned records")
-        df = df.loc[~multi_eq_mask]
-
-    malf_mask = (df.score_X == 3.0) | (df.score_Y == 3.0) | (df.score_Z == 3.0)
-    if malf_value is not None:
-        df.loc[malf_mask, ["score_X", "score_Y", "score_Z"]] = malf_value
-        print(f"Set {np.count_nonzero(malf_mask)} multiple earthquake records score to {malf_value}")
-    else:
-        print(f"Dropped {np.count_nonzero(malf_mask)} multiple earthquake records")
+        print(f"Dropped {np.count_nonzero(malf_mask)} malfunctioned records")
         df = df.loc[~malf_mask]
+
+    multi_eq_mask = (df.score_X == 3.0) | (df.score_Y == 3.0) | (df.score_Z == 3.0)
+    if malf_value is not None:
+        df.loc[multi_eq_mask, ["score_X", "score_Y", "score_Z"]] = malf_value
+        df["multi_eq"] = False
+        df.loc[multi_eq_mask, "multi_eq"] = True
+        print(
+            f"Set {np.count_nonzero(multi_eq_mask)} multiple earthquake records score to {malf_value}"
+        )
+    else:
+        print(f"Dropped {np.count_nonzero(multi_eq_mask)} multiple earthquake records")
+        df = df.loc[~multi_eq_mask]
 
     # Drop duplicates
     if drop_duplicates:
@@ -183,11 +203,28 @@ def load_labels_from_dir(
         df = df.loc[~dup_mask]
         print(f"Dropped {np.count_nonzero(dup_mask)} duplicates")
 
+    if ignore_ids_ffp is not None:
+        with open(ignore_ids_ffp, "r") as f:
+            ignore_ids = np.asarray([line.strip() for line in f.readlines()], dtype=str)
+
+        ignore_mask = np.isin(df.index.values.astype(str), ignore_ids)
+        df = df.loc[~ignore_mask]
+        print(f"Dropped {np.count_nonzero(ignore_mask)} records from the ignore ids file")
+
     if merge:
         return df
     else:
-        label_dfs = [df.loc[:, ["score_X", "f_min_X"]], df.loc[:, ["score_Y", "f_min_Y"]], df.loc[:, ["score_Z", "f_min_Z"]]]
-        return [cur_df.rename(columns={f"score_{cur_comp}": "score", f"f_min_{cur_comp}": "f_min"}) for cur_comp, cur_df in  zip(const.COMPONENTS, label_dfs)]
+        label_dfs = [
+            df.loc[:, ["score_X", "f_min_X", "malf", "multi_eq"]],
+            df.loc[:, ["score_Y", "f_min_Y", "malf", "multi_eq"]],
+            df.loc[:, ["score_Z", "f_min_Z", "malf", "multi_eq"]],
+        ]
+        return [
+            cur_df.rename(
+                columns={f"score_{cur_comp}": "score", f"f_min_{cur_comp}": "f_min"}
+            )
+            for cur_comp, cur_df in zip(const.COMPONENTS, label_dfs)
+        ]
 
 
 def get_sample_id(record_id: Union[str, np.ndarray], component: [str, np.ndarray]):
@@ -389,7 +426,12 @@ def load_ts_data(
     return record_ids, acc_ts, snr, ft_freq
 
 
-def run_phase_net(input_data: np.ndarray, dt: float, t: np.ndarray = None, return_prob_series: bool = False):
+def run_phase_net(
+    input_data: np.ndarray,
+    dt: float,
+    t: np.ndarray = None,
+    return_prob_series: bool = False,
+):
     """Uses PhaseNet to get the p- & s-wave pick"""
     # Only supports a single record
     assert input_data.shape[0] == 1

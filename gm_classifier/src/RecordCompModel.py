@@ -112,7 +112,7 @@ class RecordCompModel:
         ),
     )
 
-    compile_kwargs = {"optimizer": "Adam", "loss": loss}
+    compile_kwargs = {"optimizer": "NAdam", "loss": loss}
     fit_kwargs = {"batch_size": 32, "epochs": 250, "verbose": 2}
 
     components = ["X", "Y", "Z"]
@@ -198,9 +198,9 @@ class RecordCompModel:
 
     @classmethod
     def load(cls, base_dir: Path):
-        model = tf.keras.models.load_model(base_dir / "best_model")
+        model = tf.keras.models.load_model(base_dir / "best_model", compile=False)
 
-        cls(
+        return cls(
             base_dir,
             model,
             ml_tools.utils.load_json(base_dir / "feature_config.json"),
@@ -238,7 +238,7 @@ class RecordCompModel:
                 result_dict[f"f_min_{cur_comp}"] = y_hat[:, 1]
             else:
                 y_hats = []
-                print("Running predictions")
+                print(f"Running predictions for component {cur_comp}")
                 for ix in range(n_preds):
                     print(f"Prediction sample {ix + 1}/{n_preds}")
                     y_hats.append(

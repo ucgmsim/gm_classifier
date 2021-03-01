@@ -1,30 +1,42 @@
 from pathlib import Path
 import argparse
 
+import tensorflow as tf
 import pandas as pd
+
+# Grow the GPU memory usage as needed
+gpus = tf.config.experimental.list_physical_devices("GPU")
+if gpus:
+    try:
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        logical_gpus = tf.config.experimental.list_logical_devices("GPU")
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+    except RuntimeError as e:
+        # Memory growth must be set before GPUs have been initialized
+        print(e)
 
 import gm_classifier as gm
 
 
 def main(input_dir: Path, model_base_dir: Path, output_ffp: Path):
-    csv_files = input_dir.glob("*.csv")
+    csv_files = list(input_dir.glob("*.csv"))
 
     if any(["comp_X.csv" in str(cur_file) for cur_file in csv_files]):
         print("Loading the feature csv files")
-        feature_df = gm.utils.load_features_from_dir(input_dir)
+        feature_dfs = gm.utils.load_features_from_dir(input_dir, merge=False)
     else:
         print("Extracting the features from the V1A files")
         raise NotImplementedError
 
     print("Loading the model")
-    model = gm.RecordCompModel(model_base_dir)
-    model.load()
+    model = gm.RecordCompModel.load(model_base_dir)
 
     print("Running the predictions")
-    y_hat, y_hat_std = model.predict(feature_df, n_preds=100)
-    est_df = pd.DataFrame(index=feature_df.index.values, data=y_hat, columns=model.comp_label_names)
-    std_df = pd.DataFrame(index=feature_df.index.values, data=y_hat_std, columns=[f"{cur_col}_std" for cur_col in model.comp_label_names])
-    result_df = pd.merge(est_df, std_df, right_index=True, left_index=True)
+    y_hat, y_hat_std = model.predict(feature_dfs, n_preds=25)
+
+    result_df = pd.merge(y_hat, y_hat_std, right_index=True, left_index=True, suffixes=("_mean", "_std"))
 
     print(f"Writing the result to {output_ffp}")
     result_df.to_csv(output_ffp, index_label="record_id")

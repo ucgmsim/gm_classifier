@@ -7,6 +7,8 @@ import tensorflow as tf
 import wandb
 import seaborn as sns
 
+import ml_tools
+
 sns.set()
 sns.set_style("whitegrid")
 
@@ -27,47 +29,146 @@ import gm_classifier as gmc
 
 
 # ----- Config -----
-label_dir = (
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels"
-)
+label_dir = "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels"
 
 # features_dir = "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/tmp"
-features_dir = "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210223"
+features_dir = (
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210223"
+)
 
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
+ignore_ids_ffp = Path(
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels/ignore_ids.txt"
+)
 
-use_wandb = True
+feature_config = {
+    "signal_pe_ratio_max": ["standard", "whiten"],
+    "signal_ratio_max": ["standard", "whiten"],
+    "snr_min": ["standard", "whiten"],
+    "snr_max": ["standard", "whiten"],
+    "snr_average": ["standard", "whiten"],
+    "max_tail_ratio": ["standard", "whiten"],
+    "average_tail_ratio": ["standard", "whiten"],
+    "max_head_ratio": ["standard", "whiten"],
+    "snr_average_0.1_0.2": ["standard", "whiten"],
+    "snr_average_0.2_0.5": ["standard", "whiten"],
+    "snr_average_0.5_1.0": ["standard", "whiten"],
+    "snr_average_1.0_2.0": ["standard", "whiten"],
+    "snr_average_2.0_5.0": ["standard", "whiten"],
+    "snr_average_5.0_10.0": ["standard", "whiten"],
+    "fas_ratio_low": ["standard", "whiten"],
+    "fas_ratio_high": ["standard", "whiten"],
+    "pn_pga_ratio": ["standard", "whiten"],
+    "is_vertical": None,
+    "spike_detector": ["standard", "whiten"],
+    "jerk_detector": ["standard", "whiten"],
+    "lowres_detector": ["standard", "whiten"],
+    "gainjump_detector": ["standard", "whiten"],
+    "flatline_detector": ["standard", "whiten"],
+    "p_numpeaks_detector": ["standard", "whiten"],
+    "p_multimax_detector": ["standard", "whiten"],
+    "p_multidist_detector": ["standard", "whiten"],
+    "s_numpeaks_detector": ["standard", "whiten"],
+    "s_multimax_detector": ["standard", "whiten"],
+    "s_multidist_detector": ["standard", "whiten"],
+}
+
+
+
+# For hyperparameter tuning using wandb
+hyperparam_defaults = dict(
+    scalar_nn_units=[32, 16],
+    scalar_nn_dropout=0.1,
+    snr_filters=[16, 32],
+    snr_kernel_sizes=[11, 5],
+    snr_pool_size=2,
+    snr_dropout=0.1,
+    snr_lstm_units=[64, 32],
+    final_units=[32, 16],
+    final_dropout=0.1,
+    batch_size=32,
+)
 
 # ---- Training ----
 run_id = gmc.utils.create_run_id()
 output_dir = base_output_dir / run_id
 output_dir.mkdir(exist_ok=False, parents=False)
 
-label_dfs = gmc.utils.load_labels_from_dir(label_dir, f_min_100_value=10, drop_na=True, drop_f_min_101=True,
-                                           multi_eq_value=0.0, malf_value=0.0, merge=False)
+# Data loading
+label_dfs = gmc.utils.load_labels_from_dir(
+    label_dir,
+    f_min_100_value=10,
+    drop_na=True,
+    drop_f_min_101=True,
+    multi_eq_value=0.0,
+    malf_value=0.0,
+    merge=False,
+    ignore_ids_ffp=ignore_ids_ffp,
+)
 feature_dfs = gmc.utils.load_features_from_dir(features_dir, merge=False)
 
+# wandb setup
+tags = []
+if "jerk_detector" in feature_config.keys():
+    tags.append("malf_features")
+if "p_numpeaks_detector" in feature_config.keys():
+    tags.append("multi_eq_features")
 
-gm_model = gmc.RecordCompModel.from_config(output_dir, log_wandb=use_wandb)
+wandb.init(config=hyperparam_defaults, project="gmc", name=run_id, tags=tags)
+hyperparam_config = wandb.config
+
+wandb.config.labels_dir = str(label_dir)
+wandb.config.features_dir = str(features_dir)
+
+
+model_config = {
+    "dense_config": {
+        "hidden_layer_func": ml_tools.hidden_layers.selu_mc_dropout,
+        "hidden_layer_config": {"dropout": hyperparam_config["scalar_nn_dropout"]},
+        "units": hyperparam_config["scalar_nn_units"],
+    },
+    "snr_config": {
+        "filters": hyperparam_config["snr_filters"],
+        "kernel_sizes": hyperparam_config["snr_kernel_sizes"],
+        "layer_config": {
+            "activation": "elu",
+            "kernel_initializer": "glorot_uniform",
+            "padding": "same",
+        },
+        "pool_size": hyperparam_config["snr_pool_size"],
+        "dropout": hyperparam_config["snr_dropout"],
+        "lstm_units": hyperparam_config["snr_lstm_units"],
+        # "lstm_units": [],
+    },
+    "dense_final_config": {
+        "hidden_layer_func": ml_tools.hidden_layers.selu_mc_dropout,
+        "hidden_layer_config": {"dropout": hyperparam_config["final_dropout"]},
+        "units": hyperparam_config["final_units"],
+    },
+}
+
+gm_model = gmc.RecordCompModel.from_config(
+    output_dir,
+    log_wandb=True,
+    feature_config=feature_config,
+    model_config=model_config,
+)
 print("Scalar features: ", gm_model.feature_names)
-
-if use_wandb:
-    tags = []
-    if "jerk_detector" in gm_model.feature_names:
-        tags.append("malf_features")
-    if "numpeaks_detector" in gm_model.feature_names:
-        tags.append("multi_eq_features")
-
-    wandb.init(project="gmc", name=run_id, tags=tags)
 
 # Run training of the model
 fit_kwargs = {"batch_size": 32, "epochs": 300, "verbose": 1}
 gm_model.train(feature_dfs, label_dfs, val_size=0.2, fit_kwargs=fit_kwargs)
 
 # Create eval plots
-gmc.plots.create_eval_plots(output_dir, gm_model, feature_dfs, label_dfs,
-                            gm_model.train_ids, gm_model.val_ids, gm_model.train_history, n_preds=10)
+gmc.plots.create_eval_plots(
+    output_dir,
+    gm_model,
+    feature_dfs,
+    label_dfs,
+    gm_model.train_ids,
+    gm_model.val_ids,
+    gm_model.train_history,
+    n_preds=25,
+)
 
 exit()
-
-

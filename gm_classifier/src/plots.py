@@ -11,7 +11,29 @@ import seaborn as sns
 
 from .RecordCompModel import RecordCompModel
 from . import constants as const
+from .records import Record
 
+
+def plot_record(record: Record):
+    # Generate the plot
+    t = np.arange(record.size) * record.dt
+    fig = plt.figure(figsize=(12, 9))
+
+    for ix, (cur_acc, cur_comp) in enumerate(zip(record.acc_arrays, ["X", "Y", "Z"])):
+        ax = fig.add_subplot(3, 1, ix + 1, sharex=ax1 if ix > 0 else None)
+
+        if ix == 0:
+            ax1 = ax
+
+        ax.plot(t, cur_acc)
+
+    ax.set_xlabel("Time (s)")
+    ax.set_title(record.id)
+
+    fig.tight_layout()
+    fig.subplots_adjust(hspace=0.0)
+
+    return fig
 
 def plot_loss(
     history: Dict, ax: plt.Axes = None, output_ffp: str = None, fig_kwargs: Dict = None
@@ -134,7 +156,12 @@ def plot_true_vs_est(
         ax.legend()
     elif y_val_est is not None and y_val_true is not None:
         ax.scatter(
-            y_val_est, y_val_true, label="validation", c=c_val, marker=".", **scatter_kwargs
+            y_val_est,
+            y_val_true,
+            label="validation",
+            c=c_val,
+            marker=".",
+            **scatter_kwargs,
         )
 
     if min_max is not None:
@@ -377,12 +404,147 @@ def create_eval_plots(
         est_df, model_uncertainty = model.predict(feature_dfs, n_preds=n_preds)
         est_df.to_csv(output_dir / "est_df.csv", index_label="record_id")
 
-        # data_df = pd.merge(pd.concat(label_dfs, axis=1), est_df, how="inner", left_index=True, right_index=True)
-        # wandb.run.summary["data_df"] = wandb.Table(dataframe=data_df)
+        data_df = pd.merge(
+            pd.concat(label_dfs, axis=1),
+            est_df,
+            how="inner",
+            left_index=True,
+            right_index=True,
+        )
+        y_est, y = (
+            data_df.loc[:, ["score_X", "score_Y", "score_Z"]],
+            data_df.loc[:, "score"],
+        )
+        multi_eq_ids = data_df.index.values.astype(str)[
+            data_df.multi_eq.iloc[:, 0] == True
+        ]
+        malf_ids = data_df.index.values.astype(str)[data_df.malf.iloc[:, 0] == True]
+        assert np.all(y_est.index == y.index)
+
+        train_noise = pd.Series(
+            index=np.tile(train_ids, 3),
+            data=np.random.normal(0, 0.01, train_ids.size * 3),
+        )
+        val_noise = pd.Series(
+            index=np.tile(val_ids, 3), data=np.random.normal(0, 0.01, val_ids.size * 3)
+        )
+
+        # Training
+        fig, ax = plt.subplots(figsize=fig_size)
+        ax.scatter(
+            y_est.loc[train_ids].values.ravel(),
+            y.loc[train_ids].values.ravel() + train_noise.loc[train_ids],
+            label="Training",
+            c="b",
+            s=4.0,
+            marker=".",
+        )
+        train_multi_eq_ids = train_ids[np.isin(train_ids, multi_eq_ids)]
+        ax.scatter(
+            y_est.loc[train_multi_eq_ids].values.ravel(),
+            y.loc[train_multi_eq_ids].values.ravel()
+            + train_noise.loc[train_multi_eq_ids],
+            label="Training - Multi EQ",
+            c="b",
+            s=7.0,
+            marker="x",
+        )
+        train_malf_ids = train_ids[np.isin(train_ids, malf_ids)]
+        ax.scatter(
+            y_est.loc[train_malf_ids].values.ravel(),
+            y.loc[train_malf_ids].values.ravel() + train_noise.loc[train_malf_ids],
+            label="Training - Malfunction",
+            c="b",
+            s=7.0,
+            marker="s",
+        )
+        ax.scatter(
+            [0.0, 0.25, 0.5, 0.75, 1.0], [0.0, 0.25, 0.5, 0.75, 1.0], s=20, c="k"
+        )
+        ax.set_xlabel("Estimated")
+        ax.set_ylabel("True")
+        ax.set_title("Training")
+        wandb.log({"score_true_vs_est_training": fig})
+        fig.savefig(output_dir / "score_true_vs_est_training.png")
+
+        # Validation
+        fig, ax = plt.subplots(figsize=fig_size)
+        ax.scatter(
+            y_est.loc[val_ids].values.ravel(),
+            y.loc[val_ids].values.ravel() + val_noise.loc[val_ids],
+            label="Validation",
+            c="r",
+            s=4.0,
+            marker=".",
+        )
+        val_multi_eq_ids = val_ids[np.isin(val_ids, multi_eq_ids)]
+        ax.scatter(
+            y_est.loc[val_multi_eq_ids].values.ravel(),
+            y.loc[val_multi_eq_ids].values.ravel() + val_noise.loc[val_multi_eq_ids],
+            label="Validation - Multi EQ",
+            c="r",
+            s=7.0,
+            marker="X",
+        )
+        val_malf_ids = val_ids[np.isin(val_ids, malf_ids)]
+        ax.scatter(
+            y_est.loc[val_malf_ids].values.ravel(),
+            y.loc[val_malf_ids].values.ravel() + val_noise.loc[val_malf_ids],
+            label="Validation - Malfunction",
+            c="r",
+            s=7.0,
+            marker="s",
+        )
+        ax.scatter(
+            [0.0, 0.25, 0.5, 0.75, 1.0], [0.0, 0.25, 0.5, 0.75, 1.0], s=20, c="k"
+        )
+        ax.set_xlabel("Estimated")
+        ax.set_ylabel("True")
+        ax.set_title("Validation")
+        wandb.log({"score_true_vs_est_validation": fig})
+        fig.savefig(output_dir / "score_true_vs_est_validation.png")
+
+        # # Create wandb plots
+        # train_data_table = wandb.Table(
+        #     data=[
+        #         (x, y)
+        #         for x, y in zip(
+        #             y_est.loc[train_ids].values.ravel(),
+        #             y.loc[train_ids].values.ravel() + train_noise,
+        #         )
+        #     ],
+        #     columns=["estimated", "true"],
+        # )
+        # wandb.log(
+        #     {
+        #         "score_true_vs_est_training": wandb.plot.scatter(
+        #             train_data_table, "estimated", "true"
+        #         )
+        #     }
+        # )
+        #
+        # val_data_table = wandb.Table(
+        #     data=[
+        #         (x, y)
+        #         for x, y in zip(
+        #             y_est.loc[val_ids].values.ravel(),
+        #             y.loc[val_ids].values.ravel() + val_noise,
+        #         )
+        #     ],
+        #     columns=["estimated", "true"],
+        # )
+        # wandb.log(
+        #     {
+        #         "score_true_vs_est_validation": wandb.plot.scatter(
+        #             val_data_table, "estimated", "true"
+        #         )
+        #     }
+        # )
 
         cmap = "coolwarm"
         # cmap = sns.color_palette("coolwarm")
         m_size = 4.0
+        # Create per component plots
         for ix, cur_comp in enumerate(["X", "Y", "Z"]):
             cur_label_df = label_dfs[ix]
             score_key, f_min_key = f"score_{cur_comp}", f"f_min_{cur_comp}"
