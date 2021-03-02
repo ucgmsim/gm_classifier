@@ -4,10 +4,87 @@ metric:
   name: best_val_loss
   goal: minimize
 parameters:
+  batch_size:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128
+  scalar_n_units:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128
+      - 256
+  scalar_n_layers:
+    distribution: int_uniform
+    min: 1
+    max: 5
+  scalar_dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.2
+  snr_n_filters_1:
+    distribution: int_uniform
+    min: 5
+    max: 50
+  snr_kernel_size_1:
+    distribution: int_uniform
+    min: 2
+    max: 20
+  snr_n_filters_2:
+    distribution: int_uniform
+    min: 5
+    max: 50
+  snr_kernel_size_2:
+    distribution: int_uniform
+    min: 2
+    max: 20
+  snr_pool_size:
+    values:
+      - 1
+      - 2
+      - 3
+  snr_dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.5
+  snr_lstm_n_units_1:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128
+  snr_lstm_n_units_2:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128
+  final_n_units:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128
+      - 256
+  final_n_layers:
+    distribution: int_uniform
+    min: 1
+    max: 5
+  final_dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.2
+command:
+  - ${env}
+  - /home/claudy/dev/envs/gmc/bin/python
+  - ${program}
 
 
-  learning_rate:
-    min: 0.001
-    max: 0.1
-  optimizer:
-    values: ["adam", "sgd"]
