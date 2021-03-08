@@ -83,8 +83,7 @@ parameters:
     min: 0.0
     max: 0.2
 command:
-  - ${env}
-  - /home/claudy/dev/envs/gmc/bin/python
+  - /home/cbs51/dev/envs/gmc/bin/python
   - ${program}
 
 

@@ -30,17 +30,15 @@ import gm_classifier as gmc
 
 
 # ----- Config -----
-label_dir = "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels"
+label_dir = Path("/home/claudy/dev/work/data/gm_classifier/records/training_data/labels")
 
 # features_dir = "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/tmp"
 features_dir = (
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210223"
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210226"
 )
 
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
-ignore_ids_ffp = Path(
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels/ignore_ids.txt"
-)
+ignore_ids_ffp = label_dir / "ignore_ids.txt"
 
 feature_config = {
     "signal_pe_ratio_max": ["standard", "whiten"],
@@ -101,7 +99,7 @@ output_dir.mkdir(exist_ok=False, parents=False)
 
 # Data loading
 label_dfs = gmc.utils.load_labels_from_dir(
-    label_dir,
+    str(label_dir),
     f_min_100_value=10,
     drop_na=True,
     drop_f_min_101=True,

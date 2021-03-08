@@ -3,6 +3,7 @@ import fnmatch
 from pathlib import Path
 from typing import Dict, Tuple, Union, Callable, Any, Iterable, Type, Sequence
 
+import wandb
 import pandas as pd
 import numpy as np
 import tensorflow as tf
@@ -10,6 +11,112 @@ import tensorflow.keras as keras
 from scipy import stats
 
 from . import pre_processing as pre
+
+
+class ClassAccuracy(keras.metrics.Metric):
+    def __init__(self, class_range: Tuple[float, float], **kwargs):
+        self.class_min, self.class_max = class_range[0], class_range[1]
+
+
+
+        super().__init__(**kwargs)
+
+class MetricRecorder(keras.callbacks.Callback):
+    def __init__(
+        self,
+        training_data: Tuple,
+        val_data: Tuple,
+        loss_fn: tf.function,
+        log_wandb: bool = False,
+    ):
+        super().__init__()
+
+        self.X_train, self.y_train, _ = training_data
+        self.X_val, self.y_val, _ = val_data
+
+        self.loss_fn = loss_fn
+
+        self.log_wandb = log_wandb
+
+    def on_epoch_end(self, epoch, logs=None):
+        y_train_est = self.model.predict(self.X_train)
+        y_val_est = self.model.predict(self.X_val)
+
+        score_train_mse = tf.losses.mse(self.y_train[:, 0], y_train_est[:, 0]).numpy()
+        f_min_train_mse = tf.losses.mse(self.y_train[:, 1], y_train_est[:, 1]).numpy()
+
+        score_val_mse = tf.losses.mse(self.y_val[:, 0], y_val_est[:, 0]).numpy()
+        f_min_val_mse = tf.losses.mse(self.y_val[:, 1], y_val_est[:, 1]).numpy()
+
+        logs["score_train_mse"], logs["f_min_train_mse"] = (
+            score_train_mse,
+            f_min_train_mse,
+        )
+        logs["score_val_mse"], logs["f_min_val_mse"] = score_val_mse, f_min_val_mse
+
+        if epoch % 25 == 0:
+            mc_loss = [
+                self.loss_fn(self.y_train, self.model.predict(self.X_train)).numpy()
+                for ix in range(10)
+            ]
+            mc_val_loss = [
+                self.loss_fn(self.y_val, self.model.predict(self.X_val)).numpy()
+                for ix in range(10)
+            ]
+
+            mc_score_train_mse = [
+                tf.losses.mse(
+                    self.y_train[:, 0], self.model.predict(self.X_train)[:, 0]
+                ).numpy()
+                for ix in range(10)
+            ]
+            mc_score_val_mse = [
+                tf.losses.mse(
+                    self.y_val[:, 0], self.model.predict(self.X_val)[:, 0]
+                ).numpy()
+                for ix in range(10)
+            ]
+
+            mc_score_train_mse, mc_score_train_mse_std = (
+                np.mean(mc_score_train_mse),
+                np.std(mc_score_train_mse),
+            )
+            mc_score_val_mse, mc_score_val_mse_std = (
+                np.mean(mc_score_val_mse),
+                np.std(mc_score_val_mse),
+            )
+
+            mc_loss, mc_loss_std = np.mean(mc_loss), np.std(mc_loss)
+            mc_val_loss, mc_val_loss_std = np.mean(mc_val_loss), np.std(mc_val_loss)
+
+            print(
+                f"MC Loss: {mc_loss:.4f} +/- {mc_loss_std:.4f}, "
+                f"MC Val Loss: {mc_val_loss:.4f} +/- {mc_val_loss_std:.4f}"
+            )
+            print(
+                f"MC Score MSE - Training: {mc_score_train_mse:.4f} +/- {mc_score_train_mse_std:.4f}, "
+                f"Validation: {mc_score_val_mse:.4f} +/- {mc_score_val_mse_std:.4f} "
+            )
+
+        if self.log_wandb:
+            wandb.log(
+                {
+                    f"score_train_mse": score_train_mse,
+                    f"f_min_train_mse": f_min_train_mse,
+                    f"score_val_mse": score_val_mse,
+                    f"f_min_val_mse": f_min_val_mse,
+                    f"loss": logs["loss"],
+                    f"val_loss": logs["val_loss"],
+                    "epoch": epoch,
+                }
+            )
+
+        print(
+            f"Score - Train: {score_train_mse:.4f}, Val: {score_val_mse:.4f} -- "
+            f"F_min - Train: {f_min_train_mse:.4f}, Val: {f_min_val_mse:.4f}"
+        )
+
+        return
 
 
 def get_multi_output_y(
@@ -41,6 +148,7 @@ def get_multi_output_y(
         y[cur_label_name] = data
 
     return y
+
 
 def fit(
     output_dir: Path,
@@ -122,13 +230,15 @@ def fit(
     hist_df = pd.DataFrame.from_dict(history.history, orient="columns")
     hist_df.to_csv(output_dir / "history.csv", index_label="epoch")
 
+    model_plot_ffp = output_dir / "model.png"
     keras.utils.plot_model(
         model,
-        output_dir / "model.png",
+        model_plot_ffp,
         show_shapes=True,
         show_layer_names=True,
         expand_nested=True,
     )
+    wandb.log({"model": model_plot_ffp})
 
     return history.history, model
 
@@ -231,6 +341,7 @@ def mape(y_true, y_pred):
 @tf.function
 def squared_error(y_true, y_pred):
     return tf.square(y_true - y_pred)
+
 
 def create_huber(threshold: float = 1.0):
     """Creates a huber loss function using the specified threshold"""
@@ -409,17 +520,13 @@ class CustomScaledLoss(keras.losses.Loss):
         f_min_weights = self.f_min_table.lookup(score_keys)
         f_min_loss = f_min_loss * f_min_weights
 
-        loss = tf.stack(
-            (
-                score_loss[:, 0],
-                f_min_loss[:, 0],
-            ),
-            axis=1,
-        )
+        loss = tf.stack((score_loss[:, 0], f_min_loss[:, 0],), axis=1,)
         return loss
 
 
-def create_soft_clipping(p, z_min: float = 0.0, z_max: float = 1.0, x_min: float = 0, x_max: float = 10):
+def create_soft_clipping(
+    p, z_min: float = 0.0, z_max: float = 1.0, x_min: float = 0, x_max: float = 10
+):
     """Returns the scaled soft-clipping function
 
     Parameters
@@ -436,9 +543,7 @@ def create_soft_clipping(p, z_min: float = 0.0, z_max: float = 1.0, x_min: float
     -------
     tensorflow function
     """
-    p = (
-        p if isinstance(p, tf.Tensor) else tf.constant(p, dtype=tf.float32)
-    )
+    p = p if isinstance(p, tf.Tensor) else tf.constant(p, dtype=tf.float32)
 
     def scaled_soft_clipping(z):
         z_scaled = pre.tf_min_max_scale(
@@ -466,9 +571,11 @@ def soft_clipping(z: tf.Tensor, p: tf.Tensor):
     when wanting constrained regression (i.e. linear activation within a range)
     """
     z, p = tf.cast(z, dtype=tf.float64), tf.cast(p, dtype=tf.float64)
-    return tf.cast((1 / p) * tf.math.log(
-        (1 + tf.math.exp(p * z)) / (1 + tf.math.exp(p * (z - 1)))
-    ), dtype=tf.float32)
+    return tf.cast(
+        (1 / p)
+        * tf.math.log((1 + tf.math.exp(p * z)) / (1 + tf.math.exp(p * (z - 1)))),
+        dtype=tf.float32,
+    )
 
 
 def create_scaled_sigmoid(shift: float = 0.0, scale: float = 1.0):
@@ -486,10 +593,7 @@ def create_custom_act_fn(score_act_fn: tf.function, f_min_act_fn: tf.function):
         f_min_z = tf.gather(z, [1], axis=1)
         f_min_res = f_min_act_fn(f_min_z)
 
-        output = tf.stack((
-            score_res[:, 0],
-            f_min_res[:, 0],
-        ), axis=1)
+        output = tf.stack((score_res[:, 0], f_min_res[:, 0],), axis=1)
 
         return output
 

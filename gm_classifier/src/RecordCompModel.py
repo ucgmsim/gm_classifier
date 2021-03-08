@@ -382,11 +382,6 @@ class RecordCompModel:
             fit_kwargs=fit_kwargs,
         )
 
-        # Reload the best model (only needed when not using the EarlyStopping callback)
-        # self.model = tf.keras.models.load_model(
-        #     self.base_dir / "best_model", compile=False
-        # )
-
         ml_tools.utils.write_to_json(
             self.model_config, self.base_dir / "model_config.json"
         )
@@ -466,7 +461,7 @@ class RecordCompModel:
             compile_kwargs=self.compile_kwargs,
             fit_kwargs=self.fit_kwargs,
             callbacks=[
-                model.MetricRecorder(
+                training.MetricRecorder(
                     training_data,
                     val_data,
                     self.compile_kwargs["loss"],
