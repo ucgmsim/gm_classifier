@@ -75,21 +75,21 @@ feature_config = {
 
 # For hyperparameter tuning using wandb
 hyperparam_defaults = dict(
-    scalar_n_units=32,
+    scalar_n_units=64,
     scalar_n_layers=2,
-    scalar_dropout=0.1,
-    snr_n_filters_1=16,
-    snr_kernel_size_1=11,
-    snr_n_filters_2=32,
-    snr_kernel_size_2=5,
+    scalar_dropout=0.11,
+    snr_n_filters_1=26,
+    snr_kernel_size_1=20,
+    snr_n_filters_2=46,
+    snr_kernel_size_2=15,
     snr_pool_size=2,
     snr_dropout=0.1,
-    snr_lstm_n_units_1=64,
+    snr_lstm_n_units_1=128,
     snr_lstm_n_units_2=32,
-    final_n_units=32,
-    final_n_layers=2,
-    final_dropout=0.1,
-    batch_size=32,
+    final_n_units=256,
+    final_n_layers=3,
+    final_dropout=0.001,
+    batch_size=16,
 )
 
 # ---- Training ----

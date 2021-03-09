@@ -238,7 +238,7 @@ def fit(
         show_layer_names=True,
         expand_nested=True,
     )
-    wandb.log({"model": model_plot_ffp})
+    wandb.log({"model": str(model_plot_ffp)})
 
     return history.history, model
 
