@@ -1,8 +1,60 @@
+from dataclasses import dataclass
 from typing import Union, Tuple, Dict
 
 import tensorflow as tf
 import pandas as pd
 import numpy as np
+import sklearn
+
+
+@dataclass
+class StandardParams:
+    mu: pd.Series
+    sigma: pd.Series
+
+
+@dataclass
+class PreParams:
+    std_params: StandardParams = None
+
+
+def run_preprocessing(X: pd.DataFrame, feature_config: Dict, params: PreParams = None):
+    # Compute the required params
+    std_keys = get_standard_keys(feature_config)
+    if params is None:
+        params = PreParams()
+
+        # Standardisation
+        if len(std_keys) > 0:
+            # Compute mean and std from training data
+            mu, sigma = (
+                X.loc[:, std_keys].mean(axis=0),
+                X.loc[:, std_keys].std(axis=0),
+            )
+
+            params.std_params = StandardParams(mu, sigma)
+
+    # Apply
+    if len(std_keys) > 0:
+        X.loc[:, std_keys] = standardise(
+            X.loc[:, std_keys], params.std_params.mu, params.std_params.sigma
+        )
+
+    return X, params
+
+
+def train_test_split(X: pd.DataFrame, y: pd.DataFrame):
+    assert np.all(X.index == y.index)
+
+    train_ids, val_ids = sklearn.model_selection.train_test_split(
+        np.unique(X.index.values.astype(str)), test_size=0.2
+    )
+
+    return X.loc[train_ids], X.loc[val_ids], y.loc[train_ids], y.loc[val_ids], train_ids, val_ids
+
+
+# ---- old -----
+
 
 def standardise(
     data: np.ndarray,
@@ -62,7 +114,13 @@ def whiten(X: np.ndarray, W: np.ndarray):
     """
     return W.dot(X.T).T
 
-def min_max_scale(X: Union[float, np.ndarray], range: Tuple[float, float] = (0, 1), x_min: float = None, x_max: float = None):
+
+def min_max_scale(
+    X: Union[float, np.ndarray],
+    range: Tuple[float, float] = (0, 1),
+    x_min: float = None,
+    x_max: float = None,
+):
     """Scales the given data to the specified range, the min & max values of the data can
     either be given or inferred from the data.
 
@@ -75,13 +133,13 @@ def min_max_scale(X: Union[float, np.ndarray], range: Tuple[float, float] = (0, 
 
     return X_scaled
 
+
 @tf.function
 def tf_min_max_scale(X, target_min, target_max, x_min, x_max):
     X_std = (X - x_min) / (x_max - x_min)
     X_scaled = X_std * (target_max - target_min) + target_min
 
     return X_scaled
-
 
 
 def compute_W_ZCA(X: np.ndarray) -> np.ndarray:
@@ -107,6 +165,7 @@ def compute_W_ZCA(X: np.ndarray) -> np.ndarray:
 
     # Compute inverse
     return np.linalg.inv(cov_X_sqrt)
+
 
 def apply(
     X: pd.DataFrame,
@@ -149,12 +208,22 @@ def apply(
 
 
 def get_whiten_keys(config: Dict):
-    return [key for key, val in config.items() if (isinstance(val, str) or isinstance(val, list)) and "whiten" in val]
+    return [
+        key
+        for key, val in config.items()
+        if (isinstance(val, str) or isinstance(val, list)) and "whiten" in val
+    ]
 
 
 def get_standard_keys(config: Dict):
-    return [key for key, val in config.items() if (isinstance(val, str) or isinstance(val, list)) and "standard" in val]
+    return [
+        key
+        for key, val in config.items()
+        if (isinstance(val, str) or isinstance(val, list)) and "standard" in val
+    ]
 
 
 def get_custom_fn_keys(config: Dict):
-    return [key for key, val in config.items() if val is not None and callable(config[key])]
+    return [
+        key for key, val in config.items() if val is not None and callable(config[key])
+    ]

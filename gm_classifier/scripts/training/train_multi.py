@@ -26,15 +26,7 @@ if gpus:
 import gm_classifier as gmc
 
 
-def get_act_fn(act_fn_type: str, p, x_min, x_max, z_min, z_max):
-    if act_fn_type == "linear":
-        return tf.keras.activations.linear
-    if act_fn_type == "sigmoid":
-        return tf.keras.activations.sigmoid
-    else:
-        return gmc.training.create_soft_clipping(
-            p, z_min=z_min, z_max=z_max, x_min=x_min, x_max=x_max
-        )
+
 
 
 

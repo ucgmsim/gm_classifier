@@ -7,6 +7,37 @@ import tensorflow as tf
 import tensorflow.keras as keras
 
 import ml_tools
+from . import training
+
+def get_act_fn(act_fn_type: str, p, x_min, x_max, z_min, z_max):
+    if act_fn_type == "linear":
+        return tf.keras.activations.linear
+    if act_fn_type == "sigmoid":
+        return tf.keras.activations.sigmoid
+    else:
+        return training.create_soft_clipping(
+            p, z_min=z_min, z_max=z_max, x_min=x_min, x_max=x_max
+        )
+
+def build_score_simple_model(model_config: Dict, n_features: int) -> keras.Model:
+    hidden_layer_fn = ml_tools.utils.get_hidden_layer_fn(model_config["hidden_layer_fn"])
+    hidden_layer_config = model_config["hidden_layer_config"]
+
+    units = [model_config["n_units"]] * model_config["n_layers"] if "units" not in model_config else model_config["units"]
+
+    inputs = x_nn = keras.Input(n_features, name="features")
+
+    if "input_dropout" in model_config:
+        x_nn = keras.layers.Dropout(model_config["input_dropout"])(x_nn)
+
+    for n_units in units:
+        x_nn = hidden_layer_fn(x_nn, n_units, **hidden_layer_config)
+
+    outputs = keras.layers.Dense(1, activation=model_config["out_act_fn"])(x_nn)
+
+    return keras.Model(inputs=inputs, outputs=outputs)
+
+
 
 def build_dense_cnn_model(
     dense_scalar_config: Dict,

@@ -35,6 +35,7 @@ def plot_record(record: Record):
 
     return fig
 
+
 def plot_loss(
     history: Dict, ax: plt.Axes = None, output_ffp: str = None, fig_kwargs: Dict = None
 ):
@@ -52,9 +53,12 @@ def plot_loss(
             epochs,
             history["val_loss"],
             "k--",
-            label=f"Validation - {np.min(history['val_loss'])}",
+            label=f"Validation - {np.min(history['val_loss']):.2f}",
         )
-        ax.legend()
+
+    ax.legend()
+    ax.grid(True, alpha=0.5, linestyle="--")
+    fig.tight_layout()
 
     if output_ffp is not None:
         plt.savefig(output_ffp)
@@ -378,6 +382,58 @@ def multi_fig(
     return plt.figure(figsize=fig_size, dpi=dpi)
 
 
+def plot_score_true_vs_est(
+    label_df: pd.DataFrame,
+    y_est: pd.Series,
+    output_dir: Path,
+    title: str = None,
+    wandb_save: bool = True
+):
+    y = label_df.score
+    multi_eq_ids = label_df.index.values.astype(str)[label_df.multi_eq]
+    malf_ids = label_df.index.values.astype(str)[label_df.malf]
+
+    noise = pd.Series(
+        index=label_df.index, data=np.random.normal(0, 0.01, label_df.shape[0])
+    )
+
+    fig, ax = plt.subplots(figsize=(16, 10))
+    ax.scatter(
+        y_est.values, y.values + noise.values, label="Normal", c="b", s=4.0, marker=".",
+    )
+    ax.scatter(
+        y_est.loc[multi_eq_ids].values,
+        y.loc[multi_eq_ids].values + noise.loc[multi_eq_ids].values,
+        label="Multi EQ",
+        c="b",
+        s=7.0,
+        marker="x",
+    )
+    ax.scatter(
+        y_est.loc[malf_ids].values,
+        y.loc[malf_ids].values + noise.loc[malf_ids].values,
+        label="Malfunction",
+        c="b",
+        s=7.0,
+        marker="s",
+    )
+    ax.scatter([0.0, 0.25, 0.5, 0.75, 1.0], [0.0, 0.25, 0.5, 0.75, 1.0], s=20, c="k")
+
+    if title is not None:
+        ax.set_title(title)
+    ax.set_xlabel("Estimated")
+    ax.set_ylabel("True")
+    ax.legend()
+    ax.grid(True, alpha=0.5, linestyle="--")
+
+    fig.tight_layout()
+
+    if wandb_save:
+        wandb.log({f"score_true_vs_est_{title}": fig})
+
+    fig.savefig(output_dir / f"score_true_vs_est_{title}.png")
+
+
 def create_eval_plots(
     output_dir: Path,
     model: RecordCompModel,
@@ -402,7 +458,9 @@ def create_eval_plots(
 
         # Predict train and validation
         ids = np.concatenate((train_ids, val_ids))
-        est_df, model_uncertainty = model.predict([cur_feature_df.loc[ids] for cur_feature_df in feature_dfs], n_preds=n_preds)
+        est_df, model_uncertainty = model.predict(
+            [cur_feature_df.loc[ids] for cur_feature_df in feature_dfs], n_preds=n_preds
+        )
         # est_df.to_csv(output_dir / "est_df.csv", index_label="record_id")
 
         data_df = pd.merge(
