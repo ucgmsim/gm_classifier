@@ -401,8 +401,9 @@ def create_eval_plots(
         plt.close()
 
         # Predict train and validation
-        est_df, model_uncertainty = model.predict(feature_dfs, n_preds=n_preds)
-        est_df.to_csv(output_dir / "est_df.csv", index_label="record_id")
+        ids = np.concatenate((train_ids, val_ids))
+        est_df, model_uncertainty = model.predict([cur_feature_df.loc[ids] for cur_feature_df in feature_dfs], n_preds=n_preds)
+        # est_df.to_csv(output_dir / "est_df.csv", index_label="record_id")
 
         data_df = pd.merge(
             pd.concat(label_dfs, axis=1),

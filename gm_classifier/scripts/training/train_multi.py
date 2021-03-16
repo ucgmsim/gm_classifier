@@ -1,6 +1,3 @@
-"""Trains and evaluates a model that takes the features from all
-three components for a specific record and estimates a score & f_min
-for each of the components"""
 import json
 from pathlib import Path
 
@@ -29,8 +26,22 @@ if gpus:
 import gm_classifier as gmc
 
 
+def get_act_fn(act_fn_type: str, p, x_min, x_max, z_min, z_max):
+    if act_fn_type == "linear":
+        return tf.keras.activations.linear
+    if act_fn_type == "sigmoid":
+        return tf.keras.activations.sigmoid
+    else:
+        return gmc.training.create_soft_clipping(
+            p, z_min=z_min, z_max=z_max, x_min=x_min, x_max=x_max
+        ),
+
+
+
 # ----- Config -----
-label_dir = Path("/home/claudy/dev/work/data/gm_classifier/records/training_data/labels")
+label_dir = Path(
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels"
+)
 
 # features_dir = "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/tmp"
 features_dir = (
@@ -75,21 +86,32 @@ feature_config = {
 
 # For hyperparameter tuning using wandb
 hyperparam_defaults = dict(
-    scalar_n_units=64,
+    scalar_n_units=16,
     scalar_n_layers=2,
-    scalar_dropout=0.11,
-    snr_n_filters_1=26,
-    snr_kernel_size_1=20,
-    snr_n_filters_2=46,
-    snr_kernel_size_2=15,
+    scalar_dropout=0.02,
+    snr_n_filters_1=10,
+    snr_kernel_size_1=10,
+    snr_n_filters_2=20,
+    snr_kernel_size_2=5,
     snr_pool_size=2,
-    snr_dropout=0.1,
-    snr_lstm_n_units_1=128,
-    snr_lstm_n_units_2=32,
-    final_n_units=256,
-    final_n_layers=3,
-    final_dropout=0.001,
-    batch_size=16,
+    snr_dropout=0.02,
+    snr_lstm_n_units_1=16,
+    snr_lstm_n_units_2=8,
+    comb_n_units=32,
+    comb_n_layers=2,
+    comb_dropout=0.02,
+    out_n_units=16,
+    out_n_layers=1,
+    out_dropout=0.02,
+    batch_size=32,
+    score_out_act_f="linear",
+    score_clipping_x_min=-1.0,
+    score_clipping_x_max=1.0,
+    score_clipping_p=10,
+    f_min_out_act_f="clipping",
+    f_min_clipping_x_min=-1.0,
+    f_min_clipping_x_max=1.0,
+    f_min_clipping_p=30,
 )
 
 # ---- Training ----
@@ -111,7 +133,7 @@ label_dfs = gmc.utils.load_labels_from_dir(
 feature_dfs = gmc.utils.load_features_from_dir(features_dir, merge=False)
 
 # wandb setup
-tags = []
+tags = ["multi_output"]
 if "jerk_detector" in feature_config.keys():
     tags.append("malf_features")
 if "p_numpeaks_detector" in feature_config.keys():
@@ -125,14 +147,22 @@ wandb.config.features_dir = str(features_dir)
 
 
 model_config = {
-    "dense_config": {
+    "dense_scalar_config": {
+        # "input_dropout": None,
         "hidden_layer_func": ml_tools.hidden_layers.selu_mc_dropout,
         "hidden_layer_config": {"dropout": hyperparam_config["scalar_dropout"]},
-        "units":  hyperparam_config["scalar_n_layers"] * [hyperparam_config["scalar_n_units"]],
+        "units": hyperparam_config["scalar_n_layers"]
+        * [hyperparam_config["scalar_n_units"]],
     },
     "snr_config": {
-        "filters": [hyperparam_config["snr_n_filters_1"], hyperparam_config["snr_n_filters_2"]],
-        "kernel_sizes": [hyperparam_config["snr_kernel_size_1"], hyperparam_config["snr_kernel_size_2"]],
+        "filters": [
+            hyperparam_config["snr_n_filters_1"],
+            hyperparam_config["snr_n_filters_2"],
+        ],
+        "kernel_sizes": [
+            hyperparam_config["snr_kernel_size_1"],
+            hyperparam_config["snr_kernel_size_2"],
+        ],
         "layer_config": {
             "activation": "elu",
             "kernel_initializer": "glorot_uniform",
@@ -140,12 +170,42 @@ model_config = {
         },
         "pool_size": hyperparam_config["snr_pool_size"],
         "dropout": hyperparam_config["snr_dropout"],
-        "lstm_units": [hyperparam_config["snr_lstm_n_units_1"], hyperparam_config["snr_lstm_n_units_2"]],
+        "lstm_units": [
+            hyperparam_config["snr_lstm_n_units_1"],
+            hyperparam_config["snr_lstm_n_units_2"],
+        ],
     },
-    "dense_final_config": {
+    "dense_comb_config": {
         "hidden_layer_func": ml_tools.hidden_layers.selu_mc_dropout,
-        "hidden_layer_config": {"dropout": hyperparam_config["final_dropout"]},
-        "units": hyperparam_config["final_n_layers"] * [hyperparam_config["final_n_units"]],
+        "hidden_layer_config": {"dropout": hyperparam_config["comb_dropout"]},
+        "units": hyperparam_config["comb_n_layers"]
+        * [hyperparam_config["comb_n_units"]],
+    },
+    "output_config": {
+        "score": {
+            "hidden_layer_func": ml_tools.hidden_layers.selu_mc_dropout,
+            "hidden_layer_config": {"dropout": hyperparam_config["out_dropout"]},
+            "units": hyperparam_config["out_n_layers"]
+            * [hyperparam_config["out_n_units"]],
+            # "out_act_func": tf.keras.activations.linear,
+            "out_act_func": get_act_fn(hyperparam_config["score_out_act_f"],
+                                       hyperparam_config["score_clipping_p"],
+                                       hyperparam_config["score_clipping_x_min"],
+                                       hyperparam_config["score_clipping_x_max"],
+                                       0.0, 1.0)
+        },
+        "f_min": {
+            "hidden_layer_func": ml_tools.hidden_layers.relu_dropout,
+            "hidden_layer_config": {"dropout": hyperparam_config["out_dropout"]},
+            "units": hyperparam_config["out_n_layers"]
+            * [hyperparam_config["out_n_units"]],
+            "out_act_func": get_act_fn(hyperparam_config["f_min_out_act_f"],
+                                       hyperparam_config["f_min_clipping_p"],
+                                       hyperparam_config["f_min_clipping_x_min"],
+                                       hyperparam_config["f_min_clipping_x_max"],
+                                       0.1, 10.0),
+            # "out_act_func": tf.keras.activations.linear,
+        },
     },
 }
 print(
@@ -169,12 +229,27 @@ print("Scalar features: ", gm_model.feature_names)
 # Run training of the model
 fit_kwargs = {
     "batch_size": hyperparam_config["batch_size"],
-    "epochs": 300,
-    "verbose": 1,
+    "epochs": 250,
+    "verbose": 2,
 }
-gm_model.train(feature_dfs, label_dfs, val_size=0.2, fit_kwargs=fit_kwargs)
+gm_model.train(
+    feature_dfs,
+    label_dfs,
+    val_size=0.2,
+    fit_kwargs=fit_kwargs,
+    compile_kwargs={
+        "optimizer": "Adam",
+        "run_eagerly": False,
+        # "loss": dict(score=tf.keras.losses.mse),
+        # "loss_weights": [1.0]
+        "loss": dict(score=tf.keras.losses.mse, f_min=tf.keras.losses.mse),
+        "loss_weights": [1.0, 0.01]
+    },
+)
+# gm_model.train(feature_dfs, label_dfs, val_size=0.2, fit_kwargs=fit_kwargs)
 
 # Create eval plots
+
 gmc.plots.create_eval_plots(
     output_dir,
     gm_model,
@@ -183,7 +258,7 @@ gmc.plots.create_eval_plots(
     gm_model.train_ids,
     gm_model.val_ids,
     gm_model.train_history,
-    n_preds=25,
+    n_preds=10,
 )
 
 exit()

@@ -39,64 +39,20 @@ class MetricRecorder(keras.callbacks.Callback):
         self.log_wandb = log_wandb
 
     def on_epoch_end(self, epoch, logs=None):
-        y_train_est = self.model.predict(self.X_train)
-        y_val_est = self.model.predict(self.X_val)
+        y_train_est = [cur_output.ravel() for cur_output in self.model.predict(self.X_train)]
+        y_val_est = [cur_output.ravel() for cur_output in self.model.predict(self.X_val)]
 
-        score_train_mse = tf.losses.mse(self.y_train[:, 0], y_train_est[:, 0]).numpy()
-        f_min_train_mse = tf.losses.mse(self.y_train[:, 1], y_train_est[:, 1]).numpy()
+        score_train_mse = tf.losses.mse(self.y_train["score"], y_train_est[0]).numpy()
+        f_min_train_mse = tf.losses.mse(self.y_train["f_min"], y_train_est[1]).numpy()
 
-        score_val_mse = tf.losses.mse(self.y_val[:, 0], y_val_est[:, 0]).numpy()
-        f_min_val_mse = tf.losses.mse(self.y_val[:, 1], y_val_est[:, 1]).numpy()
+        score_val_mse = tf.losses.mse(self.y_val["score"], y_val_est[0]).numpy()
+        f_min_val_mse = tf.losses.mse(self.y_val["f_min"], y_val_est[1]).numpy()
 
         logs["score_train_mse"], logs["f_min_train_mse"] = (
             score_train_mse,
             f_min_train_mse,
         )
         logs["score_val_mse"], logs["f_min_val_mse"] = score_val_mse, f_min_val_mse
-
-        if epoch % 25 == 0:
-            mc_loss = [
-                self.loss_fn(self.y_train, self.model.predict(self.X_train)).numpy()
-                for ix in range(10)
-            ]
-            mc_val_loss = [
-                self.loss_fn(self.y_val, self.model.predict(self.X_val)).numpy()
-                for ix in range(10)
-            ]
-
-            mc_score_train_mse = [
-                tf.losses.mse(
-                    self.y_train[:, 0], self.model.predict(self.X_train)[:, 0]
-                ).numpy()
-                for ix in range(10)
-            ]
-            mc_score_val_mse = [
-                tf.losses.mse(
-                    self.y_val[:, 0], self.model.predict(self.X_val)[:, 0]
-                ).numpy()
-                for ix in range(10)
-            ]
-
-            mc_score_train_mse, mc_score_train_mse_std = (
-                np.mean(mc_score_train_mse),
-                np.std(mc_score_train_mse),
-            )
-            mc_score_val_mse, mc_score_val_mse_std = (
-                np.mean(mc_score_val_mse),
-                np.std(mc_score_val_mse),
-            )
-
-            mc_loss, mc_loss_std = np.mean(mc_loss), np.std(mc_loss)
-            mc_val_loss, mc_val_loss_std = np.mean(mc_val_loss), np.std(mc_val_loss)
-
-            print(
-                f"MC Loss: {mc_loss:.4f} +/- {mc_loss_std:.4f}, "
-                f"MC Val Loss: {mc_val_loss:.4f} +/- {mc_val_loss_std:.4f}"
-            )
-            print(
-                f"MC Score MSE - Training: {mc_score_train_mse:.4f} +/- {mc_score_train_mse_std:.4f}, "
-                f"Validation: {mc_score_val_mse:.4f} +/- {mc_score_val_mse_std:.4f} "
-            )
 
         if self.log_wandb:
             wandb.log(
@@ -153,12 +109,8 @@ def get_multi_output_y(
 def fit(
     output_dir: Path,
     model: Union[Type, keras.Model],
-    training_data: Tuple[
-        Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray
-    ],
-    val_data: Union[
-        None, Tuple[Union[np.ndarray, Dict[str, np.ndarray]], np.ndarray, np.ndarray]
-    ] = None,
+    training_data: Tuple,
+    val_data: Tuple = None,
     compile_kwargs: Dict[str, Any] = None,
     fit_kwargs: Dict[str, Any] = None,
     callbacks: Sequence[keras.callbacks.Callback] = None,
@@ -238,7 +190,7 @@ def fit(
         show_layer_names=True,
         expand_nested=True,
     )
-    wandb.log({"model": str(model_plot_ffp)})
+    wandb.save(str(model_plot_ffp))
 
     return history.history, model
 
@@ -538,6 +490,9 @@ def create_soft_clipping(
     z_min: float
     z_max: float
         The range of interest of the output values
+    x_min: float
+    x_max: float
+        The range of input values that maps to the specified output range
 
     Returns
     -------

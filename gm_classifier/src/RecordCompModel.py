@@ -47,17 +47,14 @@ class RecordCompModel:
         "fas_ratio_high": ["standard", "whiten"],
         "pn_pga_ratio": ["standard", "whiten"],
         "is_vertical": None,
-
         "spike_detector": ["standard", "whiten"],
         "jerk_detector": ["standard", "whiten"],
         "lowres_detector": ["standard", "whiten"],
         "gainjump_detector": ["standard", "whiten"],
         # "flatline_detector": ["standard", "whiten"],
-
         "p_numpeaks_detector": ["standard", "whiten"],
         "p_multimax_detector": ["standard", "whiten"],
         "p_multidist_detector": ["standard", "whiten"],
-
         "s_numpeaks_detector": ["standard", "whiten"],
         "s_multimax_detector": ["standard", "whiten"],
         "s_multidist_detector": ["standard", "whiten"],
@@ -174,17 +171,12 @@ class RecordCompModel:
 
         # Build the model
         gm_model = model.build_dense_cnn_model(
-            model_config["dense_config"],
+            model_config["dense_scalar_config"],
             model_config["snr_config"],
-            model_config["dense_final_config"],
+            model_config["dense_comb_config"],
             len(list(feature_config.keys())),
             len(snr_freq_values),
-            2,
-            training.create_custom_act_fn(
-                tf.keras.activations.linear,
-                # training.create_soft_clipping(30, z_min=0.0, z_max=1.0, x_min=0.0, x_max=1.0),
-                training.create_soft_clipping(30, z_min=0.1, z_max=10.0),
-            ),
+            output_config=model_config["output_config"],
         )
 
         return cls(
@@ -237,14 +229,14 @@ class RecordCompModel:
                 result_dict[f"score_{cur_comp}"] = y_hat[:, 0]
                 result_dict[f"f_min_{cur_comp}"] = y_hat[:, 1]
             else:
-                y_hats = []
                 print(f"Running predictions for component {cur_comp}")
+                y_hats = []
                 for ix in range(n_preds):
                     print(f"Prediction sample {ix + 1}/{n_preds}")
                     y_hats.append(
-                        self.model.predict(
+                        np.concatenate(self.model.predict(
                             {"features": cur_feature_df.values, "snr_series": cur_snr}
-                        )
+                        ), axis=1)
                     )
                 y_hats = np.stack(y_hats, axis=2)
                 y_hat_mean, y_hat_std = np.mean(y_hats, axis=2), np.std(y_hats, axis=2)
@@ -329,7 +321,6 @@ class RecordCompModel:
             np.isin(self.feature_names, X_train.columns.values)
         ), "Not all features are in the feature dataframe"
 
-        # Get the relevant features and labels
         # Save
         for cur_comp, cur_feature_df, cur_label_df in zip(
             ["X", "Y", "Z"], feature_dfs, label_dfs
@@ -362,7 +353,8 @@ class RecordCompModel:
             val_data = (
                 X_val.values,
                 cur_snr_val.values[:, :, None],
-                y_val.loc[self.val_ids].values,
+                y_val,
+                # y_val["score"].to_frame(),
                 self.val_ids,
             )
 
@@ -374,7 +366,8 @@ class RecordCompModel:
             self.model,
             X_train.values,
             X_snr_train.values[:, :, None],
-            y_train.loc[self.train_ids].values,
+            y_train,
+            # y_train["score"].to_frame(),
             self.train_ids,
             self.base_dir,
             val_data=val_data,
@@ -396,11 +389,11 @@ class RecordCompModel:
         gmc_model: tf.keras.Model,
         X_features_train: np.ndarray,
         X_snr_train: np.ndarray,
-        y_train: np.ndarray,
+        y_train: pd.DataFrame,
         ids_train: np.ndarray,
         output_dir: Path,
         val_data: Union[
-            None, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+            None, Tuple[np.ndarray, np.ndarray, pd.DataFrame, np.ndarray]
         ] = None,
         compile_kwargs: Dict = {},
         fit_kwargs: Dict = None,
@@ -440,13 +433,13 @@ class RecordCompModel:
 
         training_data = (
             {"features": X_features_train, "snr_series": X_snr_train},
-            y_train,
+            {col: y_train[col].values for col in y_train.columns},
             ids_train,
         )
         val_data = (
             (
                 {"features": val_data[0], "snr_series": val_data[1]},
-                val_data[2],
+                {col: val_data[2][col].values for col in val_data[2].columns},
                 val_data[3],
             )
             if val_data is not None
@@ -461,12 +454,12 @@ class RecordCompModel:
             compile_kwargs=self.compile_kwargs,
             fit_kwargs=self.fit_kwargs,
             callbacks=[
-                training.MetricRecorder(
-                    training_data,
-                    val_data,
-                    self.compile_kwargs["loss"],
-                    log_wandb=self.log_wandb,
-                ),
+                # training.MetricRecorder(
+                #     training_data,
+                #     val_data,
+                #     self.compile_kwargs["loss"],
+                #     log_wandb=self.log_wandb,
+                # ),
                 keras.callbacks.EarlyStopping(
                     min_delta=0.005, patience=100, verbose=1, restore_best_weights=True
                 ),
@@ -476,31 +469,36 @@ class RecordCompModel:
             ],
         )
 
-        best_train_loss = [
-            self.compile_kwargs["loss"](
-                y_train.astype(np.float32), gmc_model.predict(training_data[0])
-            ).numpy()
-            for ix in range(100)
+        def compute_loss(cur_X, cur_y):
+            cur_y_est = [cur_output.ravel() for cur_output in gmc_model.predict(cur_X)]
+
+            total_loss = 0
+            for ix, (cur_output_key, cur_loss_fn) in enumerate(
+                self.compile_kwargs["loss"].items()
+            ):
+                total_loss += self.compile_kwargs["loss_weights"][ix] * cur_loss_fn(
+                    cur_y[cur_output_key], cur_y_est[ix]
+                )
+
+            return total_loss
+
+        train_loss = [
+            compute_loss(training_data[0], training_data[1]) for ix in range(100)
         ]
-        best_train_loss, best_train_loss_std = (
-            np.mean(best_train_loss),
-            np.std(best_train_loss),
+        avg_train_loss, avg_train_loss_std = (
+            np.mean(train_loss),
+            np.std(train_loss),
         )
-        best_val_loss = [
-            self.compile_kwargs["loss"](
-                val_data[1].astype(np.float32), gmc_model.predict(val_data[0])
-            ).numpy()
-            for ix in range(100)
-        ]
-        best_val_loss, best_val_loss_std = np.mean(best_val_loss), np.std(best_val_loss)
+        val_loss = [compute_loss(val_data[0], val_data[1]) for ix in range(100)]
+        avg_val_loss, avg_val_loss_std = np.mean(val_loss), np.std(val_loss)
         print(
-            f"Final model - Training loss: {best_train_loss:.4f} +/- {best_train_loss_std:.4f}, "
-            f"Validation loss: {best_val_loss:.4f} +/- {best_val_loss_std:.4f}"
+            f"Final model - Training loss: {avg_train_loss:.4f} +/- {avg_train_loss_std:.4f}, "
+            f"Validation loss: {avg_val_loss:.4f} +/- {avg_val_loss_std:.4f}"
         )
 
         if self.log_wandb is not None:
-            wandb.run.summary[f"best_train_loss"] = best_train_loss
-            wandb.run.summary[f"best_val_loss"] = best_val_loss
+            wandb.run.summary[f"final_avg_train_loss"] = avg_train_loss
+            wandb.run.summary[f"final_avg_val_loss"] = avg_val_loss
 
         # Save the config
         config = {

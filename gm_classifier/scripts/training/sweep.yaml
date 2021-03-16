@@ -1,4 +1,4 @@
-program: train.py
+program: train_single.py
 method: bayes
 metric:
   name: best_val_loss
@@ -66,7 +66,7 @@ parameters:
       - 32
       - 64
       - 128
-  final_n_units:
+  comb_n_units:
     values:
       - 8
       - 16
@@ -74,14 +74,63 @@ parameters:
       - 64
       - 128
       - 256
-  final_n_layers:
+  comb_n_layers:
     distribution: int_uniform
     min: 1
     max: 5
-  final_dropout:
+  comb_dropout:
     distribution: uniform
     min: 0.0
     max: 0.2
+  out_n_units:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+  out_n_layers:
+    distribution: int_uniform
+    min: 0
+    max: 3
+  out_dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.2
+  score_out_act_f:
+    values:
+      - "linear"
+      - "sigmoid"
+      - "clipping"
+  score_clipping_x_min:
+    distribution: uniform
+    min: -5.0
+    max: 0.0
+  score_clipping_x_ax:
+    distribution: uniform
+    min: 0.0
+    max: 5.0
+  score_clipping_p:
+    distribution: uniform
+    min: 0
+    max: 50
+  f_min_out_act_f:
+    values:
+      - "linear"
+      - "sigmoid"
+      - "clipping"
+  f_min_clipping_x_min:
+    distribution: uniform
+    min: -5.0
+    max: 0.0
+  f_min_clipping_x_ax:
+    distribution: uniform
+    min: 0.0
+    max: 5.0
+  f_min_clipping_p:
+    distribution: uniform
+    min: 0
+    max: 50
+
 command:
   - /home/cbs51/dev/envs/gmc/bin/python
   - ${program}
