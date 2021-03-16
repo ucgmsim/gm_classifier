@@ -34,7 +34,7 @@ def get_act_fn(act_fn_type: str, p, x_min, x_max, z_min, z_max):
     else:
         return gmc.training.create_soft_clipping(
             p, z_min=z_min, z_max=z_max, x_min=x_min, x_max=x_max
-        ),
+        )
 
 
 
@@ -229,7 +229,7 @@ print("Scalar features: ", gm_model.feature_names)
 # Run training of the model
 fit_kwargs = {
     "batch_size": hyperparam_config["batch_size"],
-    "epochs": 250,
+    "epochs": 150,
     "verbose": 2,
 }
 gm_model.train(

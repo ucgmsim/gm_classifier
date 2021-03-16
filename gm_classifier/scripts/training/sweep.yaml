@@ -1,4 +1,4 @@
-program: train_single.py
+program: train_multi.py
 method: bayes
 metric:
   name: final_avg_val_loss
