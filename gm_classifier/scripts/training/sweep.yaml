@@ -1,7 +1,7 @@
 program: train_single.py
 method: bayes
 metric:
-  name: best_val_loss
+  name: final_avg_val_loss
   goal: minimize
 parameters:
   batch_size:
