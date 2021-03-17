@@ -38,22 +38,20 @@ features_dir = Path(
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
 ignore_ids_ffp = label_dir / "ignore_ids.txt"
 
-tags = ["simple_score"]
+tags = ["simple_fmin"]
 
 # --------------- Loading ------------------
-feature_config = ml_tools.utils.load_yaml("./feature_config.yaml")
+feature_names = [f"snr_value_{freq:.3f}" for freq in np.logspace(np.log(0.01), np.log(25), 100, base=np.e)]
 hyperparams = ml_tools.utils.load_yaml("./hyperparams.yaml")
 
 X, label_df = gmc.data.load_dataset(
-    features_dir, label_dir, ignore_ids_ffp, features=list(feature_config.keys()),
+    features_dir, label_dir, ignore_ids_ffp, features=list(feature_names),
 )
 y = label_df["score"]
 
 # --------------- Split & pre-processing ------------------
 X_train, X_val, y_train, y_val, train_ids, val_ids = gmc.pre.train_test_split(X, y)
-
-X_train, pre_params = gmc.pre.run_preprocessing(X_train, feature_config)
-X_val, _ = gmc.pre.run_preprocessing(X_val, feature_config, params=pre_params)
+X_train, X_val = X_train.apply(np.log), X_val.apply(np.log)
 
 # --------------- Setup & wandb ------------------
 run_id = gmc.utils.create_run_id()
@@ -64,9 +62,21 @@ wandb.init(config=hyperparams, project="gmc", name=run_id, tags=tags)
 hyperparams = wandb.config
 
 # --------------- Build & compile model ------------------
-model_config = gmc.model.get_score_model_config(hyperparams)
 gmc_model = gmc.model.build_score_model(
-    model_config,
+    {
+        **hyperparams,
+        **{
+            "hidden_layer_config": {"dropout": hyperparams["dropout"]},
+            "out_act_fn": gmc.model.get_score_act_fn(
+                hyperparams["out_act_fn"],
+                hyperparams["out_clipping_p"],
+                hyperparams["out_clipping_x_min"],
+                hyperparams["out_clipping_x_max"],
+                0.0,
+                1.0,
+            ),
+        },
+    },
     len(feature_config.keys()),
 )
 

@@ -1,0 +1,32 @@
+n_cnn_layers: 2
+n_filters_1: 10
+kernel_size_1: 10
+n_filters_2: 10
+kernel_size_2: 10
+n_filters_3: 10
+kernel_size_3: 10
+pool_size: 2
+cnn_dropout: 0.1
+
+cnn_layer_config:
+  activation: "elu"
+  "kernel_initializer": "glorot_uniform"
+  "padding": "same"
+
+n_lstm_layers: 2
+n_lstm_units: 32
+n_final_lstm_units: 16
+
+n_dense_layers: 1
+n_dense_units: 32
+
+out_act_fn: "scaled_sigmoid"
+out_clipping_x_min: -1.0
+out_clipping_x_max: 1.0
+out_clipping_p: 30
+
+hidden_layer_fn: "selu_mc_dropout"
+optimizer: "Adam"
+
+batch_size: 32
+epochs: 200

@@ -9,7 +9,8 @@ import tensorflow.keras as keras
 import ml_tools
 from . import training
 
-def get_act_fn(act_fn_type: str, p, x_min, x_max, z_min, z_max):
+
+def get_score_act_fn(act_fn_type: str, p, x_min, x_max, z_min, z_max):
     if act_fn_type == "linear":
         return tf.keras.activations.linear
     if act_fn_type == "sigmoid":
@@ -19,24 +20,72 @@ def get_act_fn(act_fn_type: str, p, x_min, x_max, z_min, z_max):
             p, z_min=z_min, z_max=z_max, x_min=x_min, x_max=x_max
         )
 
-def build_score_simple_model(model_config: Dict, n_features: int) -> keras.Model:
-    hidden_layer_fn = ml_tools.utils.get_hidden_layer_fn(model_config["hidden_layer_fn"])
-    hidden_layer_config = model_config["hidden_layer_config"]
 
-    units = [model_config["n_units"]] * model_config["n_layers"] if "units" not in model_config else model_config["units"]
+def get_score_model_config(hyperparams: Dict, **params):
+    hidden_layer_fn = ml_tools.utils.get_hidden_layer_fn(hyperparams["hidden_layer_fn"])
+    units = [hyperparams["n_units"]] * hyperparams["n_layers"]
 
+    return {
+        **hyperparams,
+        **{
+            "hidden_layer_fn": hidden_layer_fn,
+            "hidden_layer_config": {"dropout": hyperparams["dropout"]},
+            "units": units,
+            "out_act_fn": get_score_act_fn(
+                hyperparams["out_act_fn"],
+                hyperparams["out_clipping_p"],
+                hyperparams["out_clipping_x_min"],
+                hyperparams["out_clipping_x_max"],
+                0.0,
+                1.0,
+            ),
+        },
+        **params,
+    }
+
+
+def build_score_model(model_config: Dict, n_features: int) -> keras.Model:
     inputs = x_nn = keras.Input(n_features, name="features")
 
     if "input_dropout" in model_config:
         x_nn = keras.layers.Dropout(model_config["input_dropout"])(x_nn)
 
-    for n_units in units:
-        x_nn = hidden_layer_fn(x_nn, n_units, **hidden_layer_config)
+    for n_units in model_config["units"]:
+        x_nn = model_config["hidden_layer_fn"](
+            x_nn, n_units, **model_config["hidden_layer_config"]
+        )
 
     outputs = keras.layers.Dense(1, activation=model_config["out_act_fn"])(x_nn)
 
     return keras.Model(inputs=inputs, outputs=outputs)
 
+
+def build_fmin_model(model_config: Dict, n_snr_steps: int) -> keras.Model:
+    input = x = keras.Input((n_snr_steps, 1))
+
+    for cur_n_filters, cur_kernel_size in zip(
+        model_config["filters"], model_config["kernel_sizes"]
+    ):
+        x = ml_tools.hidden_layers.cnn1_mc_dropout_pool(
+            x, cur_n_filters, cur_kernel_size, model_config["cnn_config"]
+        )
+
+    for cur_n_units in model_config["lstm_units"]:
+        x = ml_tools.hidden_layers.bi_lstm(
+            x, cur_n_units, return_state=False, return_sequences=True
+        )
+
+    x = ml_tools.hidden_layers.bi_lstm(
+        x, model_config["final_lstm_units"], return_state=True, return_sequences=False
+    )
+    x = keras.layers.Concatenate()(x[1:])
+
+    for cur_n_units in model_config["dense_units"]:
+        x = model_config["hidden_layer_fn"](x, cur_n_units)
+
+    output = keras.layers.Dense(1, activation=model_config["out_act_fn"])(x)
+
+    return keras.Model(inputs=input, outputs=output)
 
 
 def build_dense_cnn_model(
@@ -103,7 +152,9 @@ def build_dense_cnn_model(
         )
 
     if n_outputs is not None and out_act_func is not None:
-        outputs = keras.layers.Dense(n_outputs, activation=out_act_func, name="output")(x)
+        outputs = keras.layers.Dense(n_outputs, activation=out_act_func, name="output")(
+            x
+        )
     elif output_config is not None:
         outputs = []
         score_output = None
@@ -118,7 +169,9 @@ def build_dense_cnn_model(
                     cur_x, n_units, **dense_comb_config["hidden_layer_config"]
                 )
 
-            cur_output = keras.layers.Dense(1, activation=cur_config["out_act_func"], name=cur_output_name)(cur_x)
+            cur_output = keras.layers.Dense(
+                1, activation=cur_config["out_act_func"], name=cur_output_name
+            )(cur_x)
             outputs.append(cur_output)
 
             if cur_output_name == "score":

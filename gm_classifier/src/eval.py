@@ -1,6 +1,6 @@
+import wandb
 import numpy as np
 import pandas as pd
-
 import tensorflow as tf
 import tensorflow.keras as keras
 
@@ -35,7 +35,11 @@ def print_single_model_eval(
     loss_fn: tf.function,
     n_preds: int = 25,
     prefix: str = "train",
+    wandb_save: bool = True
 ):
     mean_loss, std_loss = compute_avg_single_loss(model, X, y, loss_fn, n_preds=n_preds)
 
     print(f"Model {prefix} loss: {mean_loss:.4f} +/- {std_loss:.4f}")
+
+    if wandb_save:
+        wandb.run.summary[f"final_avg_{prefix}_loss"] = mean_loss
