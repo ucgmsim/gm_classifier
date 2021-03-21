@@ -387,7 +387,7 @@ def plot_score_true_vs_est(
     y_est: pd.Series,
     output_dir: Path,
     title: str = None,
-    wandb_save: bool = True
+    wandb_save: bool = True,
 ):
     y = label_df.score
     multi_eq_ids = label_df.index.values.astype(str)[label_df.multi_eq]
@@ -428,10 +428,55 @@ def plot_score_true_vs_est(
 
     fig.tight_layout()
 
+    out_ffp = output_dir / f"score_true_vs_est_{title}.png"
+    fig.savefig(out_ffp)
+
     if wandb_save:
         wandb.log({f"score_true_vs_est_{title}": fig})
+        wandb.save(out_ffp)
 
-    fig.savefig(output_dir / f"score_true_vs_est_{title}.png")
+
+def plot_fmin_true_vs_est(
+    label_df: pd.DataFrame,
+    y_est: pd.Series,
+    output_dir: Path,
+    title: str = None,
+    wandb_save: bool = True,
+    zoom: bool = False,
+):
+    y = label_df.f_min
+
+    fig, ax = plt.subplots(figsize=(16, 10))
+    scatter = ax.scatter(
+        y_est.values, y.values, c=label_df.score, s=4.0, cmap="coolwarm", marker=".",
+    )
+
+    ax.plot([0.1, 10.0], [0.1, 10.0], "k--")
+
+    if zoom:
+        ax.set_xlim((0.0, 2.0))
+        ax.set_ylim((0.0, 2.0))
+        title = f"{title}_zoomed"
+
+    if title is not None:
+        ax.set_title(title)
+    ax.set_xlabel("Estimated")
+    ax.set_ylabel("True")
+    ax.grid(True, alpha=0.5, linestyle="--")
+    cbar = fig.colorbar(scatter)
+    cbar.set_label("Quality score (True)")
+
+    fig.tight_layout()
+
+    out_ffp = output_dir / f"fmin_true_vs_est_{title}.png"
+    fig.savefig(out_ffp)
+
+    if wandb_save:
+        wandb.log({f"fmin_true_vs_est_{title}": fig})
+        wandb.save(str(out_ffp))
+
+
+# -------- old -----------
 
 
 def create_eval_plots(

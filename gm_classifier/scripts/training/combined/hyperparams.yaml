@@ -1,0 +1,13 @@
+n_units: 128
+n_layers: 2
+dropout: 0.05
+out_act_fn: "sigmoid"
+out_clipping_x_min: -1.0
+out_clipping_x_max: 1.0
+out_clipping_p: 10
+
+hidden_layer_fn: "selu_mc_dropout"
+optimizer: "Adam"
+
+batch_size: 32
+epochs: 200

@@ -13,6 +13,9 @@ from scipy import stats
 from . import pre_processing as pre
 
 
+def get_fmin_sample_weights(scores: np.ndarray, lookup: Dict):
+    return np.asarray([lookup[cur_score] for cur_score in scores])
+
 
 
 class ClassAccuracy(keras.metrics.Metric):

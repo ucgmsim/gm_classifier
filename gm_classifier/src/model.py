@@ -21,6 +21,26 @@ def get_score_act_fn(act_fn_type: str, p, x_min, x_max, z_min, z_max):
         )
 
 
+def get_fmin_act_fn(act_fn_type: str, p, x_min, x_max):
+    if act_fn_type == "linear":
+        return tf.keras.activations.linear
+    if act_fn_type == "sigmoid":
+        return get_fmin_sigmoid()
+    else:
+        return training.create_soft_clipping(
+            p, z_min=0.1, z_max=10.0, x_min=x_min, x_max=x_max
+        )
+
+
+def get_fmin_sigmoid():
+    scaling_fn = ml_tools.tf_pre.get_min_max_scaling_fn(0.1, 10.0)
+
+    def fmin_sigmoid(z):
+        return scaling_fn(tf.keras.activations.sigmoid(z))
+
+    return tf.function(fmin_sigmoid)
+
+
 def get_score_model_config(hyperparams: Dict, **params):
     hidden_layer_fn = ml_tools.utils.get_hidden_layer_fn(hyperparams["hidden_layer_fn"])
     units = [hyperparams["n_units"]] * hyperparams["n_layers"]
@@ -60,6 +80,38 @@ def build_score_model(model_config: Dict, n_features: int) -> keras.Model:
     return keras.Model(inputs=inputs, outputs=outputs)
 
 
+def get_f_min_model_config(hyperparams: Dict, **params):
+    filters = [
+        hyperparams["n_filters_1"],
+        hyperparams["n_filters_2"],
+        hyperparams["n_filters_3"],
+    ]
+    kernel_sizes = [
+        hyperparams["kernel_size_1"],
+        hyperparams["kernel_size_2"],
+        hyperparams["kernel_size_3"],
+    ]
+
+    return {
+        **hyperparams,
+        **{
+            "filters": filters[: hyperparams["n_cnn_layers"]],
+            "kernel_sizes": kernel_sizes[: hyperparams["n_cnn_layers"]],
+            "lstm_units": [hyperparams["n_lstm_units"]] * hyperparams["n_lstm_layers"],
+            "dense_units": [hyperparams["n_dense_units"]]
+            * hyperparams["n_dense_layers"],
+            "out_act_fn": get_fmin_act_fn(
+                hyperparams["out_act_fn"],
+                hyperparams["out_clipping_p"],
+                hyperparams["out_clipping_x_min"],
+                hyperparams["out_clipping_x_max"],
+            ),
+            "hidden_layer_fn": ml_tools.utils.get_hidden_layer_fn(hyperparams["hidden_layer_fn"]),
+        },
+        **params,
+    }
+
+
 def build_fmin_model(model_config: Dict, n_snr_steps: int) -> keras.Model:
     input = x = keras.Input((n_snr_steps, 1))
 
@@ -67,7 +119,7 @@ def build_fmin_model(model_config: Dict, n_snr_steps: int) -> keras.Model:
         model_config["filters"], model_config["kernel_sizes"]
     ):
         x = ml_tools.hidden_layers.cnn1_mc_dropout_pool(
-            x, cur_n_filters, cur_kernel_size, model_config["cnn_config"]
+            x, cur_n_filters, cur_kernel_size, model_config["cnn_layer_config"]
         )
 
     for cur_n_units in model_config["lstm_units"]:
@@ -76,12 +128,12 @@ def build_fmin_model(model_config: Dict, n_snr_steps: int) -> keras.Model:
         )
 
     x = ml_tools.hidden_layers.bi_lstm(
-        x, model_config["final_lstm_units"], return_state=True, return_sequences=False
+        x, model_config["n_final_lstm_units"], return_state=True, return_sequences=False
     )
     x = keras.layers.Concatenate()(x[1:])
 
     for cur_n_units in model_config["dense_units"]:
-        x = model_config["hidden_layer_fn"](x, cur_n_units)
+        x = model_config["hidden_layer_fn"](x, cur_n_units, dropout=model_config["dense_dropout"])
 
     output = keras.layers.Dense(1, activation=model_config["out_act_fn"])(x)
 
