@@ -103,13 +103,14 @@ gmc_model = gmc.model.build_combined_model(
     model_config, len(scalar_feature_config.keys()), X_snr_train.shape[1]
 )
 
-weight_lookup = {1.0: 1.0, 0.75: 1.0, 0.5: 0.5, 0.25: 0.3, 0.0: 0.1}
+weight_lookup = {1.0: 1.0, 0.75: 0.75, 0.5: 0.1, 0.25: 0.0, 0.0: 0.0}
 fmin_loss = gmc.training.FMinLoss(weight_lookup)
 
+loss_weights = [1.0, 0.01]
 gmc_model.compile(
     optimizer=hyperparams["optimizer"],
     loss={"score": keras.losses.mse, "fmin": fmin_loss},
-    loss_weights=[1.0, 1.0]
+    loss_weights=loss_weights,
     # run_eagerly=True
 )
 
@@ -126,6 +127,7 @@ ml_tools.utils.save_print_data(
     y_score_val=y_score_val,
     y_fmin_train=y_fmin_train,
     y_fmin_val=y_fmin_val,
+    loss_weights={"score_loss": loss_weights[0], "fmin_loss": loss_weights[1]},
     model=gmc_model,
 )
 
@@ -164,8 +166,8 @@ gmc.eval.print_combined_model_eval(
     gmc_model,
     X_scalar_train.values,
     X_snr_train,
-    y_score_train,
-    y_fmin_train,
+    y_score_train.values.astype(np.float32),
+    y_fmin_train.values.astype(np.float32),
     keras.losses.mse,
     fmin_loss,
 )
@@ -173,8 +175,8 @@ gmc.eval.print_combined_model_eval(
     gmc_model,
     X_scalar_val.values,
     X_snr_val,
-    y_score_val,
-    y_fmin_val,
+    y_score_val.values.astype(np.float32),
+    y_fmin_val.values.astype(np.float32),
     keras.losses.mse,
     fmin_loss,
     prefix="val",

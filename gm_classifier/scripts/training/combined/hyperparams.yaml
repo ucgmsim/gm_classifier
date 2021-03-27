@@ -25,7 +25,7 @@ scalar_n_layers: 2
 #scalar_dropout: 0.05
 
 # Combined
-comb_n_dense_layers: 1
+comb_n_dense_layers: 0
 comb_n_dense_units: 16
 #comb_dense_dropout: 0.1
 

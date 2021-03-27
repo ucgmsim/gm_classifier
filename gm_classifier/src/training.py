@@ -39,35 +39,34 @@ class FMinLoss(keras.losses.Loss):
         # Keys can't be floats, therefore convert to integer
         scores = tf.constant(np.asarray(list(self.fmin_weights_mapping.keys())) * 4, tf.int32)
         fmin_weights = tf.constant(list(self.fmin_weights_mapping.values()), tf.float32)
-        self.f_min_table = tf.lookup.StaticHashTable(
+        self.fmin_table = tf.lookup.StaticHashTable(
             tf.lookup.KeyValueTensorInitializer(scores, fmin_weights),
             default_value=tf.constant(np.nan),
         )
 
-        self.fmin_max = squared_error(tf.convert_to_tensor([0.1]), tf.convert_to_tensor([10.0])).numpy()[0]
+        # self.fmin_max = squared_error(tf.convert_to_tensor([0.1]), tf.convert_to_tensor([10.0])).numpy()[0]
 
     def call(self, y_true, y_pred):
-        return self.compute_sample_loss(y_true, y_pred)
+        sample_loss, sample_weights = self.compute_sample_loss(y_true, y_pred)
+        return tf.reduce_sum(sample_loss) / tf.reduce_sum(sample_weights)
 
     def compute_sample_loss(self, y_true, y_pred):
         # Split into score & f_min tensors
-        scores_true = tf.cast(tf.gather(y_true, [0], axis=1), tf.float32)
-
-        f_min_true = tf.cast(tf.gather(y_true, [1], axis=1), tf.float32)
-        f_min_pred = tf.gather(y_pred, [1], axis=1)
+        scores_true, f_min_true = y_true[:, 0], y_true[:, 1]
+        f_min_pred = y_pred[:, 1]
 
         # Compute the f_min loss
-        f_min_loss = squared_error(f_min_true, f_min_pred)
+        fmin_sample_loss = squared_error(f_min_true, f_min_pred)
 
         # Min/max scale
-        f_min_loss = pre.tf_min_max_scale(f_min_loss, 0.0, 1.0, 0.0, self.fmin_max)
+        # fmin_sample_loss = pre.tf_min_max_scale(fmin_sample_loss, 0.0, 1.0, 0.0, self.fmin_max)
 
         # Apply f_min weighting based on true scores
         score_keys = tf.cast(scores_true * 4, tf.int32)
-        f_min_weights = self.f_min_table.lookup(score_keys)
-        f_min_loss = f_min_loss * f_min_weights
+        fmin_weights = self.fmin_table.lookup(score_keys)
+        fmin_sample_loss = fmin_sample_loss * fmin_weights
 
-        return f_min_loss
+        return fmin_sample_loss, fmin_weights
 
 
 class ClassAccuracy(keras.metrics.Metric):
