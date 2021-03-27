@@ -433,7 +433,7 @@ def plot_score_true_vs_est(
 
     if wandb_save:
         wandb.log({f"score_true_vs_est_{title}": fig})
-        wandb.save(out_ffp)
+        wandb.save(str(out_ffp))
 
 
 def plot_fmin_true_vs_est(

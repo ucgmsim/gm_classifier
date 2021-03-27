@@ -17,12 +17,62 @@ def get_fmin_sample_weights(scores: np.ndarray, lookup: Dict):
     return np.asarray([lookup[cur_score] for cur_score in scores])
 
 
+class FMinLoss(keras.losses.Loss):
+
+    def __init__(
+        self,
+        fmin_weights_mapping: Dict,
+        **kwargs,
+    ):
+        """
+        Parameters
+        ----------
+        fmin_weights_mapping: numpy array of floats
+            The f_min weighting corresponding to the
+            scores parameter
+        """
+        super().__init__(**kwargs)
+
+        self.fmin_weights_mapping = fmin_weights_mapping
+
+        # Setup of f_min weights lookup
+        # Keys can't be floats, therefore convert to integer
+        scores = tf.constant(np.asarray(list(self.fmin_weights_mapping.keys())) * 4, tf.int32)
+        fmin_weights = tf.constant(list(self.fmin_weights_mapping.values()), tf.float32)
+        self.f_min_table = tf.lookup.StaticHashTable(
+            tf.lookup.KeyValueTensorInitializer(scores, fmin_weights),
+            default_value=tf.constant(np.nan),
+        )
+
+        self.fmin_max = squared_error(tf.convert_to_tensor([0.1]), tf.convert_to_tensor([10.0])).numpy()[0]
+
+    def call(self, y_true, y_pred):
+        return self.compute_sample_loss(y_true, y_pred)
+
+    def compute_sample_loss(self, y_true, y_pred):
+        # Split into score & f_min tensors
+        scores_true = tf.cast(tf.gather(y_true, [0], axis=1), tf.float32)
+
+        f_min_true = tf.cast(tf.gather(y_true, [1], axis=1), tf.float32)
+        f_min_pred = tf.gather(y_pred, [1], axis=1)
+
+        # Compute the f_min loss
+        f_min_loss = squared_error(f_min_true, f_min_pred)
+
+        # Min/max scale
+        f_min_loss = pre.tf_min_max_scale(f_min_loss, 0.0, 1.0, 0.0, self.fmin_max)
+
+        # Apply f_min weighting based on true scores
+        score_keys = tf.cast(scores_true * 4, tf.int32)
+        f_min_weights = self.f_min_table.lookup(score_keys)
+        f_min_loss = f_min_loss * f_min_weights
+
+        return f_min_loss
+
 
 class ClassAccuracy(keras.metrics.Metric):
     def __init__(self, class_range: Tuple[float, float], **kwargs):
         self.class_min, self.class_max = class_range[0], class_range[1]
-
-
 
         super().__init__(**kwargs)
 

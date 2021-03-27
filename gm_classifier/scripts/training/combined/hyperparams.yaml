@@ -1,13 +1,45 @@
-n_units: 128
-n_layers: 2
-dropout: 0.05
-out_act_fn: "sigmoid"
-out_clipping_x_min: -1.0
-out_clipping_x_max: 1.0
-out_clipping_p: 10
+# SNR part
+snr_n_cnn_layers: 2
+snr_n_filters_1: 16
+snr_kernel_size_1: 7
+snr_n_filters_2: 32
+snr_kernel_size_2: 5
+snr_n_filters_3: 10
+snr_kernel_size_3: 10
+snr_pool_size: 2
+snr_cnn_dropout: 0.2
 
-hidden_layer_fn: "selu_mc_dropout"
+snr_cnn_layer_config:
+  activation: "elu"
+  "kernel_initializer": "glorot_uniform"
+  "padding": "same"
+
+snr_n_lstm_layers: 2
+snr_n_lstm_units: 32
+snr_n_final_lstm_units: 16
+
+# Scalar part
+scalar_input_dropout: null
+scalar_n_units: 32
+scalar_n_layers: 2
+#scalar_dropout: 0.05
+
+# Combined
+comb_n_dense_layers: 1
+comb_n_dense_units: 16
+#comb_dense_dropout: 0.1
+
+# Output dense
+out_n_dense_layers: 1
+out_n_dense_units: 16
+#out_dense_dropout: 0.1
+
+# General
+dense_dropout: 0.1
+dense_hidden_layer_fn: "selu_mc_dropout"
+
+# Training hyperparameters
 optimizer: "Adam"
 
 batch_size: 32
-epochs: 200
+epochs: 250

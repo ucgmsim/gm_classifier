@@ -38,22 +38,54 @@ features_dir = Path(
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
 ignore_ids_ffp = label_dir / "ignore_ids.txt"
 
-tags = ["simple_score"]
+tags = ["combined"]
 
 # --------------- Loading ------------------
-feature_config = ml_tools.utils.load_yaml("./feature_config.yaml")
+scalar_feature_config = ml_tools.utils.load_yaml("./feature_config.yaml")
+snr_feature_names = [
+    f"snr_value_{freq:.3f}"
+    for freq in np.logspace(np.log(0.01), np.log(25), 100, base=np.e)
+]
 hyperparams = ml_tools.utils.load_yaml("./hyperparams.yaml")
 
-X, label_df = gmc.data.load_dataset(
-    features_dir, label_dir, ignore_ids_ffp, features=list(feature_config.keys()),
+X_scalar, label_df = gmc.data.load_dataset(
+    features_dir,
+    label_dir,
+    ignore_ids_ffp,
+    features=list(scalar_feature_config.keys()),
 )
-y = label_df["score"]
+X_snr, _ = gmc.data.load_dataset(
+    features_dir, label_dir, ignore_ids_ffp, features=list(snr_feature_names),
+)
+
+y_score, y_fmin = label_df["score"], label_df["f_min"]
 
 # --------------- Split & pre-processing ------------------
-X_train, X_val, y_train, y_val, train_ids, val_ids = gmc.pre.train_test_split(X, y)
+(
+    X_scalar_train,
+    X_scalar_val,
+    X_snr_train,
+    X_snr_val,
+    y_score_train,
+    y_score_val,
+    y_fmin_train,
+    y_fmin_val,
+    train_ids,
+    val_ids,
+) = gmc.pre.train_test_split(X_scalar, X_snr, y_score, y_fmin)
 
-X_train, pre_params = gmc.pre.run_preprocessing(X_train, feature_config)
-X_val, _ = gmc.pre.run_preprocessing(X_val, feature_config, params=pre_params)
+X_scalar_train, pre_params = gmc.pre.run_preprocessing(
+    X_scalar_train, scalar_feature_config
+)
+X_scalar_val, _ = gmc.pre.run_preprocessing(
+    X_scalar_val, scalar_feature_config, params=pre_params
+)
+
+X_snr_train, X_snr_val = (
+    X_snr_train.apply(np.log).values[..., None],
+    X_snr_val.apply(np.log).values[..., None],
+)
+
 
 # --------------- Setup & wandb ------------------
 run_id = gmc.utils.create_run_id()
@@ -64,36 +96,57 @@ wandb.init(config=hyperparams, project="gmc", name=run_id, tags=tags)
 hyperparams = wandb.config
 
 # --------------- Build & compile model ------------------
-model_config = gmc.model.get_score_model_config(hyperparams)
-gmc_model = gmc.model.build_score_model(
-    model_config,
-    len(feature_config.keys()),
+
+
+model_config = gmc.model.get_combined_model_config(hyperparams)
+gmc_model = gmc.model.build_combined_model(
+    model_config, len(scalar_feature_config.keys()), X_snr_train.shape[1]
 )
 
-loss_fn = keras.losses.mse
-gmc_model.compile(optimizer=hyperparams["optimizer"], loss=loss_fn)
+weight_lookup = {1.0: 1.0, 0.75: 1.0, 0.5: 0.5, 0.25: 0.3, 0.0: 0.1}
+fmin_loss = gmc.training.FMinLoss(weight_lookup)
+
+gmc_model.compile(
+    optimizer=hyperparams["optimizer"],
+    loss={"score": keras.losses.mse, "fmin": fmin_loss},
+    loss_weights=[1.0, 1.0]
+    # run_eagerly=True
+)
 
 # --------------- Save & print details ------------------
 ml_tools.utils.save_print_data(
     output_dir,
-    feature_config=(feature_config, True),
+    feature_config=(scalar_feature_config, True),
     hyperparams=(dict(hyperparams), True),
-    X_train=X_train,
-    y_train=y_train,
-    X_val=X_val,
-    y_val=y_val,
+    X_scalar_train=X_scalar_train,
+    X_scalar_val=X_scalar_val,
+    X_snr_train=X_snr_train,
+    X_snr_val=X_snr_val,
+    y_score_train=y_score_train,
+    y_score_val=y_score_val,
+    y_fmin_train=y_fmin_train,
+    y_fmin_val=y_fmin_val,
     model=gmc_model,
 )
 
 # --------------- Train ------------------
 
 history = gmc_model.fit(
-    X_train.values,
-    y_train.values,
+    {"scalar": X_scalar_train.values, "snr": X_snr_train},
+    {
+        "score": y_score_train.values,
+        "fmin": np.stack((y_score_train.values, y_fmin_train.values), axis=1),
+    },
     hyperparams["batch_size"],
     hyperparams["epochs"],
     verbose=2,
-    validation_data=(X_val, y_val),
+    validation_data=(
+        {"scalar": X_scalar_val, "snr": X_snr_val},
+        {
+            "score": y_score_val.values,
+            "fmin": np.stack((y_score_val.values, y_fmin_val.values), axis=1),
+        },
+    ),
     callbacks=[
         keras.callbacks.EarlyStopping(
             min_delta=0.005, patience=100, verbose=1, restore_best_weights=True
@@ -107,25 +160,58 @@ history = gmc_model.fit(
 
 
 # --------------- Eval ------------------
-gmc.eval.print_single_model_eval(gmc_model, X_train.values, y_train.values, loss_fn)
-gmc.eval.print_single_model_eval(
-    gmc_model, X_val.values, y_val.values, loss_fn, prefix="val"
+gmc.eval.print_combined_model_eval(
+    gmc_model,
+    X_scalar_train.values,
+    X_snr_train,
+    y_score_train,
+    y_fmin_train,
+    keras.losses.mse,
+    fmin_loss,
+)
+gmc.eval.print_combined_model_eval(
+    gmc_model,
+    X_scalar_val.values,
+    X_snr_val,
+    y_score_val,
+    y_fmin_val,
+    keras.losses.mse,
+    fmin_loss,
+    prefix="val",
 )
 
 gmc.plots.plot_loss(
     history, output_ffp=output_dir / "loss.png", fig_kwargs=dict(figsize=(16, 10))
 )
 
-y_est_train, _ = gmc.eval.get_mc_single_predictions(gmc_model, X_train)
-y_est_val, _ = gmc.eval.get_mc_single_predictions(gmc_model, X_val)
 
-gmc.plots.plot_score_true_vs_est(
-    label_df.loc[train_ids], y_est_train, output_dir, title="training"
+y_score_est_train, _, y_fmin_est_train, _ = gmc.eval.get_combined_prediction(
+    gmc_model, X_scalar_train, X_snr_train, n_preds=25, index=X_scalar_train.index.values.astype(str)
 )
-gmc.plots.plot_score_true_vs_est(
-    label_df.loc[val_ids], y_est_val, output_dir, title="validation"
+y_score_est_val, _, y_fmin_est_val, _ = gmc.eval.get_combined_prediction(
+    gmc_model, X_scalar_val, X_snr_val, n_preds=25, index=X_scalar_val.index.values.astype(str)
 )
 
-time.sleep(30)
+
+gmc.plots.plot_score_true_vs_est(
+    label_df.loc[train_ids], y_score_est_train, output_dir, title="training"
+)
+gmc.plots.plot_score_true_vs_est(
+    label_df.loc[val_ids], y_score_est_val, output_dir, title="validation"
+)
+
+gmc.plots.plot_fmin_true_vs_est(
+    label_df.loc[train_ids], y_fmin_est_train, output_dir, title="training"
+)
+gmc.plots.plot_fmin_true_vs_est(
+    label_df.loc[val_ids], y_fmin_est_val, output_dir, title="validation"
+)
+
+gmc.plots.plot_fmin_true_vs_est(
+    label_df.loc[train_ids], y_fmin_est_train, output_dir, title="training", zoom=True
+)
+gmc.plots.plot_fmin_true_vs_est(
+    label_df.loc[val_ids], y_fmin_est_val, output_dir, title="validation", zoom=True
+)
 
 exit()
