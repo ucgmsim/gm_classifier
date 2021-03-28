@@ -73,6 +73,8 @@ def print_combined_model_eval(
     y_fmin: np.ndarray,
     score_loss_fn: tf.function,
     fmin_loss_fn: tf.function,
+    score_loss_weight: float = 1.0,
+    fmin_loss_weight: float = 0.01,
     n_preds: int = 25,
     prefix: str = "train",
     wandb_save: bool = True,
@@ -81,11 +83,16 @@ def print_combined_model_eval(
 
     score_loss_values, fmin_loss_values = [], []
     for cur_score_pred, cur_fmin_pred in y_est:
-        score_loss_values.append(score_loss_fn(y_score, cur_score_pred.ravel()).numpy())
-
-        fmin_loss_values.append(
-            fmin_loss_fn(np.stack((y_score, y_fmin), axis=1), cur_fmin_pred)
+        cur_score_loss = (
+            score_loss_fn(y_score, cur_score_pred.ravel()).numpy() * score_loss_weight
         )
+        score_loss_values.append(cur_score_loss)
+
+        cur_fmin_loss = (
+            fmin_loss_fn(np.stack((y_score, y_fmin), axis=1), cur_fmin_pred).numpy()
+            * fmin_loss_weight
+        )
+        fmin_loss_values.append(cur_fmin_loss)
 
     score_loss_values, fmin_loss_values = (
         np.asarray(score_loss_values),

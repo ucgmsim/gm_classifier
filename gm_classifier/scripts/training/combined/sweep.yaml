@@ -1,31 +1,121 @@
 program: combined.py
 method: bayes
 metric:
-  name: final_avg_val_loss
+  name: final_val_total_loss_mean
   goal: minimize
 parameters:
-  # Model
-  n_units:
-    values:
-      - 16
-      - 32
-      - 64
-      - 128
-  n_layers:
+  snr_n_cnn_layers:
     distribution: int_uniform
     min: 1
-    max: 5
-  dropout:
+    max: 3
+  snr_n_filters_1:
     values:
-      - 0.0
-      - 0.025
+      - 8
+      - 12
+      - 16
+      - 24
+      - 32
+  snr_kernel_size_1:
+    distribution: int_uniform
+    min: 1
+    max: 20
+  snr_n_filters_2:
+    values:
+      - 8
+      - 12
+      - 16
+      - 24
+      - 32
+      - 64
+  snr_kernel_size_2:
+    distribution: int_uniform
+    min: 1
+    max: 20
+  snr_n_filters_3:
+    values:
+      - 8
+      - 12
+      - 16
+      - 24
+      - 32
+      - 64
+  snr_kernel_size_3:
+    distribution: int_uniform
+    min: 1
+    max: 20
+  snr_cnn_dropout:
+    values:
+      - null
       - 0.05
       - 0.1
       - 0.15
       - 0.2
       - 0.3
-
-  # Training
+  snr_n_lstm_layers:
+    distribution: int_uniform
+    min: 1
+    max: 3
+  snr_n_lstm_units:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128
+  snr_n_final_lstm_units:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128
+  scalar_input_dropout:
+    values:
+      - null
+      - 0.05
+      - 0.075
+      - 0.1
+      - 0.125
+      - 0.15
+  scalar_n_units:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128
+  scalar_n_layers:
+    distribution: int_uniform
+    min: 1
+    max: 5
+  comb_n_dense_layers:
+    distribution: int_uniform
+    min: 1
+    max: 3
+  comb_n_dense_units:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+  out_n_dense_layers:
+    distribution: int_uniform
+    min: 1
+    max: 3
+  out_n_dense_units:
+    values:
+      - 8
+      - 16
+      - 32
+      - 64
+  dense_dropout:
+    values:
+      - null
+      - 0.05
+      - 0.075
+      - 0.1
+      - 0.125
+      - 0.15
   batch_size:
     values:
       - 8
@@ -33,17 +123,6 @@ parameters:
       - 32
       - 64
       - 128
-
-  # Activation function
-  out_act_fn:
-    values:
-      - "linear"
-      - "sigmoid"
-      - "clipping"
-  out_clipping_p:
-    distribution: uniform
-    min: 0
-    max: 50
 
 command:
   - /home/cbs51/dev/envs/gmc/bin/python

@@ -170,6 +170,8 @@ gmc.eval.print_combined_model_eval(
     y_fmin_train.values.astype(np.float32),
     keras.losses.mse,
     fmin_loss,
+    score_loss_weight=loss_weights[0],
+    fmin_loss_weight=loss_weights[1],
 )
 gmc.eval.print_combined_model_eval(
     gmc_model,
@@ -179,13 +181,14 @@ gmc.eval.print_combined_model_eval(
     y_fmin_val.values.astype(np.float32),
     keras.losses.mse,
     fmin_loss,
+    score_loss_weight=loss_weights[0],
+    fmin_loss_weight=loss_weights[1],
     prefix="val",
 )
 
 gmc.plots.plot_loss(
     history, output_ffp=output_dir / "loss.png", fig_kwargs=dict(figsize=(16, 10))
 )
-
 
 y_score_est_train, _, y_fmin_est_train, _ = gmc.eval.get_combined_prediction(
     gmc_model, X_scalar_train, X_snr_train, n_preds=25, index=X_scalar_train.index.values.astype(str)
