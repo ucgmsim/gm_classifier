@@ -4,7 +4,7 @@ import math
 import glob
 from enum import Enum
 from pathlib import Path
-from typing import Union, Tuple, Dict, Any, List
+from typing import Union, Tuple, Dict, Any, List, Sequence
 
 import numpy as np
 import pandas as pd
@@ -297,9 +297,6 @@ def get_record_ids_filter(record_list_ffp: str) -> np.ndarray:
     )
 
 
-
-
-
 def process_record(
     record_ffp: str, konno_matrices: Union[str, Dict[int, np.ndarray]]
 ) -> Union[Tuple[None, None], Tuple[Dict[str, Any], Dict[str, Any]]]:
@@ -336,8 +333,9 @@ def process_record(
 
 
 def process_records(
-    record_dir: str,
     record_format: RecordFormat,
+    record_dir: str = None,
+    record_ffps: Sequence[str] = None,
     event_list_ffp: str = None,
     record_list_ffp: str = None,
     ko_matrices_dir: str = None,
@@ -383,6 +381,10 @@ def process_records(
         The names of the failed records, where the keys are the different
         error types
     """
+    if record_ffps is None and record_ffps is None:
+        raise ValueError("Either the record directory or the record file "
+                         "paths have to be specified.")
+
     if output_dir is not None:
         output_dir = Path(output_dir)
         output_comp_1_ffp = output_dir / f"{output_prefix}_comp_X.csv"
@@ -416,16 +418,17 @@ def process_records(
 
         return results
 
-    print(f"Searching for record files")
-    record_files = np.asarray(
-        glob.glob(os.path.join(record_dir, f"**/*.{record_format.value}"), recursive=True),
-        dtype=str,
-    )
+    if record_ffps is None:
+        print(f"Searching for record files")
+        record_ffps = np.asarray(
+            glob.glob(os.path.join(record_dir, f"**/*.{record_format.value}"), recursive=True),
+            dtype=str,
+        )
 
     # Record files filtering
     if event_list_ffp is not None or record_list_ffp is not None:
-        record_files = filter_record_files(
-            record_files, event_list_ffp=event_list_ffp, record_list_ffp=record_list_ffp
+        record_ffps = filter_record_files(
+            record_ffps, event_list_ffp=event_list_ffp, record_list_ffp=record_list_ffp
         )
 
     # Load the Konno matrices into memory
@@ -452,7 +455,7 @@ def process_records(
             "then the --ko_matrices_dir has to be specified"
         )
 
-    print(f"Starting processing of {record_files.size} record files")
+    print(f"Starting processing of {record_ffps.size} record files")
 
     feature_df_1, feature_df_2 = None, None
     feature_df_v = None
@@ -487,8 +490,8 @@ def process_records(
         )
 
         # Filter, as to not process already processed records
-        record_ids = [get_record_id(record_ffp) for record_ffp in record_files]
-        record_files = record_files[~np.isin(record_ids, feature_df_1.index.values)]
+        record_ids = [get_record_id(record_ffp) for record_ffp in record_ffps]
+        record_ffps = record_ffps[~np.isin(record_ids, feature_df_1.index.values)]
     elif not output_dir.is_dir():
         output_dir.mkdir()
 
@@ -501,10 +504,10 @@ def process_records(
         "other": [],
     }
     record_ids, event_ids, stations = [], [], []
-    for ix, record_ffp in enumerate(record_files):
+    for ix, record_ffp in enumerate(record_ffps):
         record_name = os.path.basename(record_ffp)
         try:
-            print(f"Processing record {record_name}, {ix + 1}/{record_files.size}")
+            print(f"Processing record {record_name}, {ix + 1}/{record_ffps.size}")
             cur_features, cur_add_data = process_record(
                 record_ffp, konno_matrices=konno_matrices
             )

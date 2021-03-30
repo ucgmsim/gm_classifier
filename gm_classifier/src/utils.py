@@ -48,6 +48,7 @@ def load_features_from_dir(
         Else:
             In the order _X, _Y, _Z
     """
+    print("Loading feature files")
     feature_files = glob.glob(os.path.join(feature_dir, glob_filter))
 
     assert (
@@ -63,9 +64,17 @@ def load_features_from_dir(
         cur_df = pd.read_csv(cur_ffp, index_col="record_id")
 
         if drop_duplicates:
-            dup_mask = cur_df.index.duplicated(keep=False)
+            # drop_duplicates ignores the index, so have to make
+            # it a column..
+            cur_df["record_id"] = cur_df.index
+            cur_df.drop_duplicates(inplace=True)
+            cur_df.drop(columns=["record_id"], inplace=True)
+            print("Dropped duplicated rows, with same values (& index)")
+
+            dup_mask = cur_df.index.duplicated(keep="first")
             cur_df = cur_df.loc[~dup_mask]
-            print(f"Dropped {np.count_nonzero(dup_mask)} duplicates")
+            print(f"Dropped {np.count_nonzero(dup_mask)} index duplicate."
+                  f"Kept the first occurrence. Note values of duplicates are note equal.")
 
         if drop_nan:
             feature_cols = cur_df.columns.values[
@@ -121,6 +130,8 @@ def load_labels_from_dir(
     -------
     dataframe
     """
+    print("Loading label files")
+
     # Load and combine
     label_files = glob.glob(os.path.join(label_dir, glob_filter))
     dfs = [pd.read_csv(cur_file, index_col=0) for cur_file in label_files]
