@@ -117,8 +117,8 @@ label_dfs = gmc.utils.load_labels_from_dir(
     f_min_100_value=10,
     drop_na=True,
     drop_f_min_101=True,
-    multi_eq_value=0.0,
-    malf_value=0.0,
+    malf_score_value=0.0,
+    multi_eq_score_value=0.0,
     merge=False,
     ignore_ids_ffp=ignore_ids_ffp,
 )

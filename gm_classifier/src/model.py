@@ -178,7 +178,7 @@ def get_combined_model_config(hyperparams, **params):
     }
 
 
-def build_combined_model(model_config: Dict, n_features: int, n_snr_steps: int):
+def build_combined_model(model_config: Dict, n_features: int, n_snr_steps: int, multi_out: bool = False, malf_out: bool = False):
 
     # Scalar Dense
     scalar_input = x_scalar = keras.Input(n_features, name="scalar")
@@ -229,7 +229,23 @@ def build_combined_model(model_config: Dict, n_features: int, n_snr_steps: int):
         x_fmin = model_config["dense_hidden_layer_fn"](x_fmin, cur_n_units, dropout=model_config["dense_dropout"])
     fmin_out = keras.layers.Dense(2, activation=get_fmin_sigmoid(), name="fmin")(x_fmin)
 
-    return keras.Model(inputs=[scalar_input, snr_input], outputs=[score_out, fmin_out])
+    outputs = [score_out, fmin_out]
+
+    if multi_out:
+        x_multi = x
+        for cur_n_units in model_config["out_dense_units"]:
+            x_multi = model_config["dense_hidden_layer_fn"](x_multi, cur_n_units, dropout=model_config["dense_dropout"])
+        multi_out = keras.layers.Dense(1, activation="sigmoid", name="multi")(x_multi)
+        outputs.append(multi_out)
+
+    if malf_out:
+        x_malf = x
+        for cur_n_units in model_config["out_dense_units"]:
+            x_malf = model_config["dense_hidden_layer_fn"](x_malf, cur_n_units, dropout=model_config["dense_dropout"])
+        malf_out = keras.layers.Dense(1, activation="sigmoid", name="malf")(x_malf)
+        outputs.append(malf_out)
+
+    return keras.Model(inputs=[scalar_input, snr_input], outputs=outputs)
 
 # ------------------------ old ------------------------
 

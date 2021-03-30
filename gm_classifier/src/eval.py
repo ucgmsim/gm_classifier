@@ -1,10 +1,11 @@
-from typing import Union
+from typing import Union, Sequence
 
 import wandb
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow.keras as keras
+from sklearn.metrics import recall_score, precision_score
 
 
 def get_mc_single_predictions(
@@ -65,6 +66,48 @@ def print_single_model_eval(
         wandb.run.summary[f"final_avg_{prefix}_loss"] = mean_loss
 
 
+def run_binary_output_eval(
+    y_est: Sequence[np.ndarray],
+    y_true: np.ndarray,
+    loss_weight: float,
+    out_name: str,
+    prefix: str,
+    wandb_save: bool = True
+):
+    loss_values = []
+    recall_values, precision_values = [], []
+    for cur_pred_prob in y_est:
+        cur_loss = (
+            tf.keras.losses.binary_crossentropy(y_true, cur_pred_prob) * loss_weight
+        )
+        loss_values.append(cur_loss)
+
+        cur_y_pred = cur_pred_prob > 0.5
+
+        recall_values.append(recall_score(y_true, cur_y_pred))
+        precision_values.append(precision_score(y_true, cur_y_pred))
+
+    loss_mean, loss_std = np.mean(loss_values), np.std(loss_values)
+    recall_mean, recall_std = np.mean(recall_values), np.std(recall_values)
+    precision_mean, precision_std = np.mean(precision_values), np.std(precision_values)
+
+    print(
+        f"{out_name} loss: {loss_mean:.4f} +/- {loss_std:.4f},\n"
+        f"{out_name} recall: {recall_mean:.4f} +/- {recall_std:.4f}\n"
+        f"{out_name} precision: {precision_mean:.4f} +/- {precision_std:.4f}"
+    )
+
+    if wandb_save:
+        wandb.run.summary[f"final_{prefix}_{out_name}_loss_mean"] = loss_mean
+        wandb.run.summary[f"final_{prefix}_{out_name}_loss_std"] = loss_std
+
+        wandb.run.summary[f"final_{prefix}_{out_name}_recall_mean"] = recall_mean
+        wandb.run.summary[f"final_{prefix}_{out_name}_recall_std"] = recall_std
+
+        wandb.run.summary[f"final_{prefix}_{out_name}_precision_mean"] = precision_mean
+        wandb.run.summary[f"final_{prefix}_{out_name}_precision_std"] = precision_std
+
+
 def print_combined_model_eval(
     model: keras.Model,
     X_scalar: np.ndarray,
@@ -75,6 +118,10 @@ def print_combined_model_eval(
     fmin_loss_fn: tf.function,
     score_loss_weight: float = 1.0,
     fmin_loss_weight: float = 0.01,
+    y_malf: np.ndarray = None,
+    malf_loss_weight: float = 0.1,
+    y_multi: np.ndarray = None,
+    multi_loss_weight: float = 0.1,
     n_preds: int = 25,
     prefix: str = "train",
     wandb_save: bool = True,
@@ -82,7 +129,8 @@ def print_combined_model_eval(
     y_est = [model.predict({"scalar": X_scalar, "snr": X_snr}) for ix in range(n_preds)]
 
     score_loss_values, fmin_loss_values = [], []
-    for cur_score_pred, cur_fmin_pred in y_est:
+    for ix in range(len(y_est)):
+        cur_score_pred, cur_fmin_pred = y_est[ix][0], y_est[ix][1]
         cur_score_loss = (
             score_loss_fn(y_score, cur_score_pred.ravel()).numpy() * score_loss_weight
         )
@@ -116,6 +164,12 @@ def print_combined_model_eval(
         f"Fmin loss: {fmin_loss_mean:.4f} +/- {fmin_loss_std:.4f}"
     )
 
+    if y_multi is not None:
+        run_binary_output_eval([cur_y_est[2].ravel() for cur_y_est in y_est], y_multi, multi_loss_weight, "Multi", prefix=prefix, wandb_save=wandb_save)
+
+    if y_malf is not None:
+        run_binary_output_eval([cur_y_est[3].ravel() for cur_y_est in y_est], y_malf, malf_loss_weight, "Malf", prefix=prefix, wandb_save=wandb_save)
+
     if wandb_save:
         wandb.run.summary[f"final_{prefix}_total_loss_mean"] = total_loss_mean
         wandb.run.summary[f"final_{prefix}_total_loss_std"] = total_loss_std
@@ -133,20 +187,40 @@ def get_combined_prediction(
     X_snr: np.ndarray,
     n_preds: int,
     index: np.ndarray,
+    multi_output: bool = False,
+    malf_output: bool = False,
 ):
     score_preds, fmin_preds = [], []
+    multi_preds, malf_preds = [], []
     for ix in range(n_preds):
-        cur_score, cur_fmin = model.predict({"scalar": X_scalar, "snr": X_snr})
+        cur_pred = model.predict({"scalar": X_scalar, "snr": X_snr})
 
-        score_preds.append(cur_score.ravel())
-        fmin_preds.append(cur_fmin[:, 1])
+        score_preds.append(cur_pred[0].ravel())
+        fmin_preds.append(cur_pred[1][:, 1])
+
+        if multi_output:
+            multi_preds.append(cur_pred[2].ravel())
+        if malf_output:
+            malf_preds.append(cur_pred[3].ravel())
 
     score_preds = np.stack(score_preds, axis=1)
     fmin_preds = np.stack(fmin_preds, axis=1)
 
-    return (
-        pd.Series(data=score_preds.mean(axis=1), index=index),
+    results = [pd.Series(data=score_preds.mean(axis=1), index=index),
         pd.Series(data=score_preds.std(axis=1), index=index),
         pd.Series(data=fmin_preds.mean(axis=1), index=index),
-        pd.Series(data=fmin_preds.std(axis=1), index=index),
-    )
+        pd.Series(data=fmin_preds.std(axis=1), index=index),]
+
+    if multi_output:
+        multi_preds = np.stack(multi_preds, axis=1)
+
+        results.append(pd.Series(data=multi_preds.mean(axis=1), index=index))
+        results.append(pd.Series(data=multi_preds.std(axis=1), index=index))
+
+    if malf_output:
+        malf_preds = np.stack(malf_preds, axis=1)
+
+        results.append(pd.Series(data=malf_preds.mean(axis=1), index=index))
+        results.append(pd.Series(data=malf_preds.std(axis=1), index=index))
+
+    return results

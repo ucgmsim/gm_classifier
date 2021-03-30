@@ -97,8 +97,8 @@ def load_labels_from_dir(
     glob_filter: str = "labels_*.csv",
     drop_na: bool = True,
     drop_f_min_101: bool = True,
-    multi_eq_value: float = None,
-    malf_value: float = None,
+    malf_score_value: float = None,
+    multi_eq_score_value: float = None,
     f_min_100_value: float = None,
     drop_duplicates: bool = True,
     merge: bool = True,
@@ -165,33 +165,32 @@ def load_labels_from_dir(
             | df.f_min_Z.isna()
         )
         df = df.loc[~na_mask]
+        print(f"Dropped {np.count_nonzero(na_mask)} records with a nan label")
 
     if drop_f_min_101:
         f_min_101_mask = (
             (df.f_min_X >= 100.0) | (df.f_min_Y >= 100.0) | (df.f_min_Z >= 100.0)
         )
-        print(f"Dropped {np.count_nonzero(na_mask)} bad p-wave pick records")
+        print(f"Dropped {np.count_nonzero(f_min_101_mask)} bad p-wave pick records")
         df = df.loc[~f_min_101_mask]
 
     malf_mask = (df.score_X == 2.0) | (df.score_Y == 2.0) | (df.score_Z == 2.0)
-    if multi_eq_value is not None:
-        df.loc[malf_mask, ["score_X", "score_Y", "score_Z"]] = multi_eq_value
-        df["malf"] = False
-        df.loc[malf_mask, "malf"] = True
+    if malf_score_value is not None:
+        df.loc[malf_mask, ["score_X", "score_Y", "score_Z"]] = malf_score_value
+        df["malf"] = malf_mask
         print(
-            f"Set {np.count_nonzero(malf_mask)} malfunctioned records score to {multi_eq_value}"
+            f"Set {np.count_nonzero(malf_mask)} malfunctioned records score to {malf_score_value}"
         )
     else:
         print(f"Dropped {np.count_nonzero(malf_mask)} malfunctioned records")
         df = df.loc[~malf_mask]
 
     multi_eq_mask = (df.score_X == 3.0) | (df.score_Y == 3.0) | (df.score_Z == 3.0)
-    if malf_value is not None:
-        df.loc[multi_eq_mask, ["score_X", "score_Y", "score_Z"]] = malf_value
-        df["multi_eq"] = False
-        df.loc[multi_eq_mask, "multi_eq"] = True
+    if multi_eq_score_value is not None:
+        df.loc[multi_eq_mask, ["score_X", "score_Y", "score_Z"]] = multi_eq_score_value
+        df["multi_eq"] = multi_eq_mask
         print(
-            f"Set {np.count_nonzero(multi_eq_mask)} multiple earthquake records score to {malf_value}"
+            f"Set {np.count_nonzero(multi_eq_mask)} multiple earthquake records score to {multi_eq_score_value}"
         )
     else:
         print(f"Dropped {np.count_nonzero(multi_eq_mask)} multiple earthquake records")

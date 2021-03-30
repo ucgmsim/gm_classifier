@@ -8,6 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import seaborn as sns
+from sklearn.metrics import confusion_matrix
 
 from .RecordCompModel import RecordCompModel
 from . import constants as const
@@ -120,6 +121,30 @@ def plot_multi_loss(
 
     return fig, ax
 
+
+def plot_confusion_matrix(y_true: np.ndarray, y_est: np.ndarray, output_dir: Path, prefix: str, label: str, wandb_save: bool = True):
+    conf_matrix = confusion_matrix(y_true, y_est)
+
+    fig, ax = plt.subplots(figsize=(7.5, 7.5))
+    ax.matshow(conf_matrix, cmap=plt.cm.Blues, alpha=0.3)
+    for i in range(conf_matrix.shape[0]):
+        for j in range(conf_matrix.shape[1]):
+            ax.text(
+                x=j, y=i, s=conf_matrix[i, j], va="center", ha="center", size="xx-large"
+            )
+
+    plt.xlabel("Predictions", fontsize=18)
+    plt.ylabel("Actuals", fontsize=18)
+    plt.title(f"{prefix} {label} - Confusion Matrix", fontsize=18)
+
+    out_name = f"{prefix.lower()}_{label.lower()}_conf_matrix"
+    fig.savefig(output_dir / f"{out_name}.png")
+
+    if wandb_save:
+        wandb.log({out_name: fig})
+        wandb.save(str(f"{out_name}.png"))
+
+    plt.close()
 
 def plot_true_vs_est(
     y_est: np.ndarray,
