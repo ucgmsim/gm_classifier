@@ -33,12 +33,11 @@ def get_fmin_act_fn(act_fn_type: str, p, x_min, x_max):
 
 
 def get_fmin_sigmoid():
-    scaling_fn = ml_tools.tf_pre.get_min_max_scaling_fn(0.1, 10.0)
-
     def fmin_sigmoid(z):
-        return scaling_fn(tf.keras.activations.sigmoid(z))
+        return (tf.keras.activations.sigmoid(z) + (0.1 / 9.9)) * 9.9
 
-    return tf.function(fmin_sigmoid)
+    return fmin_sigmoid
+    # return tf.function(fmin_sigmoid)
 
 
 # ------------------------ score-simple ------------------------

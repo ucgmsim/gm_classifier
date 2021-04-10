@@ -329,20 +329,20 @@ def compute_snr_avg(
     )
 
 
-def compute_snr(
-    snr: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float
-):
-    """Computes the SNR for the specified frequency range"""
-    lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
-
-    # Can occur in certain cases (20161113_131547_NNZ_10.V1A)
-    # TODO: This is silly.., should just interpolate all the time?
-    if lower_ix == upper_ix:
-        return snr[lower_ix]
-
-    return np.trapz(snr[lower_ix:upper_ix], ft_freq[lower_ix:upper_ix]) / (
-        ft_freq[upper_ix] - ft_freq[lower_ix]
-    )
+# def compute_snr(
+#     snr: np.ndarray, ft_freq: np.ndarray, lower_freq: float, upper_freq: float
+# ):
+#     """Computes the SNR for the specified frequency range"""
+#     lower_ix, upper_ix = get_freq_ix(ft_freq, lower_freq, upper_freq)
+#
+#     # Can occur in certain cases (20161113_131547_NNZ_10.V1A)
+#     # TODO: This is silly.., should just interpolate all the time?
+#     if lower_ix == upper_ix:
+#         return snr[lower_ix]
+#
+#     return np.trapz(snr[lower_ix:upper_ix], ft_freq[lower_ix:upper_ix]) / (
+#         ft_freq[upper_ix] - ft_freq[lower_ix]
+#     )
 
 
 def compute_fas(

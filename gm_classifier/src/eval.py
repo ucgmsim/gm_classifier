@@ -7,6 +7,30 @@ import tensorflow as tf
 import tensorflow.keras as keras
 from sklearn.metrics import recall_score, precision_score
 
+class ClassAcc(keras.metrics.Metric):
+
+    def __init__(self, true_value: float, **kwargs):
+        super().__init__(name=f"class_acc_{str(true_value).replace('.', 'p')}", **kwargs)
+
+        self.true_value = true_value
+
+        self.tp = self.add_weight("tp", initializer="zeros", dtype=tf.int64)
+        self.fn = self.add_weight("fn", initializer="zeros", dtype=tf.int64)
+
+    def update_state(self, y_true, y_pred, **kwargs):
+        est_mask = tf.logical_and(y_pred < self.true_value + 0.125, y_pred > self.true_value - 0.125)
+        true_mask = tf.convert_to_tensor(tf.experimental.numpy.isclose(y_true, self.true_value))
+
+        self.tp.assign_add(tf.math.count_nonzero(tf.logical_and(true_mask, est_mask)))
+        self.fn.assign_add(tf.math.count_nonzero(tf.logical_and(true_mask, tf.logical_not(est_mask))))
+
+    def result(self):
+        return self.tp / (self.tp + self.fn)
+
+    def get_config(self):
+        base_config = super().get_config()
+        return {**base_config, "true_value": self.true_value}
+
 
 def get_mc_single_predictions(
     model: keras.Model,

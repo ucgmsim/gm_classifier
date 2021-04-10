@@ -106,10 +106,11 @@ gmc_model = gmc.model.build_combined_model(
     multi_out=True,
 )
 
-weight_lookup = {1.0: 1.0, 0.75: 0.75, 0.5: 0.1, 0.25: 0.0, 0.0: 0.0}
+# Setting to 0.0, results in nan values, so set to very small valye
+weight_lookup = {1.0: 1.0, 0.75: 0.75, 0.5: 0.1, 0.25: 1e-8, 0.0: 1e-8}
 fmin_loss = gmc.training.FMinLoss(weight_lookup)
 
-loss_weights = [1.0, 0.01, 0.5]
+loss_weights = [1.0, 0.1, 1.0]
 gmc_model.compile(
     optimizer=hyperparams["optimizer"],
     loss={
@@ -118,6 +119,13 @@ gmc_model.compile(
         "multi": keras.losses.binary_crossentropy,
     },
     loss_weights=loss_weights,
+    metrics={"score": [
+        gmc.eval.ClassAcc(0.0),
+        gmc.eval.ClassAcc(0.25),
+        gmc.eval.ClassAcc(0.5),
+        gmc.eval.ClassAcc(0.75),
+        gmc.eval.ClassAcc(1.0),
+    ]},
     # run_eagerly=True
 )
 
@@ -235,8 +243,20 @@ gmc.plots.plot_loss(
     multi_output=True,
 )
 
-gmc.plots.plot_confusion_matrix(y_multi_train.values.astype(bool), (y_multi_est_train > 0.5).values, output_dir, "Training", "Multi_EQ")
-gmc.plots.plot_confusion_matrix(y_multi_val.values.astype(bool), (y_multi_est_val > 0.5).values, output_dir, "Validation", "Multi_EQ")
+gmc.plots.plot_confusion_matrix(
+    y_multi_train.values.astype(bool),
+    (y_multi_est_train > 0.5).values,
+    output_dir,
+    "Training",
+    "Multi_EQ",
+)
+gmc.plots.plot_confusion_matrix(
+    y_multi_val.values.astype(bool),
+    (y_multi_est_val > 0.5).values,
+    output_dir,
+    "Validation",
+    "Multi_EQ",
+)
 
 gmc.plots.plot_score_true_vs_est(
     label_df.loc[train_ids], y_score_est_train, output_dir, title="training"

@@ -85,7 +85,6 @@ class Record:
     def is_preprocessed(self):
         return self._is_preprocessed
 
-
     def __sanity_checking(self):
         # Check that all components have the same number of data points
         if not np.all(
