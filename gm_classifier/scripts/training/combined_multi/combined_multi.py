@@ -8,6 +8,7 @@ import wandb
 from wandb.keras import WandbCallback
 
 import ml_tools
+from gm_classifier.src.console import console
 
 # Grow the GPU memory usage as needed
 gpus = tf.config.experimental.list_physical_devices("GPU")
@@ -125,7 +126,7 @@ gmc_model.compile(
         gmc.eval.ClassAcc(0.5),
         gmc.eval.ClassAcc(0.75),
         gmc.eval.ClassAcc(1.0),
-    ]},
+    ], "fmin": fmin_loss, "multi": [keras.metrics.Precision(), keras.metrics.Recall()]},
     # run_eagerly=True
 )
 
@@ -179,6 +180,7 @@ history = gmc_model.fit(
 
 
 # --------------- Eval ------------------
+console.rule("[bold]Eval[/]")
 gmc.eval.print_combined_model_eval(
     gmc_model,
     X_scalar_train.values,
@@ -186,6 +188,7 @@ gmc.eval.print_combined_model_eval(
     y_score_train.values.astype(np.float32),
     y_fmin_train.values.astype(np.float32),
     keras.losses.mse,
+    fmin_loss,
     fmin_loss,
     score_loss_weight=loss_weights[0],
     fmin_loss_weight=loss_weights[1],
@@ -199,6 +202,7 @@ gmc.eval.print_combined_model_eval(
     y_score_val.values.astype(np.float32),
     y_fmin_val.values.astype(np.float32),
     keras.losses.mse,
+    fmin_loss,
     fmin_loss,
     score_loss_weight=loss_weights[0],
     fmin_loss_weight=loss_weights[1],
