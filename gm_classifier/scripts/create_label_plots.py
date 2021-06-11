@@ -8,7 +8,8 @@ from typing import Dict
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 import warnings
-warnings.filterwarnings('ignore', category=UserWarning)
+
+warnings.filterwarnings("ignore", category=UserWarning)
 
 import pandas as pd
 import numpy as np
@@ -39,7 +40,10 @@ def process_record(record_ffp: Path, ko_matrices: Dict, output_dir: Path):
     )
 
     if p_wave_ix == 0:
-        typer.echo(f"\n{record.id}: P-wave ix == 0, SNR can therefore not be calculated. Skipped.", color="red")
+        typer.echo(
+            f"\n{record.id}: P-wave ix == 0, SNR can therefore not be calculated. Skipped.",
+            color="red",
+        )
         return
 
     freq_arrays, snr_arrays = [], []
@@ -110,14 +114,14 @@ def main(
         record_ids = f.readlines()
 
     # Strip and drop empty lines
-    record_ids = np.asarray(
+    record_ids = np.unique(np.asarray(
         [
             record_id.strip()
             for record_id in record_ids
             if len(record_id.strip()) > 0 and record_id.strip()[0] != "#"
         ],
         dtype=str,
-    )
+    ))
 
     print(f"Searching for record files")
     avail_record_ffps = np.asarray(list(data_dir.rglob(f"**/*.V1A")), dtype=str)
@@ -137,22 +141,34 @@ def main(
     typer.echo("Loading Konno matrices")
     konno_matrices = {
         matrix_id: np.load(os.path.join(ko_matrices_dir, f"konno_{matrix_id}.npy"))
-        for matrix_id in [512, 1024, 2048, 4096, 8192, 16384, 32768]
+        for matrix_id in [1024, 2048, 4096, 8192, 16384, 32768]
     }
 
     # Create an empty dataframe for it
     sort_ind = np.argsort(record_ids)
     record_ids, record_ffps = record_ids[sort_ind], record_ffps[sort_ind]
 
-    empty_df = pd.DataFrame(data=np.full((record_ids.size, 6), fill_value=np.nan),
-                            columns=["Man_Score_X","Man_Score_Y","Man_Score_Z","Min_Freq_X","Min_Freq_Y","Min_Freq_Z"],
-                            index=record_ids)
+    empty_df = pd.DataFrame(
+        data=np.full((record_ids.size, 6), fill_value=np.nan),
+        columns=[
+            "Man_Score_X",
+            "Man_Score_Y",
+            "Man_Score_Z",
+            "Min_Freq_X",
+            "Min_Freq_Y",
+            "Min_Freq_Z",
+        ],
+        index=record_ids,
+    )
     empty_df.to_csv(output_dir / "labels.csv", index_label="Record_ID")
 
     # Process
     with typer.progressbar(record_ffps) as progress:
         for cur_record_ffp in progress:
-            process_record(cur_record_ffp, konno_matrices, output_dir)
+            try:
+                process_record(cur_record_ffp, konno_matrices, output_dir)
+            except:
+                typer.echo("\nFailed to process record")
 
 
 if __name__ == "__main__":

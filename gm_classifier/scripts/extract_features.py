@@ -1,3 +1,4 @@
+import os
 import argparse
 
 import gm_classifier as gm
@@ -13,9 +14,16 @@ def main(
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
 ):
-    feature_df_1, feature_df_2, feature_df_v, failed_records = gm.records.process_records(
-        record_dir,
-        gm.records.RecordFormat.V1A if record_format == "V1A" else gm.records.RecordFormat.MiniSeed,
+    (
+        feature_df_1,
+        feature_df_2,
+        feature_df_v,
+        failed_records,
+    ) = gm.records.process_records(
+        gm.records.RecordFormat.V1A
+        if record_format == "V1A"
+        else gm.records.RecordFormat.MiniSeed,
+        record_dir=record_dir,
         event_list_ffp=event_list_ffp,
         record_list_ffp=record_list_ffp,
         ko_matrices_dir=ko_matrices_dir,
@@ -24,7 +32,13 @@ def main(
         output_prefix=output_prefix,
     )
 
-    gm.records.print_errors(failed_records)
+    error_log = gm.records.get_records_error_log(failed_records)
+    print(error_log)
+
+    with open(os.path.join(output_dir, f"error_log_{gm.utils.create_run_id()}.txt"), "w") as f:
+        f.write(error_log)
+
+    return
 
 
 if __name__ == "__main__":

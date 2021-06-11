@@ -23,6 +23,12 @@ class FeatureErrorType(Enum):
     # PGA is zero
     PGA_zero = 1
 
+    # P-wave pick is to early or late in the record,
+    # which means no decent pre-event noise,
+    # breaking most features used
+    early_p_pick = 2
+    late_p_pick = 3
+
 
 class FeatureError(Exception):
     def __init__(self, message: Union[str, None], error_type: FeatureErrorType):
@@ -506,14 +512,12 @@ def compute_channel_features(
         "snr_average_1.0_2.0": snr_values[3],
         "snr_average_2.0_5.0": snr_values[4],
         "snr_average_5.0_10.0": snr_values[5],
-
         # Malfunction record features
         "spike_detector": mal_features.spike_detector(acc),
         "jerk_detector": mal_features.jerk_detector(acc),
         "lowres_detector": mal_features.lowres_detector(acc),
         "gainjump_detector": mal_features.gainjump_detector(acc),
         "flatline_detector": mal_features.flatline_detector(acc),
-
         # Multiple earthquake record features
         "p_numpeaks_detector": multi_eq_features.numpeaks_detector(p_wave_prob_series),
         "p_multimax_detector": multi_eq_features.multimax_detector(p_wave_prob_series),
@@ -545,6 +549,21 @@ def get_features(
         t,
         return_prob_series=True,
     )
+
+    if record.size - p_wave_ix < 2048:
+        raise FeatureError(
+            "P-wave pick is very late in the record, "
+            "preventing accurate feature generation. "
+            "This most likely means that the p-wave "
+            "pick is bad and/or that it is a malfunctioned or very short record",
+            FeatureErrorType.late_p_pick
+        )
+
+    if p_wave_ix * record.dt < 2.5:
+        raise FeatureError(
+            "P-wave pick is < 2.5s, preventing accurate feature generation",
+            FeatureErrorType.early_p_pick,
+        )
 
     # Compute the ratio (t_swave - t_pwave) / (t_end - t_swave)
     # For detecting records truncated to early

@@ -134,6 +134,7 @@ def load_labels_from_dir(
 
     # Load and combine
     label_files = glob.glob(os.path.join(label_dir, glob_filter))
+    label_files.sort()
     dfs = [pd.read_csv(cur_file, index_col=0) for cur_file in label_files]
     df = pd.concat(dfs)
 
@@ -166,6 +167,7 @@ def load_labels_from_dir(
         ] = f_min_100_value
 
     # Drop invalid
+    # NaN labels
     if drop_na:
         na_mask = (
             df.score_X.isna()
@@ -178,6 +180,7 @@ def load_labels_from_dir(
         df = df.loc[~na_mask]
         print(f"Dropped {np.count_nonzero(na_mask)} records with a nan label")
 
+    # Bad p-wave pick
     if drop_f_min_101:
         f_min_101_mask = (
             (df.f_min_X >= 100.0) | (df.f_min_Y >= 100.0) | (df.f_min_Z >= 100.0)
@@ -185,6 +188,7 @@ def load_labels_from_dir(
         print(f"Dropped {np.count_nonzero(f_min_101_mask)} bad p-wave pick records")
         df = df.loc[~f_min_101_mask]
 
+    # Malfunctioned records
     malf_mask = (df.score_X == 2.0) | (df.score_Y == 2.0) | (df.score_Z == 2.0)
     if malf_score_value is not None:
         df.loc[malf_mask, ["score_X", "score_Y", "score_Z"]] = malf_score_value
@@ -196,6 +200,7 @@ def load_labels_from_dir(
         print(f"Dropped {np.count_nonzero(malf_mask)} malfunctioned records")
         df = df.loc[~malf_mask]
 
+    # Multi-eq records
     multi_eq_mask = (df.score_X == 3.0) | (df.score_Y == 3.0) | (df.score_Z == 3.0)
     if multi_eq_score_value is not None:
         df.loc[multi_eq_mask, ["score_X", "score_Y", "score_Z"]] = multi_eq_score_value
@@ -209,7 +214,7 @@ def load_labels_from_dir(
 
     # Drop duplicates
     if drop_duplicates:
-        dup_mask = df.index.duplicated(keep=False)
+        dup_mask = df.index.duplicated(keep="last")
         df = df.loc[~dup_mask]
         print(f"Dropped {np.count_nonzero(dup_mask)} duplicates")
 

@@ -13,6 +13,7 @@ from obspy.clients.fdsn import Client as FDSN_Client
 from obspy import read, Inventory, read_events
 
 from .geoNet_file import GeoNet_File, EmptyFile
+from .console import console
 from . import features
 
 EVENT_YEARS = [str(ix) for ix in range(1950, 2050, 1)]
@@ -22,7 +23,7 @@ G = 9.80665
 
 class RecordErrorType(Enum):
     # Record total length is less than 5 seconds
-    TotalTime = 1
+    Duration = 1
 
     # The acceleration timeseries have different lengths
     CompsNotMatching = 2
@@ -36,9 +37,11 @@ class RecordErrorType(Enum):
     # Dt is different between components
     DtNotMatching = 5
 
+
 class RecordFormat(Enum):
     V1A = "V1A"
     MiniSeed = "mseed"
+
 
 class RecordError(Exception):
     def __init__(self, message: str, error_type: RecordErrorType):
@@ -68,9 +71,9 @@ class Record:
         self.acc_1 = acc_1
 
         self.acc_arrays = [self.acc_1, self.acc_2, self.acc_v]
-        self._ref_acc = [
-            cur_acc for cur_acc in self.acc_arrays if cur_acc is not None
-        ][0]
+        self._ref_acc = [cur_acc for cur_acc in self.acc_arrays if cur_acc is not None][
+            0
+        ]
 
         self.has_horizontal = self.acc_2 is not None and self.acc_1 is not None
 
@@ -95,12 +98,13 @@ class Record:
                 RecordErrorType.CompsNotMatching,
             )
 
-        # Check that record is more than 5 seconds
-        if self._ref_acc.size < 5.0 / self.dt:
+
+        if int(math.ceil(self.size) / self.dt) < 5:
             raise RecordError(
-                f"Record {self.id} - length is less than 5 seconds, ignored.",
-                RecordErrorType.TotalTime,
+                f"Record {self.id} duration is not long enough. Needs to be at least 5 seconds.",
+                RecordErrorType.Duration
             )
+
 
         # Ensure time delay adjusted time-series still has more than 10 elements
         # Time delay < 0 when buffer start time is before event start time
@@ -127,15 +131,11 @@ class Record:
 
             cur_acc -= cur_acc.mean()
             cur_acc = signal.detrend(cur_acc, type="linear", overwrite_data=True)
-            zero_crossings.append(np.count_nonzero(
-                np.multiply(cur_acc[0:-2], cur_acc[1:-1]) < 0
-            ))
+            zero_crossings.append(
+                np.count_nonzero(np.multiply(cur_acc[0:-2], cur_acc[1:-1]) < 0)
+            )
 
-        zeroc = (
-                10
-                * np.min(zero_crossings)
-                / (self.size * self.dt)
-        )
+        zeroc = 10 * np.min(zero_crossings) / (self.size * self.dt)
 
         # Number of zero crossings per 10 seconds less than 10 equals
         # means malfunctioned record
@@ -145,6 +145,7 @@ class Record:
                 f"less than 10 -> malfunctioned record",
                 RecordErrorType.ZeroCrossings,
             )
+
 
     @classmethod
     def load_v1a(cls, v1a_ffp: str):
@@ -161,9 +162,9 @@ class Record:
             )
 
         # Check that time_delay values are matching
-        if not np.isclose(gf.comp_1st.time_delay, gf.comp_up.time_delay) or not np.isclose(
-            gf.comp_2nd.time_delay, gf.comp_up.time_delay
-        ):
+        if not np.isclose(
+            gf.comp_1st.time_delay, gf.comp_up.time_delay
+        ) or not np.isclose(gf.comp_2nd.time_delay, gf.comp_up.time_delay):
             raise RecordError(
                 f"Record {os.path.basename(v1a_ffp).split('.')[0]} - "
                 f"The time_delay values are not matching across the components",
@@ -185,10 +186,12 @@ class Record:
         st = read(mseed_ffp)
         if len(st) == 3:
             # Converts it to acceleration in m/s^2
-            if st[0].stats.channel[1] == 'N':  # Checks whether data is strong motion
+            if st[0].stats.channel[1] == "N":  # Checks whether data is strong motion
                 st_acc = st.copy().remove_sensitivity(inventory=inventory)
             else:
-                st_acc = st.copy().remove_sensitivity(inventory=inventory).differentiate()
+                st_acc = (
+                    st.copy().remove_sensitivity(inventory=inventory).differentiate()
+                )
 
             # This is a tad awkward, couldn't think of a better way
             # of doing this though.
@@ -218,7 +221,9 @@ class Record:
                 os.path.basename(mseed_ffp).split(".")[0],
             )
         else:
-            raise ValueError(f"Record {os.path.basename(mseed_ffp).split('.')[0]} has less than 3 traces")
+            raise ValueError(
+                f"Record {os.path.basename(mseed_ffp).split('.')[0]} has less than 3 traces"
+            )
 
     @classmethod
     def load(cls, ffp: str):
@@ -228,15 +233,19 @@ class Record:
             if cls.inventory is None:
                 print("Loading the station inventory (this may take a few seconds)")
                 client_NZ = FDSN_Client("GEONET")
-                inventory_NZ = client_NZ.get_stations(level='response')
+                inventory_NZ = client_NZ.get_stations(level="response")
                 client_IU = FDSN_Client("IRIS")
-                inventory_IU = client_IU.get_stations(network='IU',station='SNZO',level='response')
-                cls.inventory = inventory_NZ+inventory_IU
+                inventory_IU = client_IU.get_stations(
+                    network="IU", station="SNZO", level="response"
+                )
+                cls.inventory = inventory_NZ + inventory_IU
 
             return cls.load_mseed(ffp, cls.inventory)
 
         else:
-            raise ValueError(f"Record {ffp} has an invalid format, has to be one of ['V1A', 'mseed']")
+            raise ValueError(
+                f"Record {ffp} has an invalid format, has to be one of ['V1A', 'mseed']"
+            )
 
 
 def get_event_id(record_ffp: str) -> Union[str, None]:
@@ -244,7 +253,9 @@ def get_event_id(record_ffp: str) -> Union[str, None]:
     Might not always work or be correct"""
     event_id = None
     try:
-        event = read_events(os.path.abspath(os.path.join(os.path.dirname(record_ffp), '../..', '*.xml')))[0]
+        event = read_events(
+            os.path.abspath(os.path.join(os.path.dirname(record_ffp), "../..", "*.xml"))
+        )[0]
         event_id = str(event.resource_id).split("/")[-1]
     except:
         for part in record_ffp.split("/"):
@@ -319,10 +330,7 @@ def process_record(
     record = Record.load(record_ffp)
     record.record_preprocesing()
 
-    input_data, add_data = features.get_features(
-        record,
-        ko_matrices=konno_matrices,
-    )
+    input_data, add_data = features.get_features(record, ko_matrices=konno_matrices,)
 
     input_data["record_id"] = get_record_id(record_ffp)
     input_data["event_id"] = get_event_id(record_ffp)
@@ -380,9 +388,11 @@ def process_records(
         The names of the failed records, where the keys are the different
         error types
     """
-    if record_ffps is None and record_ffps is None:
-        raise ValueError("Either the record directory or the record file "
-                         "paths have to be specified.")
+    if record_dir is None and record_ffps is None:
+        raise ValueError(
+            "Either the record directory or the record file "
+            "paths have to be specified."
+        )
 
     if output_dir is not None:
         output_dir = Path(output_dir)
@@ -420,7 +430,9 @@ def process_records(
     if record_ffps is None:
         print(f"Searching for record files")
         record_ffps = np.asarray(
-            glob.glob(os.path.join(record_dir, f"**/*.{record_format.value}"), recursive=True),
+            glob.glob(
+                os.path.join(record_dir, f"**/*.{record_format.value}"), recursive=True
+            ),
             dtype=str,
         )
 
@@ -435,7 +447,7 @@ def process_records(
         print(f"Loading Konno matrices into memory")
         konno_matrices = {
             matrix_id: np.load(os.path.join(ko_matrices_dir, f"konno_{matrix_id}.npy"))
-            for matrix_id in [512, 1024, 2048, 4096, 8192, 16384, 32768]
+            for matrix_id in [1024, 2048, 4096, 8192, 16384, 32768]
         }
     # Calculate the matrices and load into memory
     elif not low_mem_usage and ko_matrices_dir is None:
@@ -466,11 +478,7 @@ def process_records(
         and all(
             [
                 ffp.is_file()
-                for ffp in [
-                    output_comp_1_ffp,
-                    output_comp_2_ffp,
-                    output_comp_v_ffp,
-                ]
+                for ffp in [output_comp_1_ffp, output_comp_2_ffp, output_comp_v_ffp,]
             ]
         )
     ):
@@ -483,10 +491,9 @@ def process_records(
         feature_df_v = pd.read_csv(output_comp_v_ffp, index_col="record_id")
 
         # Ensure all the existing results are consistent
-        assert (
-            np.all(feature_df_1.index.values == feature_df_2.index.values)
-            and np.all(feature_df_1.index.values == feature_df_v.index.values)
-        )
+        assert np.all(
+            feature_df_1.index.values == feature_df_2.index.values
+        ) and np.all(feature_df_1.index.values == feature_df_v.index.values)
 
         # Filter, as to not process already processed records
         record_ids = [get_record_id(record_ffp) for record_ffp in record_ffps]
@@ -514,18 +521,19 @@ def process_records(
             event_ids.append(cur_features["event_id"])
             stations.append(cur_features["station"])
         except RecordError as ex:
+            console.print(f"[red]{ex}[/]")
             failed_records[RecordError][ex.error_type].append(record_name)
             cur_features, cur_add_data = None, None
         except features.FeatureError as ex:
-            failed_records[features.FeatureError][ex.error_type].append(
-                record_name
-            )
+            console.print(f"[red]{ex}[/]")
+            failed_records[features.FeatureError][ex.error_type].append(record_name)
             cur_features, cur_add_data = None, None
         except EmptyFile as ex:
+            console.print(f"[red]{ex}[/]")
             failed_records["empty_file"].append(record_name)
             cur_features, cur_add_data = None, None
         except Exception as ex:
-            print(f"Record {record_name} failed due to the error: ")
+            console.print(f"[red]Failed due to the error: [/]")
             traceback.print_exc()
             failed_records["other"].append(record_name)
             cur_features, cur_add_data = None, None
@@ -570,18 +578,19 @@ def process_records(
     return feature_df_1, feature_df_2, feature_df_v, failed_records
 
 
-def print_errors(failed_records: Dict[Any, Dict[Any, List]]):
+def get_records_error_log(failed_records: Dict[Any, Dict[Any, List]]):
     feature_erros = failed_records[features.FeatureError]
     record_erros = failed_records[RecordError]
-    if len(record_erros[RecordErrorType.TotalTime]) > 0:
-        print(
+    output = ""
+    if len(record_erros[RecordErrorType.Duration]) > 0:
+        output += "\n" + (
             "The following records failed processing due to "
             "the record length < 5 seconds:\n {}".format(
                 "\n".join(record_erros[RecordErrorType.TotalTime])
             )
         )
     if len(record_erros[RecordErrorType.CompsNotMatching]) > 0:
-        print(
+        output += "\n" + (
             "The following records failed processing due to the "
             "acceleration timeseries of the components having"
             "different length:\n{}".format(
@@ -589,7 +598,7 @@ def print_errors(failed_records: Dict[Any, Dict[Any, List]]):
             )
         )
     if len(record_erros[RecordErrorType.NQuakePoints]) > 0:
-        print(
+        output += "\n" + (
             "The following records failed processing due to the "
             "time delay adjusted timeseries having less than "
             "10 datapoints:\n{}".format(
@@ -597,32 +606,49 @@ def print_errors(failed_records: Dict[Any, Dict[Any, List]]):
             )
         )
     if len(record_erros[RecordErrorType.ZeroCrossings]) > 0:
-        print(
-            "The following records failed processing due to"
+        output += "\n" + (
+            "The following records failed processing due to "
             "not meeting the required number of "
             "zero crossings:\n{}".format(
                 "\n".join(record_erros[RecordErrorType.ZeroCrossings])
             )
         )
     if len(failed_records["empty_file"]) > 0:
-        print(
+        output += "\n" + (
             "The following records failed processing due to the "
             "geoNet file not containing any data:\n{}".format(
                 "\n".join(failed_records["empty_file"])
             )
         )
     if len(failed_records["other"]):
-        print(
+        output += "\n" + (
             "The following records failed processing due to "
             "an unknown exception:\n{}".format("\n".join(failed_records["other"]))
         )
     if len(feature_erros[features.FeatureErrorType.PGA_zero]) > 0:
-        print(
+        output += "\n" + (
             "The following records failed processing due to "
             "one PGA being zero for one (or more) of the components:\n{}".format(
                 "\n".join(feature_erros[features.FeatureErrorType.PGA_zero])
             )
         )
+    if len(feature_erros[features.FeatureErrorType.early_p_pick]) > 0:
+        output += "\n" + (
+            "The following records failed processing as the p-wave pick is < 2.5 from the"
+            " start of the record, preventing accurate feature generation:\n{}".format(
+                "\n".join(feature_erros[features.FeatureErrorType.early_p_pick])
+            )
+        )
+    if len(feature_erros[features.FeatureErrorType.late_p_pick]) > 0:
+        output += "\n" + (
+            "The following records failed processing as the p-wave pick is very late in the record"
+            ", preventing accurate feature generation as the resulting signal duration is too short:\n{}".format(
+                "\n".join(feature_erros[features.FeatureErrorType.late_p_pick])
+            )
+        )
+
+    return output
+
 
 
 def filter_record_files(
