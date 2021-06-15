@@ -24,7 +24,7 @@ def create_run_id() -> str:
 def load_features_from_dir(
     feature_dir: Union[str, Path],
     glob_filter: str = "*comp*.csv",
-    merge: bool = True,
+    concat: bool = True,
     drop_duplicates: bool = True,
     drop_nan: bool = True,
 ):
@@ -39,12 +39,15 @@ def load_features_from_dir(
     glob_filter: string, optional
         Glob filter that allows filtering which files to use
         (in the specified directory)
+    concat: bool
+        If True, combine the different components along the index
+        adding _X, _Y, and _Z to each record id accordingly
 
     Returns
     -------
     single dataframe or triplet of dataframes:
-        If merged:
-            Single dataframe of shape [n_records, 3 x n_features]
+        If concat:
+            Single dataframe of shape [3 x n_records, n_features]
         Else:
             In the order _X, _Y, _Z
     """
@@ -84,18 +87,14 @@ def load_features_from_dir(
             cur_df = cur_df.loc[~nan_mask]
             print(f"Dropped {np.count_nonzero(nan_mask)} samples due to nan-values")
 
-        if merge:
-            cur_df.columns = [f"{cur_col}_{cur_comp}" for cur_col in cur_df.columns]
+        if concat:
+            cur_df.index = [f"{cur_id}_{cur_comp}" for cur_id in cur_df.index]
 
         result[result_ix[cur_comp]] = cur_df
 
-    if merge:
-        result_df = result[0].merge(
-            result[1], left_index=True, right_index=True, suffixes=(False, False)
-        )
-        result_df = result_df.merge(
-            result[2], left_index=True, right_index=True, suffixes=(False, False)
-        )
+
+    if concat:
+        result_df = pd.concat(result, axis=0)
         return result_df
 
     return result

@@ -24,7 +24,7 @@ def load_dataset(
         merge=False,
         ignore_ids_ffp=ignore_ids_ffp,
     )
-    feature_dfs = utils.load_features_from_dir(features_dir, merge=False)
+    feature_dfs = utils.load_features_from_dir(features_dir, concat=False)
 
     avail_ids = np.intersect1d(
         label_dfs[0].index.values.astype(str), feature_dfs[0].index.values.astype(str)

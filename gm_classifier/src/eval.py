@@ -217,8 +217,9 @@ def print_combined_model_eval(
         wandb.run.summary[f"final_{prefix}_total_loss_mean"] = total_loss_mean
         wandb.run.summary[f"final_{prefix}_total_loss_std"] = total_loss_std
 
-        wandb.run.summary[f"final_{prefix}_score_metric_mean"] = score_metric_mean
-        wandb.run.summary[f"final_{prefix}_score_metric_std"] = score_metric_std
+        for cur_true_val, cur_mean, cur_std in zip(true_values, score_metric_mean, score_metric_std):
+            wandb.run.summary[f"final_{prefix}_score_mean_class_acc_{cur_true_val}"] = cur_mean
+            wandb.run.summary[f"final_{prefix}_score_std_class_acc_{cur_true_val}"] = cur_std
 
         wandb.run.summary[f"final_{prefix}_fmin_metric_mean"] = fmin_metric_mean
         wandb.run.summary[f"final_{prefix}_fmin_metric_std"] = fmin_metric_std
@@ -251,16 +252,16 @@ def get_combined_prediction(
     score_preds = np.stack(score_preds, axis=1)
     fmin_preds = np.stack(fmin_preds, axis=1)
 
-    results = [pd.Series(data=score_preds.mean(axis=1), index=index),
-        pd.Series(data=score_preds.std(axis=1), index=index),
-        pd.Series(data=fmin_preds.mean(axis=1), index=index),
-        pd.Series(data=fmin_preds.std(axis=1), index=index),]
+    results = [pd.Series(data=score_preds.mean(axis=1), index=index, name="score_mean"),
+        pd.Series(data=score_preds.std(axis=1), index=index, name="score_std"),
+        pd.Series(data=fmin_preds.mean(axis=1), index=index, name="fmin_mean"),
+        pd.Series(data=fmin_preds.std(axis=1), index=index, name="fmin_std"),]
 
     if multi_output:
         multi_preds = np.stack(multi_preds, axis=1)
 
-        results.append(pd.Series(data=multi_preds.mean(axis=1), index=index))
-        results.append(pd.Series(data=multi_preds.std(axis=1), index=index))
+        results.append(pd.Series(data=multi_preds.mean(axis=1), index=index, name="multi_mean"))
+        results.append(pd.Series(data=multi_preds.std(axis=1), index=index, name="multi_std"))
 
     if malf_output:
         malf_preds = np.stack(malf_preds, axis=1)

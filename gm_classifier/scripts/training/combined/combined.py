@@ -10,6 +10,7 @@ from sklearn.model_selection import train_test_split
 from wandb.keras import WandbCallback
 
 import ml_tools
+from gm_classifier.src.console import console
 
 # Grow the GPU memory usage as needed
 gpus = tf.config.experimental.list_physical_devices("GPU")
@@ -33,7 +34,8 @@ label_dir = Path(
 )
 
 features_dir = Path(
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210226"
+    # "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210226"
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210527"
 )
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
 ignore_ids_ffp = label_dir / "ignore_ids.txt"
@@ -86,7 +88,6 @@ X_snr_train, X_snr_val = (
     X_snr_val.apply(np.log).values[..., None],
 )
 
-
 # --------------- Setup & wandb ------------------
 run_id = gmc.utils.create_run_id()
 output_dir = base_output_dir / run_id
@@ -97,20 +98,26 @@ hyperparams = wandb.config
 
 # --------------- Build & compile model ------------------
 
-
 model_config = gmc.model.get_combined_model_config(hyperparams)
 gmc_model = gmc.model.build_combined_model(
     model_config, len(scalar_feature_config.keys()), X_snr_train.shape[1]
 )
 
-weight_lookup = {1.0: 1.0, 0.75: 0.75, 0.5: 0.1, 0.25: 0.0, 0.0: 0.0}
+weight_lookup = {1.0: 1.0, 0.75: 0.75, 0.5: 0.1, 0.25: 1e-8, 0.0: 1e-8}
 fmin_loss = gmc.training.FMinLoss(weight_lookup)
 
-loss_weights = [1.0, 0.01]
+loss_weights = [1.0, 0.1]
 gmc_model.compile(
     optimizer=hyperparams["optimizer"],
     loss={"score": keras.losses.mse, "fmin": fmin_loss},
     loss_weights=loss_weights,
+    metrics={"score": [
+        gmc.eval.ClassAcc(0.0),
+        gmc.eval.ClassAcc(0.25),
+        gmc.eval.ClassAcc(0.5),
+        gmc.eval.ClassAcc(0.75),
+        gmc.eval.ClassAcc(1.0),
+    ], "fmin": fmin_loss},
     # run_eagerly=True
 )
 
@@ -170,6 +177,7 @@ gmc.eval.print_combined_model_eval(
     y_fmin_train.values.astype(np.float32),
     keras.losses.mse,
     fmin_loss,
+    fmin_loss,
     score_loss_weight=loss_weights[0],
     fmin_loss_weight=loss_weights[1],
 )
@@ -181,6 +189,7 @@ gmc.eval.print_combined_model_eval(
     y_fmin_val.values.astype(np.float32),
     keras.losses.mse,
     fmin_loss,
+    fmin_loss,
     score_loss_weight=loss_weights[0],
     fmin_loss_weight=loss_weights[1],
     prefix="val",
@@ -191,10 +200,18 @@ gmc.plots.plot_loss(
 )
 
 y_score_est_train, _, y_fmin_est_train, _ = gmc.eval.get_combined_prediction(
-    gmc_model, X_scalar_train, X_snr_train, n_preds=25, index=X_scalar_train.index.values.astype(str)
+    gmc_model,
+    X_scalar_train,
+    X_snr_train,
+    n_preds=25,
+    index=X_scalar_train.index.values.astype(str),
 )
 y_score_est_val, _, y_fmin_est_val, _ = gmc.eval.get_combined_prediction(
-    gmc_model, X_scalar_val, X_snr_val, n_preds=25, index=X_scalar_val.index.values.astype(str)
+    gmc_model,
+    X_scalar_val,
+    X_snr_val,
+    n_preds=25,
+    index=X_scalar_val.index.values.astype(str),
 )
 
 

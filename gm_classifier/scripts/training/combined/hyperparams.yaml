@@ -42,4 +42,4 @@ dense_hidden_layer_fn: "selu_mc_dropout"
 optimizer: "Adam"
 
 batch_size: 32
-epochs: 5
+epochs: 250

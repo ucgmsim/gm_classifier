@@ -29,7 +29,7 @@ def plot_record(record: Record):
         ax.plot(t, cur_acc)
 
     ax.set_xlabel("Time (s)")
-    ax.set_title(record.id)
+    ax1.set_title(record.id)
 
     fig.tight_layout()
     fig.subplots_adjust(hspace=0.0)

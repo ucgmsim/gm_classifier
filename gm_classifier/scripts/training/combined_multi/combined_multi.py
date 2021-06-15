@@ -1,4 +1,6 @@
 """Combined model that also returns probability of being a multi-eq"""
+import pickle
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +10,6 @@ import wandb
 from wandb.keras import WandbCallback
 
 import ml_tools
-from gm_classifier.src.console import console
 
 # Grow the GPU memory usage as needed
 gpus = tf.config.experimental.list_physical_devices("GPU")
@@ -24,6 +25,7 @@ if gpus:
         print(e)
 
 import gm_classifier as gmc
+from gm_classifier.src.console import console
 
 # --------------- Config ------------------
 
@@ -32,7 +34,8 @@ label_dir = Path(
 )
 
 features_dir = Path(
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210226"
+    # "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210226"
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210527"
 )
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
 ignore_ids_ffp = label_dir / "ignore_ids.txt"
@@ -59,6 +62,8 @@ X_snr, _ = gmc.data.load_dataset(
 
 y_score, y_fmin = label_df["score"], label_df["f_min"]
 y_multi = label_df["multi_eq"].astype(int)
+
+console.print(f"Number of labelled samples: {label_df.shape[0]}")
 
 # --------------- Split & pre-processing ------------------
 (
@@ -107,7 +112,7 @@ gmc_model = gmc.model.build_combined_model(
     multi_out=True,
 )
 
-# Setting to 0.0, results in nan values, so set to very small valye
+# Setting to 0.0, results in nan values, so set to very small value
 weight_lookup = {1.0: 1.0, 0.75: 0.75, 0.5: 0.1, 0.25: 1e-8, 0.0: 1e-8}
 fmin_loss = gmc.training.FMinLoss(weight_lookup)
 
@@ -178,6 +183,13 @@ history = gmc_model.fit(
     ],
 ).history
 
+console.print("Saving the model")
+model_dir = output_dir / "model"
+gmc_model.save(model_dir)
+shutil.copy(Path(__file__).parent / "feature_config.yaml", model_dir / "feature_config.yaml")
+
+console.print("Saving pre-processing parameters")
+ml_tools.utils.write_pickle(pre_params, model_dir / "pre_params.pickle")
 
 # --------------- Eval ------------------
 console.rule("[bold]Eval[/]")
@@ -212,7 +224,7 @@ gmc.eval.print_combined_model_eval(
 )
 
 gmc.plots.plot_loss(
-    history, output_ffp=output_dir / "loss.png", fig_kwargs=dict(figsize=(16, 10))
+    history, output_ffp=str(output_dir / "loss.png"), fig_kwargs=dict(figsize=(16, 10))
 )
 
 (

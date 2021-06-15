@@ -122,7 +122,7 @@ label_dfs = gmc.utils.load_labels_from_dir(
     merge=False,
     ignore_ids_ffp=ignore_ids_ffp,
 )
-feature_dfs = gmc.utils.load_features_from_dir(features_dir, merge=False)
+feature_dfs = gmc.utils.load_features_from_dir(features_dir, concat=False)
 
 # wandb setup
 tags = ["multi_output"]

@@ -1,2 +1,2 @@
 from rich.console import Console
-console = Console(color_system="windows")z
+console = Console(color_system="windows")
