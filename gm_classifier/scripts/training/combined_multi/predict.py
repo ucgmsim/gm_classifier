@@ -5,11 +5,8 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow.keras as keras
-import wandb
-from wandb.keras import WandbCallback
 
 import ml_tools
-from gm_classifier.src.console import console
 
 # Grow the GPU memory usage as needed
 gpus = tf.config.experimental.list_physical_devices("GPU")
@@ -25,6 +22,7 @@ if gpus:
         print(e)
 
 import gm_classifier as gmc
+from gm_classifier.src.console import console
 
 
 def main(features_dir: Path, model_dir: Path, output_ffp: Path):
@@ -48,6 +46,7 @@ def main(features_dir: Path, model_dir: Path, output_ffp: Path):
     console.print("Loading the model")
     gmc_model = keras.models.load_model(model_dir, compile=False)
 
+    console.print("Running predictions")
     (
         y_score_est,
         y_score_est_std,
@@ -65,7 +64,8 @@ def main(features_dir: Path, model_dir: Path, output_ffp: Path):
     )
 
     result_df = pd.concat([y_score_est, y_score_est_std, y_fmin_est, y_fmin_est_std, y_multi_est, y_multi_est_std], axis=1)
-    result_df["record"] = np.char.rstrip(result_df.index.values.astype(str), "_XYZ")
+    result_df["record"] = np.stack(np.char.rsplit(feature_df.index.values.astype(str), "_", 1))[:, 0]
+    result_df["component"] = np.stack(np.char.rsplit(feature_df.index.values.astype(str), "_", 1))[:, -1]
 
     result_df.to_csv(output_ffp, index_label="record_id")
 

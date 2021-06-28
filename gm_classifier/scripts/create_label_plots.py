@@ -17,13 +17,19 @@ import typer
 
 import matplotlib.pyplot as plt
 import gm_classifier as gmc
+from gm_classifier.src.console import console
 
 
-def process_record(record_ffp: Path, ko_matrices: Dict, output_dir: Path):
+def process_record(
+    record_ffp: Path,
+    ko_matrices: Dict,
+    output_dir: Path,
+    results_df: pd.DataFrame = None,
+):
     try:
-        record = gmc.records.Record.load_v1a(str(record_ffp))
+        record = gmc.records.Record.load(str(record_ffp))
     except gmc.records.RecordError as ex:
-        typer.echo(
+        console.print(
             f"\n{gmc.records.get_record_id(str(record_ffp))}: "
             f"Failed to load record. Due to the error - {ex.error_type}, ffp: {record_ffp}",
             color="red",
@@ -40,7 +46,7 @@ def process_record(record_ffp: Path, ko_matrices: Dict, output_dir: Path):
     )
 
     if p_wave_ix == 0:
-        typer.echo(
+        console.print(
             f"\n{record.id}: P-wave ix == 0, SNR can therefore not be calculated. Skipped.",
             color="red",
         )
@@ -97,6 +103,33 @@ def process_record(record_ffp: Path, ko_matrices: Dict, output_dir: Path):
     prob_ax.plot(t_prob, s_prob_series, label="s-wave prob")
     prob_ax.legend()
 
+    if results_df is not None:
+        cur_result_df = results_df.loc[results_df.record == record.id]
+
+        ax_text = fig.add_subplot(4, 2, 8)
+        ax_text.text(
+            0.0,
+            0.7,
+            f"{record.id}\n\n"
+            + "\n\n".join(
+                [
+                    f"{cur_comp[1]} - "
+                    f"Score: {cur_result_df.loc[record.id + cur_comp, 'score_mean']:.2f} "
+                    f"+/- {cur_result_df.loc[record.id + cur_comp, 'score_std']:.3f}, "
+                    f"Fmin: {cur_result_df.loc[record.id + cur_comp, 'fmin_mean']:.2f} "
+                    f"+/- {cur_result_df.loc[record.id + cur_comp, 'fmin_std']:.3f}, "
+                    f"Multi: {cur_result_df.loc[record.id + cur_comp, 'multi_mean']:.2f} "
+                    f"+/- {cur_result_df.loc[record.id + cur_comp, 'multi_std']:.3f}"
+                    for cur_comp in ["_X", "_Y", "_Z"]
+                ]
+            ),
+            horizontalalignment="left",
+            verticalalignment="top",
+            transform=ax_text.transAxes,
+        )
+
+        ax_text.axison = False
+
     fig.tight_layout()
     fig.subplots_adjust(hspace=0.0)
 
@@ -107,24 +140,34 @@ def process_record(record_ffp: Path, ko_matrices: Dict, output_dir: Path):
 
 
 def main(
-    data_dir: Path, record_list_ffp: Path, output_dir: Path, ko_matrices_dir: Path
+    data_dir: Path,
+    record_list_ffp: Path,
+    output_dir: Path,
+    ko_matrices_dir: Path,
+    results_ffp: Path = None,
 ):
+    results_df = None if results_ffp is None else pd.read_csv(results_ffp, index_col=0)
+
     # Get the record ids of interest
     with open(record_list_ffp, "r") as f:
         record_ids = f.readlines()
 
     # Strip and drop empty lines
-    record_ids = np.unique(np.asarray(
-        [
-            record_id.strip()
-            for record_id in record_ids
-            if len(record_id.strip()) > 0 and record_id.strip()[0] != "#"
-        ],
-        dtype=str,
-    ))
+    record_ids = np.unique(
+        np.asarray(
+            [
+                record_id.strip()
+                for record_id in record_ids
+                if len(record_id.strip()) > 0 and record_id.strip()[0] != "#"
+            ],
+            dtype=str,
+        )
+    )
 
     print(f"Searching for record files")
-    avail_record_ffps = np.asarray(list(data_dir.rglob(f"**/*.V1A")), dtype=str)
+    avail_record_ffps_v1a = np.asarray(list(data_dir.rglob(f"**/*.V1A")), dtype=str)
+    avail_record_ffps_mseed = np.asarray(list(data_dir.rglob(f"**/*.mseed")), dtype=str)
+    avail_record_ffps = np.concatenate([avail_record_ffps_v1a, avail_record_ffps_mseed])
     avail_record_ids = np.asarray(
         [gmc.records.get_record_id(record_ffp) for record_ffp in avail_record_ffps],
         dtype=str,
@@ -137,8 +180,16 @@ def main(
     # Filter
     record_ffps = np.unique(avail_record_ffps[np.isin(avail_record_ids, record_ids)])
 
+    if record_ffps.size == 0:
+        console.print("[red]No record files corresponding to specified ids were found. Quitting![/]")
+        return
+
+    if record_ffps.size < record_ids.size:
+        missing_records_str = '\n'.join(record_ids[~np.isin(record_ids, avail_record_ids)])
+        console.print(f"[orange1]No record files were found for the following ids:\n{missing_records_str}[/]")
+
     # Load the konno matrices
-    typer.echo("Loading Konno matrices")
+    console.print("Loading Konno matrices")
     konno_matrices = {
         matrix_id: np.load(os.path.join(ko_matrices_dir, f"konno_{matrix_id}.npy"))
         for matrix_id in [1024, 2048, 4096, 8192, 16384, 32768]
@@ -165,10 +216,12 @@ def main(
     # Process
     with typer.progressbar(record_ffps) as progress:
         for cur_record_ffp in progress:
-            try:
-                process_record(cur_record_ffp, konno_matrices, output_dir)
-            except:
-                typer.echo("\nFailed to process record")
+            # try:
+            process_record(
+                cur_record_ffp, konno_matrices, output_dir, results_df=results_df
+            )
+            # except:
+            #     console.print("\nFailed to process record")
 
 
 if __name__ == "__main__":

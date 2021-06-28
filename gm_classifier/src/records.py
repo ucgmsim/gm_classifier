@@ -37,6 +37,9 @@ class RecordErrorType(Enum):
     # Dt is different between components
     DtNotMatching = 5
 
+    # Components are missing
+    ComponentsMissing = 6
+
 
 class RecordFormat(Enum):
     V1A = "V1A"
@@ -98,13 +101,11 @@ class Record:
                 RecordErrorType.CompsNotMatching,
             )
 
-
         if int(math.ceil(self.size) / self.dt) < 5:
             raise RecordError(
                 f"Record {self.id} duration is not long enough. Needs to be at least 5 seconds.",
-                RecordErrorType.Duration
+                RecordErrorType.Duration,
             )
-
 
         # Ensure time delay adjusted time-series still has more than 10 elements
         # Time delay < 0 when buffer start time is before event start time
@@ -146,10 +147,27 @@ class Record:
                 RecordErrorType.ZeroCrossings,
             )
 
-
     @classmethod
     def load_v1a(cls, v1a_ffp: str):
+        record_id = os.path.basename(v1a_ffp).split(".")[0]
         gf = GeoNet_File(v1a_ffp)
+
+        # Vertical only
+        if gf.comp_1st is None and gf.comp_2nd is None:
+            console.print(
+                f"[orange1]Record {record_id} - Missing horizontal components, "
+                f"using vertical (as all three are required for p-wave arrival estimation)[/]"
+            )
+
+            return cls(
+                gf.comp_up.acc,
+                gf.comp_up.acc,
+                gf.comp_up.acc,
+                gf.comp_up.delta_t,
+                record_id,
+                time_delay=gf.comp_up.time_delay,
+            )
+
 
         # Check that dt values are matching
         if not np.isclose(gf.comp_1st.delta_t, gf.comp_up.delta_t) or not np.isclose(
@@ -176,62 +194,19 @@ class Record:
             gf.comp_2nd.acc,
             gf.comp_up.acc,
             gf.comp_up.delta_t,
-            os.path.basename(v1a_ffp).split(".")[0],
+            record_id,
             time_delay=gf.comp_up.time_delay,
         )
 
     @classmethod
     def load_mseed(cls, mseed_ffp: str, inventory: Inventory = None):
-        inventory = inventory if inventory is not None else cls.inventory
-        st = read(mseed_ffp)
-        if len(st) == 3:
-            # Converts it to acceleration in m/s^2
-            if st[0].stats.channel[1] == "N":  # Checks whether data is strong motion
-                st_acc = st.copy().remove_sensitivity(inventory=inventory)
-            else:
-                st_acc = (
-                    st.copy().remove_sensitivity(inventory=inventory).differentiate()
-                )
+        record_id = os.path.basename(mseed_ffp).split(".")[0]
 
-            # This is a tad awkward, couldn't think of a better way
-            # of doing this though.
-            # Gets and converts the acceleration data to units g and
-            # singles out the vertical component (order of the horizontal
-            # ones does not matter)
-            acc_data, dt = {}, st_acc[0].stats["delta"]
-            for ix, cur_trace in enumerate(st_acc.traces):
-                if not np.isclose(cur_trace.stats["delta"], dt):
-                    raise RecordError(
-                        f"Record {os.path.basename(mseed_ffp).split('.')[0]} - "
-                        f"The delta_t values are not matching across the components",
-                        RecordErrorType.DtNotMatching,
-                    )
-
-                # Vertical channel
-                if "Z" in cur_trace.stats["channel"]:
-                    acc_data["z"] = cur_trace.data / G
-                else:
-                    acc_data[ix + 1] = cur_trace.data / G
-
-            return cls(
-                acc_data.get(1),
-                acc_data.get(2),
-                acc_data.get("z"),
-                dt,
-                os.path.basename(mseed_ffp).split(".")[0],
-            )
-        else:
-            raise ValueError(
-                f"Record {os.path.basename(mseed_ffp).split('.')[0]} has less than 3 traces"
-            )
-
-    @classmethod
-    def load(cls, ffp: str):
-        if os.path.basename(ffp).split(".")[-1].lower() == "v1a":
-            return cls.load_v1a(ffp)
-        elif os.path.basename(ffp).split(".")[-1].lower() == "mseed":
+        if inventory is None:
             if cls.inventory is None:
-                print("Loading the station inventory (this may take a few seconds)")
+                console.print(
+                    "Loading the station inventory (this may take a few seconds)"
+                )
                 client_NZ = FDSN_Client("GEONET")
                 inventory_NZ = client_NZ.get_stations(level="response")
                 client_IU = FDSN_Client("IRIS")
@@ -239,6 +214,52 @@ class Record:
                     network="IU", station="SNZO", level="response"
                 )
                 cls.inventory = inventory_NZ + inventory_IU
+            inventory = cls.inventory
+
+        st = read(mseed_ffp)
+        # Converts it to acceleration in m/s^2
+        if st[0].stats.channel[1] == "N":  # Checks whether data is strong motion
+            st_acc = st.copy().remove_sensitivity(inventory=inventory)
+        else:
+            st_acc = st.copy().remove_sensitivity(inventory=inventory).differentiate()
+
+        # Gets and converts the acceleration data to units g and
+        # singles out the vertical component (order of the horizontal
+        # ones does not matter)
+        acc_data, dt = {}, st_acc[0].stats["delta"]
+        for ix, cur_trace in enumerate(st_acc.traces):
+            if not np.isclose(cur_trace.stats["delta"], dt):
+                raise RecordError(
+                    f"Record {record_id} - "
+                    f"The delta_t values are not matching across the components",
+                    RecordErrorType.DtNotMatching,
+                )
+
+            # Vertical channel
+            if "Z" in cur_trace.stats["channel"]:
+                acc_data["z"] = cur_trace.data / G
+            else:
+                acc_data[ix + 1] = cur_trace.data / G
+
+        if len(acc_data) == 1 and "z" in acc_data:
+            console.print(
+                f"[orange1]Record {record_id} - Missing horizontal components, "
+                f"using vertical (as all three are required for p-wave arrival estimation)[/]"
+            )
+            acc_data[1] = acc_data[2] = acc_data["z"]
+        elif len(acc_data) < 3:
+            raise RecordError(
+                f"Record {record_id} - Missing components",
+                RecordErrorType.ComponentsMissing,
+            )
+
+        return cls(acc_data.get(1), acc_data.get(2), acc_data.get("z"), dt, record_id,)
+
+    @classmethod
+    def load(cls, ffp: str):
+        if os.path.basename(ffp).split(".")[-1].lower() == "v1a":
+            return cls.load_v1a(ffp)
+        elif os.path.basename(ffp).split(".")[-1].lower() == "mseed":
 
             return cls.load_mseed(ffp, cls.inventory)
 
@@ -648,7 +669,6 @@ def get_records_error_log(failed_records: Dict[Any, Dict[Any, List]]):
         )
 
     return output
-
 
 
 def filter_record_files(
