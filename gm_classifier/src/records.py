@@ -82,7 +82,7 @@ class Record:
 
         self.size = self._ref_acc.size
 
-        # Basics checks of the record
+        # Basic checks of the record
         self.__sanity_checking()
 
         self._is_preprocessed = False
@@ -136,16 +136,6 @@ class Record:
                 np.count_nonzero(np.multiply(cur_acc[0:-2], cur_acc[1:-1]) < 0)
             )
 
-        zeroc = 10 * np.min(zero_crossings) / (self.size * self.dt)
-
-        # Number of zero crossings per 10 seconds less than 10 equals
-        # means malfunctioned record
-        if zeroc < 10:
-            raise RecordError(
-                f"Record {self.id} - Number of zero crossings per 10 seconds "
-                f"less than 10 -> malfunctioned record",
-                RecordErrorType.ZeroCrossings,
-            )
 
     @classmethod
     def load_v1a(cls, v1a_ffp: str):

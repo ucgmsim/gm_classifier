@@ -25,7 +25,7 @@ import gm_classifier as gmc
 from gm_classifier.src.console import console
 
 
-def main(features_dir: Path, model_dir: Path, output_ffp: Path):
+def main(features_dir: Path, model_dir: Path, output_ffp: Path, n_preds: int = 25):
 
     console.print("Loading data")
     scalar_feature_config = ml_tools.utils.load_yaml(model_dir / "feature_config.yaml")
@@ -58,7 +58,7 @@ def main(features_dir: Path, model_dir: Path, output_ffp: Path):
         gmc_model,
         X_scalar,
         X_snr,
-        n_preds=25,
+        n_preds=n_preds,
         index=X_scalar.index.values.astype(str),
         multi_output=True,
     )

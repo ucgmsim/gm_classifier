@@ -45,22 +45,26 @@ def process_record(
         return_prob_series=True,
     )
 
+    freq_arrays, snr_arrays = [], []
     if p_wave_ix == 0:
         console.print(
-            f"\n{record.id}: P-wave ix == 0, SNR can therefore not be calculated. Skipped.",
-            color="red",
+            f"[orange1]\n{record.id}: P-wave ix == 0, SNR can therefore not be calculated[/]"
         )
-        return
-
-    freq_arrays, snr_arrays = [], []
-    for cur_acc in record.acc_arrays:
-        # Compute the fourier transform
-        ft_data = gmc.features.comp_fourier_data(
-            np.copy(cur_acc), t, record.dt, p_wave_ix, ko_matrices
-        )
-
-        freq_arrays.append(ft_data.ft_freq_signal)
-        snr_arrays.append(ft_data.smooth_ft_signal / ft_data.smooth_ft_pe)
+        freq_arrays = snr_arrays = [None, None, None]
+    else:
+        for cur_acc in record.acc_arrays:
+            # Compute the fourier transform
+            try:
+                ft_data = gmc.features.comp_fourier_data(
+                    np.copy(cur_acc), t, record.dt, p_wave_ix, ko_matrices
+                )
+            except KeyError as ex:
+                console.print(f"[red]\nRecord {record.id} - No konno matrix found for size {ex.args[0]}. Skipping![/]")
+                freq_arrays.append(None)
+                snr_arrays.append(None)
+            else:
+                freq_arrays.append(ft_data.ft_freq_signal)
+                snr_arrays.append(ft_data.smooth_ft_signal / ft_data.smooth_ft_pe)
 
     # Create the plot
     fig = plt.figure(figsize=(16, 10))
@@ -84,6 +88,9 @@ def process_record(
         if ix == 2:
             wave_form_ax.set_xlabel("time")
 
+        if cur_snr is None:
+            continue
+
         snr_ax = fig.add_subplot(4, 2, (ix + 1) * 2, sharex=snr_ax)
         snr_ax.plot(cur_freq, cur_snr, c=c)
         snr_ax.axhline(2.0, c="k", linestyle="--", linewidth=1)
@@ -106,29 +113,33 @@ def process_record(
     if results_df is not None:
         cur_result_df = results_df.loc[results_df.record == record.id]
 
-        ax_text = fig.add_subplot(4, 2, 8)
-        ax_text.text(
-            0.0,
-            0.7,
-            f"{record.id}\n\n"
-            + "\n\n".join(
-                [
-                    f"{cur_comp[1]} - "
-                    f"Score: {cur_result_df.loc[record.id + cur_comp, 'score_mean']:.2f} "
-                    f"+/- {cur_result_df.loc[record.id + cur_comp, 'score_std']:.3f}, "
-                    f"Fmin: {cur_result_df.loc[record.id + cur_comp, 'fmin_mean']:.2f} "
-                    f"+/- {cur_result_df.loc[record.id + cur_comp, 'fmin_std']:.3f}, "
-                    f"Multi: {cur_result_df.loc[record.id + cur_comp, 'multi_mean']:.2f} "
-                    f"+/- {cur_result_df.loc[record.id + cur_comp, 'multi_std']:.3f}"
-                    for cur_comp in ["_X", "_Y", "_Z"]
-                ]
-            ),
-            horizontalalignment="left",
-            verticalalignment="top",
-            transform=ax_text.transAxes,
-        )
+        if cur_result_df.shape[0] == 3:
+            ax_text = fig.add_subplot(4, 2, 8)
+            ax_text.text(
+                0.0,
+                0.7,
+                f"{record.id}\n\n"
+                + "\n\n".join(
+                    [
+                        f"{cur_comp[1]} - "
+                        f"Score: {cur_result_df.loc[record.id + cur_comp, 'score_mean']:.2f} "
+                        f"+/- {cur_result_df.loc[record.id + cur_comp, 'score_std']:.3f}, "
+                        f"Fmin: {cur_result_df.loc[record.id + cur_comp, 'fmin_mean']:.2f} "
+                        f"+/- {cur_result_df.loc[record.id + cur_comp, 'fmin_std']:.3f}, "
+                        f"Multi: {cur_result_df.loc[record.id + cur_comp, 'multi_mean']:.2f} "
+                        f"+/- {cur_result_df.loc[record.id + cur_comp, 'multi_std']:.3f}"
+                        for cur_comp in ["_X", "_Y", "_Z"]
+                    ]
+                ),
+                horizontalalignment="left",
+                verticalalignment="top",
+                transform=ax_text.transAxes,
+            )
 
-        ax_text.axison = False
+            ax_text.axison = False
+        else:
+            console.print(f"[orange1]\nRecord {record.id} - "
+                          f"Results missing for some components, skipping result labels[/]")
 
     fig.tight_layout()
     fig.subplots_adjust(hspace=0.0)
