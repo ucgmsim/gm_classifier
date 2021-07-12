@@ -8,7 +8,6 @@ from typing import Dict
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 import warnings
-
 warnings.filterwarnings("ignore", category=UserWarning)
 
 import pandas as pd
@@ -28,12 +27,11 @@ def process_record(
 ):
     try:
         record = gmc.records.Record.load(str(record_ffp))
+        record.record_preprocesing()
     except gmc.records.RecordError as ex:
         console.print(
-            f"\n{gmc.records.get_record_id(str(record_ffp))}: "
-            f"Failed to load record. Due to the error - {ex.error_type}, ffp: {record_ffp}",
-            color="red",
-        )
+            f"[red]\n{gmc.records.get_record_id(str(record_ffp))}: "
+            f"Failed to load record. Due to the error - {ex.error_type}, ffp: {record_ffp}[/]")
         return
 
     # Create the time vector

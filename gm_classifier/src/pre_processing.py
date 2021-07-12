@@ -48,7 +48,7 @@ def train_test_split(*dfs):
     assert np.all([np.all(cur_df.index == index) for cur_df in dfs])
 
     train_ids, val_ids = sklearn.model_selection.train_test_split(
-        np.unique(index.values.astype(str)), test_size=0.2
+        np.unique(index.values.astype(str)), test_size=0.2, random_state=12
     )
 
     result = []
@@ -57,7 +57,6 @@ def train_test_split(*dfs):
         result.append(cur_df.loc[val_ids])
 
     return tuple(result + [train_ids, val_ids])
-    # return X.loc[train_ids], X.loc[val_ids], y.loc[train_ids], y.loc[val_ids], train_ids, val_ids
 
 
 # ---- old -----

@@ -31,9 +31,6 @@ class RecordErrorType(Enum):
     # Time delay adjusted time series has less than 10 data points
     NQuakePoints = 3
 
-    # Not enough zero crossings
-    ZeroCrossings = 4
-
     # Dt is different between components
     DtNotMatching = 5
 
@@ -614,14 +611,6 @@ def get_records_error_log(failed_records: Dict[Any, Dict[Any, List]]):
             "time delay adjusted timeseries having less than "
             "10 datapoints:\n{}".format(
                 "\n".join(record_erros[RecordErrorType.NQuakePoints])
-            )
-        )
-    if len(record_erros[RecordErrorType.ZeroCrossings]) > 0:
-        output += "\n" + (
-            "The following records failed processing due to "
-            "not meeting the required number of "
-            "zero crossings:\n{}".format(
-                "\n".join(record_erros[RecordErrorType.ZeroCrossings])
             )
         )
     if len(failed_records["empty_file"]) > 0:

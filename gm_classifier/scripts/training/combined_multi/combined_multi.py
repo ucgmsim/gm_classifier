@@ -34,8 +34,8 @@ label_dir = Path(
 )
 
 features_dir = Path(
-    # "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210226"
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210527"
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210615"
+    # "/home/claudy/dev/work/tmp/multi_invs/new_features/feature_set"
 )
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
 ignore_ids_ffp = label_dir / "ignore_ids.txt"
@@ -50,12 +50,14 @@ snr_feature_names = [
 ]
 hyperparams = ml_tools.utils.load_yaml("./hyperparams.yaml")
 
+console.print("[green]Loading scalar features[/]")
 X_scalar, label_df = gmc.data.load_dataset(
     features_dir,
     label_dir,
     ignore_ids_ffp,
     features=list(scalar_feature_config.keys()),
 )
+console.print("[green]Loading SNR series[/]")
 X_snr, _ = gmc.data.load_dataset(
     features_dir, label_dir, ignore_ids_ffp, features=list(snr_feature_names),
 )
