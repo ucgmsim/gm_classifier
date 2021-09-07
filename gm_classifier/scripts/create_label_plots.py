@@ -24,6 +24,7 @@ def process_record(
     ko_matrices: Dict,
     output_dir: Path,
     results_df: pd.DataFrame = None,
+    label_df: pd.DataFrame = None,
 ):
     try:
         record = gmc.records.Record.load(str(record_ffp))
@@ -138,6 +139,33 @@ def process_record(
         else:
             console.print(f"[orange1]\nRecord {record.id} - "
                           f"Results missing for some components, skipping result labels[/]")
+    elif label_df is not None:
+
+        if record.id in label_df.index:
+            cur_label_row = label_df.loc[record.id]
+
+            ax_text = fig.add_subplot(4, 2, 8)
+            ax_text.text(
+                0.0,
+                0.7,
+                f"{record.id}\n\n"
+                + "\n\n".join(
+                    [
+                        f"{cur_comp[1]} - "
+                        f"Score: {cur_label_row.loc[f'Man_Score{cur_comp}']:.2f} "
+                        f"Fmin: {cur_label_row.loc[f'Min_Freq{cur_comp}']:.2f} "
+                        for cur_comp in ["_X", "_Y", "_Z"]
+                    ]
+                ),
+                horizontalalignment="left",
+                verticalalignment="top",
+                transform=ax_text.transAxes,
+            )
+
+            ax_text.axison = False
+        else:
+            console.print(f"[orange1]\nRecord {record.id} - "
+                          f"Labels missing, skipping label[/]")
 
     fig.tight_layout()
     fig.subplots_adjust(hspace=0.0)
@@ -154,8 +182,10 @@ def main(
     output_dir: Path,
     ko_matrices_dir: Path,
     results_ffp: Path = None,
+    labels_ffp: Path = None,
 ):
     results_df = None if results_ffp is None else pd.read_csv(results_ffp, index_col=0)
+    label_df = None if labels_ffp is None else pd.read_csv(labels_ffp, index_col=0)
 
     # Get the record ids of interest
     with open(record_list_ffp, "r") as f:
@@ -225,12 +255,12 @@ def main(
     # Process
     with typer.progressbar(record_ffps) as progress:
         for cur_record_ffp in progress:
-            # try:
-            process_record(
-                cur_record_ffp, konno_matrices, output_dir, results_df=results_df
-            )
-            # except:
-            #     console.print("\nFailed to process record")
+            try:
+                process_record(
+                    cur_record_ffp, konno_matrices, output_dir, results_df=results_df, label_df=label_df
+                )
+            except:
+                console.print("\nFailed to process record")
 
 
 if __name__ == "__main__":
