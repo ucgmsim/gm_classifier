@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, Sequence
 
 import wandb
 import imageio
@@ -38,7 +38,12 @@ def plot_record(record: Record):
 
 
 def plot_loss(
-    history: Dict, ax: plt.Axes = None, output_ffp: str = None, fig_kwargs: Dict = None
+    history: Dict,
+    ax: plt.Axes = None,
+    output_ffp: str = None,
+    add_loss_keys: Sequence[Tuple[str, str]] = None,
+    ylim: Tuple[float, float] = None,
+    fig_kwargs: Dict = None,
 ):
     """Plots single output loss"""
     fig = None
@@ -57,8 +62,21 @@ def plot_loss(
             label=f"Validation - {np.min(history['val_loss']):.2f}",
         )
 
+    if add_loss_keys is not None:
+        for cur_key, cur_line_params in add_loss_keys:
+            ax.plot(
+                epochs,
+                history[cur_key],
+                cur_line_params,
+                label=f"{cur_key} - {np.min(history[cur_key]):.2f}",
+            )
+
     ax.legend()
     ax.grid(True, alpha=0.5, linestyle="--")
+
+    if ylim is not None:
+        ax.set_ylim(ylim)
+
     fig.tight_layout()
 
     if output_ffp is not None:
@@ -122,7 +140,14 @@ def plot_multi_loss(
     return fig, ax
 
 
-def plot_confusion_matrix(y_true: np.ndarray, y_est: np.ndarray, output_dir: Path, prefix: str, label: str, wandb_save: bool = True):
+def plot_confusion_matrix(
+    y_true: np.ndarray,
+    y_est: np.ndarray,
+    output_dir: Path,
+    prefix: str,
+    label: str,
+    wandb_save: bool = True,
+):
     conf_matrix = confusion_matrix(y_true, y_est)
 
     fig, ax = plt.subplots(figsize=(7.5, 7.5))
@@ -145,6 +170,7 @@ def plot_confusion_matrix(y_true: np.ndarray, y_est: np.ndarray, output_dir: Pat
         wandb.save(str(f"{out_name}.png"))
 
     plt.close()
+
 
 def plot_true_vs_est(
     y_est: np.ndarray,
@@ -415,14 +441,14 @@ def plot_score_true_vs_est(
     wandb_save: bool = True,
 ):
     y = label_df.score
-    multi_eq_ids = label_df.index.values.astype(str)[label_df.multi_eq]
+    multi_eq_ids = label_df.index.values.astype(str)[label_df.multi]
     malf_ids = label_df.index.values.astype(str)[label_df.malf]
 
     noise = pd.Series(
         index=label_df.index, data=np.random.normal(0, 0.01, label_df.shape[0])
     )
 
-    fig, ax = plt.subplots(figsize=(16, 10))
+    fig, ax = plt.subplots(figsize=(16, 10), dpi=200)
     ax.scatter(
         y_est.values, y.values + noise.values, label="Normal", c="b", s=4.0, marker=".",
     )
@@ -469,7 +495,7 @@ def plot_fmin_true_vs_est(
     wandb_save: bool = True,
     zoom: bool = False,
 ):
-    y = label_df.f_min
+    y = label_df.fmin
 
     fig, ax = plt.subplots(figsize=(16, 10))
     scatter = ax.scatter(

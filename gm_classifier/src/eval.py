@@ -199,6 +199,8 @@ def print_combined_model_eval(
         np.std(total_loss_values),
     )
 
+    score_loss_mean, score_loss_std = np.mean(score_loss_values), np.std(score_loss_values)
+
     console.print(
         f"\n[bold]{prefix} - Total (weighted) Loss:[/] \n\t{total_loss_mean:.4f} +/- {total_loss_std:.4f}")
 
@@ -216,6 +218,9 @@ def print_combined_model_eval(
     if wandb_save:
         wandb.run.summary[f"final_{prefix}_total_loss_mean"] = total_loss_mean
         wandb.run.summary[f"final_{prefix}_total_loss_std"] = total_loss_std
+
+        wandb.run.summary[f"final_{prefix}_score_loss_mean"] = score_loss_mean
+        wandb.run.summary[f"final_{prefix}_score_loss_std"] = score_loss_std
 
         for cur_true_val, cur_mean, cur_std in zip(true_values, score_metric_mean, score_metric_std):
             wandb.run.summary[f"final_{prefix}_score_mean_class_acc_{cur_true_val}"] = cur_mean

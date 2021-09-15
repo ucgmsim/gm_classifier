@@ -16,12 +16,16 @@ from . import pre_processing as pre
 def get_fmin_sample_weights(scores: np.ndarray, lookup: Dict):
     return np.asarray([lookup[cur_score] for cur_score in scores])
 
+@tf.function
+def squared_error(y_true, y_pred):
+    return tf.square(y_true - y_pred)
 
 class FMinLoss(keras.losses.Loss):
 
     def __init__(
         self,
         fmin_weights_mapping: Dict,
+        base_loss_fn: Callable = squared_error,
         **kwargs,
     ):
         """
@@ -33,6 +37,7 @@ class FMinLoss(keras.losses.Loss):
         """
         super().__init__(**kwargs)
 
+        self.base_loss_fn = base_loss_fn
         self.fmin_weights_mapping = fmin_weights_mapping
 
         # Setup of f_min weights lookup
@@ -56,7 +61,7 @@ class FMinLoss(keras.losses.Loss):
         f_min_pred = y_pred[:, 1]
 
         # Compute the f_min loss
-        fmin_sample_loss = squared_error(f_min_true, f_min_pred)
+        fmin_sample_loss = self.base_loss_fn(f_min_true, f_min_pred)
 
         # Min/max scale
         # fmin_sample_loss = pre.tf_min_max_scale(fmin_sample_loss, 0.0, 1.0, 0.0, self.fmin_max)
@@ -346,11 +351,6 @@ def _match_keys(key_filter: str, columns: np.ndarray):
 def mape(y_true, y_pred):
     """Mean absolute percentage error"""
     return tf.reduce_sum(tf.abs(y_true - y_pred) / y_true, axis=1)
-
-
-@tf.function
-def squared_error(y_true, y_pred):
-    return tf.square(y_true - y_pred)
 
 
 def create_huber(threshold: float = 1.0):

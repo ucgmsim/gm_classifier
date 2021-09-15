@@ -1,7 +1,7 @@
 program: combined_multi.py
 method: bayes
 metric:
-  name: final_val_total_loss_mean
+  name: final_val_score_loss_mean
   goal: minimize
 parameters:
   snr_n_cnn_layers:
@@ -125,5 +125,5 @@ parameters:
       - 128
 
 command:
-  - /home/cbs51/dev/envs/gmc/bin/python
+  - /home/claudy/dev/envs/gmc-2/bin/python
   - ${program}

@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 import tensorflow.keras as keras
 import wandb
@@ -29,8 +30,8 @@ from gm_classifier.src.console import console
 
 # --------------- Config ------------------
 
-label_dir = Path(
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels"
+label_ffp = Path(
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels/relabel_0903/labels.csv"
 )
 
 features_dir = Path(
@@ -38,9 +39,9 @@ features_dir = Path(
     # "/home/claudy/dev/work/tmp/multi_invs/new_features/feature_set"
 )
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
-ignore_ids_ffp = label_dir / "ignore_ids.txt"
+ignore_ids_ffp = label_ffp / "ignore_ids.txt"
 
-tags = ["combined_multi"]
+tags = ["combined_multi", "relabelled", "huber", f"features_{str(features_dir.stem)}", "loss-weights-2.0,0.1,0.1"]
 
 # --------------- Loading ------------------
 scalar_feature_config = ml_tools.utils.load_yaml("./feature_config.yaml")
@@ -52,18 +53,16 @@ hyperparams = ml_tools.utils.load_yaml("./hyperparams.yaml")
 
 console.print("[green]Loading scalar features[/]")
 X_scalar, label_df = gmc.data.load_dataset(
-    features_dir,
-    label_dir,
-    ignore_ids_ffp,
-    features=list(scalar_feature_config.keys()),
+    features_dir, label_ffp, features=list(scalar_feature_config.keys()),
 )
 console.print("[green]Loading SNR series[/]")
 X_snr, _ = gmc.data.load_dataset(
-    features_dir, label_dir, ignore_ids_ffp, features=list(snr_feature_names),
+    features_dir, label_ffp, features=list(snr_feature_names),
 )
+assert np.all(X_snr.index == X_scalar.index)
 
-y_score, y_fmin = label_df["score"], label_df["f_min"]
-y_multi = label_df["multi_eq"].astype(int)
+y_score, y_fmin = label_df["score"], label_df["fmin"]
+y_multi = label_df["multi"].astype(int)
 
 console.print(f"Number of labelled samples: {label_df.shape[0]}")
 
@@ -116,24 +115,28 @@ gmc_model = gmc.model.build_combined_model(
 
 # Setting to 0.0, results in nan values, so set to very small value
 weight_lookup = {1.0: 1.0, 0.75: 0.75, 0.5: 0.1, 0.25: 1e-8, 0.0: 1e-8}
-fmin_loss = gmc.training.FMinLoss(weight_lookup)
+fmin_loss = gmc.training.FMinLoss(weight_lookup, base_loss_fn=gmc.training.create_huber(1.0))
 
-loss_weights = [1.0, 0.1, 1.0]
+loss_weights = [2.0, 0.1, 0.1]
 gmc_model.compile(
     optimizer=hyperparams["optimizer"],
     loss={
-        "score": keras.losses.mse,
+        # "score": keras.losses.mse,
+        "score": gmc.training.create_huber(0.5),
         "fmin": fmin_loss,
         "multi": keras.losses.binary_crossentropy,
     },
     loss_weights=loss_weights,
-    metrics={"score": [
-        gmc.eval.ClassAcc(0.0),
-        gmc.eval.ClassAcc(0.25),
-        gmc.eval.ClassAcc(0.5),
-        gmc.eval.ClassAcc(0.75),
-        gmc.eval.ClassAcc(1.0),
-    ], "fmin": fmin_loss, "multi": [keras.metrics.Precision(), keras.metrics.Recall()]},
+    metrics={
+        "score": [
+            gmc.eval.ClassAcc(0.0),
+            gmc.eval.ClassAcc(0.25),
+            gmc.eval.ClassAcc(0.5),
+            gmc.eval.ClassAcc(0.75),
+            gmc.eval.ClassAcc(1.0),
+        ],
+        "multi": [keras.metrics.Precision(), keras.metrics.Recall()],
+    },
     # run_eagerly=True
 )
 
@@ -188,7 +191,9 @@ history = gmc_model.fit(
 console.print("Saving the model")
 model_dir = output_dir / "model"
 gmc_model.save(model_dir)
-shutil.copy(Path(__file__).parent / "feature_config.yaml", model_dir / "feature_config.yaml")
+shutil.copy(
+    Path(__file__).parent / "feature_config.yaml", model_dir / "feature_config.yaml"
+)
 
 console.print("Saving pre-processing parameters")
 ml_tools.utils.write_pickle(pre_params, model_dir / "pre_params.pickle")
@@ -226,16 +231,27 @@ gmc.eval.print_combined_model_eval(
 )
 
 gmc.plots.plot_loss(
-    history, output_ffp=str(output_dir / "loss.png"), fig_kwargs=dict(figsize=(16, 10))
+    history,
+    output_ffp=str(output_dir / "loss.png"),
+    fig_kwargs=dict(figsize=(16, 10)),
+    add_loss_keys=[
+        ("score_loss", "b-"),
+        ("val_score_loss", "b--"),
+        ("fmin_loss", "g-"),
+        ("val_fmin_loss", "g--"),
+        ("multi_loss", "c-"),
+        ("val_multi_loss", "c--"),
+    ],
+    ylim=(0.0, 1.0)
 )
 
 (
     y_score_est_train,
-    _,
+    y_score_est_train_std,
     y_fmin_est_train,
-    __,
+    y_fmin_est_train_std,
     y_multi_est_train,
-    ___,
+    y_multi_est_train_std,
 ) = gmc.eval.get_combined_prediction(
     gmc_model,
     X_scalar_train,
@@ -247,11 +263,11 @@ gmc.plots.plot_loss(
 
 (
     y_score_est_val,
-    _,
+    y_score_est_val_std,
     y_fmin_est_val,
-    __,
+    y_fmin_est_val_std,
     y_multi_est_val,
-    ____,
+    y_multi_est_val_std,
 ) = gmc.eval.get_combined_prediction(
     gmc_model,
     X_scalar_val,
@@ -296,5 +312,10 @@ gmc.plots.plot_fmin_true_vs_est(
 gmc.plots.plot_fmin_true_vs_est(
     label_df.loc[val_ids], y_fmin_est_val, output_dir, title="validation", zoom=True
 )
+
+val_result_df = pd.concat([y_score_est_val, y_score_est_val_std, y_fmin_est_val, y_fmin_est_val_std, y_multi_est_val, y_multi_est_val_std], axis=1)
+val_result_df["record"] = np.stack(np.char.rsplit(y_score_est_val.index.values.astype(str), "_", 1))[:, 0]
+val_result_df["component"] = np.stack(np.char.rsplit(y_score_est_val.index.values.astype(str), "_", 1))[:, -1]
+
 
 exit()

@@ -26,7 +26,6 @@ from gm_classifier.src.console import console
 
 
 def main(features_dir: Path, model_dir: Path, output_ffp: Path, n_preds: int = 25):
-
     console.print("Loading data")
     scalar_feature_config = ml_tools.utils.load_yaml(model_dir / "feature_config.yaml")
     snr_feature_names = [

@@ -9,21 +9,24 @@ from . import utils
 
 def load_dataset(
     features_dir: Path,
-    label_dir: Path,
-    ignore_ids_ffp: Path,
+    label_ffp: Path,
     labels: Sequence[str] = None,
     features: Sequence[str] = None,
 ):
-    label_dfs = utils.load_labels_from_dir(
-        str(label_dir),
-        f_min_100_value=10,
-        drop_na=True,
-        drop_f_min_101=True,
-        malf_score_value=0.0,
-        multi_eq_score_value=0.0,
-        merge=False,
-        ignore_ids_ffp=ignore_ids_ffp,
-    )
+    label_df = pd.read_csv(label_ffp, index_col=0)
+    label_df = label_df.loc[
+        (label_df.processed == True)
+        & (label_df.good_drop == False)
+        & (label_df.multi_drop == False)
+        & (label_df.other_drop == False)
+    ]
+
+    label_dfs = []
+    for cur_comp in ["x", "y", "z"]:
+        cur_df = label_df.loc[:, [f"score_{cur_comp}", f"fmin_{cur_comp}", "multi", "malf"]]
+        cur_df.columns = ["score", "fmin", "multi", "malf"]
+        label_dfs.append(cur_df)
+
     feature_dfs = utils.load_features_from_dir(features_dir, concat=False)
 
     avail_ids = np.intersect1d(
@@ -41,6 +44,5 @@ def load_dataset(
     if features is not None:
         feature_df = feature_df.loc[:, features]
 
+    assert np.all(feature_df.index == label_df.index)
     return feature_df, label_df
-
-

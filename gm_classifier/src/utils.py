@@ -121,7 +121,7 @@ def load_labels_from_dir(
         Directory that contains the label files
     glob_filter: str, optional
         Glob filter that allows filtering which files to use
-        (in the specified label_dir)
+        (in the specified label_ffp)
     drop_na: bool, optional
         If true, drops samples with invalid/bad scores or f_fmin
 
