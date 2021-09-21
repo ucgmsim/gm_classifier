@@ -35,8 +35,7 @@ label_ffp = Path(
 )
 
 features_dir = Path(
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210615"
-    # "/home/claudy/dev/work/tmp/multi_invs/new_features/feature_set"
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210906"
 )
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
 ignore_ids_ffp = label_ffp / "ignore_ids.txt"
@@ -116,13 +115,18 @@ gmc_model = gmc.model.build_combined_model(
 # Setting to 0.0, results in nan values, so set to very small value
 weight_lookup = {1.0: 1.0, 0.75: 0.75, 0.5: 0.1, 0.25: 1e-8, 0.0: 1e-8}
 fmin_loss = gmc.training.FMinLoss(weight_lookup, base_loss_fn=gmc.training.create_huber(1.0))
+# fmin_loss = gmc.training.FMinLoss(weight_lookup, base_loss_fn=keras.losses.mse)
+score_loss = gmc.training.create_huber(0.5)
+
+def fmin_loss_metric_fn(y, y_est):
+    return fmin_loss.call(y, y_est)
 
 loss_weights = [2.0, 0.1, 0.1]
 gmc_model.compile(
     optimizer=hyperparams["optimizer"],
     loss={
         # "score": keras.losses.mse,
-        "score": gmc.training.create_huber(0.5),
+        "score": score_loss,
         "fmin": fmin_loss,
         "multi": keras.losses.binary_crossentropy,
     },
@@ -135,9 +139,10 @@ gmc_model.compile(
             gmc.eval.ClassAcc(0.75),
             gmc.eval.ClassAcc(1.0),
         ],
+        "fmin": fmin_loss_metric_fn,
         "multi": [keras.metrics.Precision(), keras.metrics.Recall()],
     },
-    # run_eagerly=True
+    run_eagerly=False
 )
 
 # --------------- Save & print details ------------------
@@ -153,6 +158,8 @@ ml_tools.utils.save_print_data(
     y_score_val=y_score_val,
     y_fmin_train=y_fmin_train,
     y_fmin_val=y_fmin_val,
+    train_ids=train_ids,
+    val_ids=val_ids,
     loss_weights={"score_loss": loss_weights[0], "fmin_loss": loss_weights[1]},
     model=gmc_model,
 )
@@ -206,7 +213,7 @@ gmc.eval.print_combined_model_eval(
     X_snr_train,
     y_score_train.values.astype(np.float32),
     y_fmin_train.values.astype(np.float32),
-    keras.losses.mse,
+    score_loss,
     fmin_loss,
     fmin_loss,
     score_loss_weight=loss_weights[0],
@@ -220,7 +227,7 @@ gmc.eval.print_combined_model_eval(
     X_snr_val,
     y_score_val.values.astype(np.float32),
     y_fmin_val.values.astype(np.float32),
-    keras.losses.mse,
+    score_loss,
     fmin_loss,
     fmin_loss,
     score_loss_weight=loss_weights[0],
@@ -312,10 +319,5 @@ gmc.plots.plot_fmin_true_vs_est(
 gmc.plots.plot_fmin_true_vs_est(
     label_df.loc[val_ids], y_fmin_est_val, output_dir, title="validation", zoom=True
 )
-
-val_result_df = pd.concat([y_score_est_val, y_score_est_val_std, y_fmin_est_val, y_fmin_est_val_std, y_multi_est_val, y_multi_est_val_std], axis=1)
-val_result_df["record"] = np.stack(np.char.rsplit(y_score_est_val.index.values.astype(str), "_", 1))[:, 0]
-val_result_df["component"] = np.stack(np.char.rsplit(y_score_est_val.index.values.astype(str), "_", 1))[:, -1]
-
 
 exit()

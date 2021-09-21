@@ -14,7 +14,7 @@ def main(
     for record_ffp in record_ffps:
         record = gmc.records.Record.load(str(record_ffp))
 
-        fig = gmc.plots.plot_record(record)
+        fig = gmc.plots.plot_record_simple(record)
 
         if output_dir is None:
             plt.show()

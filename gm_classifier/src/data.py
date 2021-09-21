@@ -16,6 +16,7 @@ def load_dataset(
     label_df = pd.read_csv(label_ffp, index_col=0)
     label_df = label_df.loc[
         (label_df.processed == True)
+        & (label_df.investigate == False)
         & (label_df.good_drop == False)
         & (label_df.multi_drop == False)
         & (label_df.other_drop == False)
@@ -32,8 +33,18 @@ def load_dataset(
     avail_ids = np.intersect1d(
         label_dfs[0].index.values.astype(str), feature_dfs[0].index.values.astype(str)
     )
+
     feature_dfs = [cur_df.loc[avail_ids] for cur_df in feature_dfs]
     label_dfs = [cur_df.loc[avail_ids] for cur_df in label_dfs]
+
+    # for ix, cur_comp in enumerate(["X", "Y", "Z"]):
+    #     cur_label_df = label_dfs[ix].loc[avail_ids]
+    #     cur_label_df.index = np.char.add(cur_label_df.index.values.astype(str), f"_{cur_comp}")
+    #     label_dfs[ix] = cur_label_df
+    #
+    #     cur_feature_df = feature_dfs[ix].loc[avail_ids]
+    #     cur_feature_df.index = np.char.add(cur_feature_df.index.values.astype(str), f"_{cur_comp}")
+    #     feature_dfs[ix] = cur_feature_df
 
     label_df = pd.concat(label_dfs, axis=0)
     feature_df = pd.concat(feature_dfs, axis=0)

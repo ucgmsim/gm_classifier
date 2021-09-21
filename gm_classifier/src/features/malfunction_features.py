@@ -68,7 +68,12 @@ def lowres_detector(arr):
 
     diff_arr = np.abs(np.diff(arr))
 
-    lowres_factor = ((len(diff_arr) - len(np.unique(diff_arr))) / len(diff_arr)) ** 10
+    n_levels = len(np.unique(diff_arr))
+    lowres_factor = ((len(diff_arr) - n_levels) / len(diff_arr)) ** 10
+
+    # Apply a linear decaying weighting function, so that acc series
+    # with acc > 120 have lowres == 0 regardless of length
+    lowres_factor = lowres_factor * max((1.0 - (n_levels - 50) * 0.0125), 0.0)
 
     return lowres_factor
 

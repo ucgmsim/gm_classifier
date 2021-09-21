@@ -182,6 +182,10 @@ def print_combined_model_eval(
         np.asarray(score_loss_values),
         np.asarray(fmin_loss_values),
     )
+
+    if len(score_loss_values.shape) == 2:
+        score_loss_values = np.mean(score_loss_values, axis=1)
+
     total_loss_values = score_loss_values * score_loss_weight + fmin_loss_values * fmin_loss_weight
 
     score_metric_mean = np.mean(np.asarray(score_metric_values), axis=0)

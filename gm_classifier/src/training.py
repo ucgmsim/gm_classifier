@@ -21,7 +21,6 @@ def squared_error(y_true, y_pred):
     return tf.square(y_true - y_pred)
 
 class FMinLoss(keras.losses.Loss):
-
     def __init__(
         self,
         fmin_weights_mapping: Dict,
