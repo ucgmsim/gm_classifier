@@ -18,7 +18,6 @@ import numpy as np
 import typer
 
 import gm_classifier as gmc
-from gm_classifier.src.console import console
 
 
 def main(

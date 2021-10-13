@@ -6,8 +6,6 @@ import pandas as pd
 import tensorflow as tf
 import tensorflow.keras as keras
 
-import ml_tools
-
 # Grow the GPU memory usage as needed
 gpus = tf.config.experimental.list_physical_devices("GPU")
 if gpus:
@@ -27,7 +25,7 @@ from gm_classifier.src.console import console
 
 def main(features_dir: Path, model_dir: Path, output_ffp: Path, n_preds: int = 25):
     console.print("Loading data")
-    scalar_feature_config = ml_tools.utils.load_yaml(model_dir / "feature_config.yaml")
+    scalar_feature_config = gmc.utils.load_yaml(model_dir / "feature_config.yaml")
     snr_feature_names = [
         f"snr_value_{freq:.3f}"
         for freq in np.logspace(np.log(0.01), np.log(25), 100, base=np.e)
@@ -38,7 +36,7 @@ def main(features_dir: Path, model_dir: Path, output_ffp: Path, n_preds: int = 2
     X_snr = feature_df.loc[:, snr_feature_names]
 
     console.print("Pre-processing")
-    pre_params = ml_tools.utils.load_picke(model_dir / "pre_params.pickle")
+    pre_params = gmc.utils.load_picke(model_dir / "pre_params.pickle")
     gmc.pre.run_preprocessing(X_scalar, scalar_feature_config, params=pre_params)
     X_snr = X_snr.apply(np.log).values[..., None]
 

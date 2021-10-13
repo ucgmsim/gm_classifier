@@ -1,16 +1,11 @@
-"""Combined model that also returns probability of being a multi-eq"""
-import pickle
 import shutil
 from pathlib import Path
 
+import wandb
 import numpy as np
-import pandas as pd
 import tensorflow as tf
 import tensorflow.keras as keras
-import wandb
 from wandb.keras import WandbCallback
-
-import ml_tools
 
 # Grow the GPU memory usage as needed
 gpus = tf.config.experimental.list_physical_devices("GPU")
@@ -38,17 +33,16 @@ features_dir = Path(
     "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210906"
 )
 base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
-ignore_ids_ffp = label_ffp / "ignore_ids.txt"
 
-tags = ["combined_multi", "relabelled", "huber", f"features_{str(features_dir.stem)}", "loss-weights-2.0,0.1,0.1"]
+tags = [f"features_{str(features_dir.stem)}"]
 
 # --------------- Loading ------------------
-scalar_feature_config = ml_tools.utils.load_yaml("./feature_config.yaml")
+scalar_feature_config = gmc.utils.load_yaml("./feature_config.yaml")
 snr_feature_names = [
     f"snr_value_{freq:.3f}"
     for freq in np.logspace(np.log(0.01), np.log(25), 100, base=np.e)
 ]
-hyperparams = ml_tools.utils.load_yaml("./hyperparams.yaml")
+hyperparams = gmc.utils.load_yaml("./hyperparams.yaml")
 
 console.print("[green]Loading scalar features[/]")
 X_scalar, label_df = gmc.data.load_dataset(
@@ -102,10 +96,8 @@ wandb.init(config=hyperparams, project="gmc", name=run_id, tags=tags)
 hyperparams = wandb.config
 
 # --------------- Build & compile model ------------------
-
-
-model_config = gmc.model.get_combined_model_config(hyperparams)
-gmc_model = gmc.model.build_combined_model(
+model_config = gmc.model.get_model_config(hyperparams)
+gmc_model = gmc.model.build_model(
     model_config,
     len(scalar_feature_config.keys()),
     X_snr_train.shape[1],
@@ -115,7 +107,6 @@ gmc_model = gmc.model.build_combined_model(
 # Setting to 0.0, results in nan values, so set to very small value
 weight_lookup = {1.0: 1.0, 0.75: 0.75, 0.5: 0.1, 0.25: 1e-8, 0.0: 1e-8}
 fmin_loss = gmc.training.FMinLoss(weight_lookup, base_loss_fn=gmc.training.create_huber(1.0))
-# fmin_loss = gmc.training.FMinLoss(weight_lookup, base_loss_fn=keras.losses.mse)
 score_loss = gmc.training.create_huber(0.5)
 
 def fmin_loss_metric_fn(y, y_est):
@@ -125,7 +116,6 @@ loss_weights = [2.0, 0.1, 0.1]
 gmc_model.compile(
     optimizer=hyperparams["optimizer"],
     loss={
-        # "score": keras.losses.mse,
         "score": score_loss,
         "fmin": fmin_loss,
         "multi": keras.losses.binary_crossentropy,
@@ -146,7 +136,7 @@ gmc_model.compile(
 )
 
 # --------------- Save & print details ------------------
-ml_tools.utils.save_print_data(
+gmc.utils.save_print_data(
     output_dir,
     feature_config=(scalar_feature_config, True),
     hyperparams=(dict(hyperparams), True),
@@ -165,7 +155,6 @@ ml_tools.utils.save_print_data(
 )
 
 # --------------- Train ------------------
-
 history = gmc_model.fit(
     {"scalar": X_scalar_train.values, "snr": X_snr_train},
     {
@@ -203,11 +192,11 @@ shutil.copy(
 )
 
 console.print("Saving pre-processing parameters")
-ml_tools.utils.write_pickle(pre_params, model_dir / "pre_params.pickle")
+gmc.utils.write_pickle(pre_params, model_dir / "pre_params.pickle")
 
 # --------------- Eval ------------------
 console.rule("[bold]Eval[/]")
-gmc.eval.print_combined_model_eval(
+gmc.eval.print_model_eval(
     gmc_model,
     X_scalar_train.values,
     X_snr_train,
@@ -221,7 +210,7 @@ gmc.eval.print_combined_model_eval(
     y_multi=y_multi_train.values,
     multi_loss_weight=loss_weights[2],
 )
-gmc.eval.print_combined_model_eval(
+gmc.eval.print_model_eval(
     gmc_model,
     X_scalar_val.values,
     X_snr_val,
@@ -319,5 +308,3 @@ gmc.plots.plot_fmin_true_vs_est(
 gmc.plots.plot_fmin_true_vs_est(
     label_df.loc[val_ids], y_fmin_est_val, output_dir, title="validation", zoom=True
 )
-
-exit()

@@ -1,18 +1,18 @@
-import datetime
 import os
+import json
 import glob
-import multiprocessing as mp
+import pickle
+import datetime
 from pathlib import Path
-from typing import Dict, Union, Tuple, List, Iterable
+from typing import Union, Any, Dict, Sequence
 
-
+import wandb
+import yaml
 import pandas as pd
 import numpy as np
-from obspy.signal.trigger import pk_baer
-from scipy.signal import detrend
+import tensorflow as tf
 
 import phase_net as ph
-from . import constants as const
 
 
 def create_run_id() -> str:
@@ -76,8 +76,10 @@ def load_features_from_dir(
 
             dup_mask = cur_df.index.duplicated(keep="first")
             cur_df = cur_df.loc[~dup_mask]
-            print(f"Dropped {np.count_nonzero(dup_mask)} index duplicate."
-                  f"Kept the first occurrence. Note values of duplicates are note equal.")
+            print(
+                f"Dropped {np.count_nonzero(dup_mask)} index duplicate."
+                f"Kept the first occurrence. Note values of duplicates are note equal."
+            )
 
         if drop_nan:
             feature_cols = cur_df.columns.values[
@@ -92,352 +94,11 @@ def load_features_from_dir(
 
         result[result_ix[cur_comp]] = cur_df
 
-
     if concat:
         result_df = pd.concat(result, axis=0)
         return result_df
 
     return result
-
-
-def load_labels_from_dir(
-    label_dir: str,
-    glob_filter: str = "labels_*.csv",
-    drop_na: bool = True,
-    drop_f_min_101: bool = True,
-    malf_score_value: float = None,
-    multi_eq_score_value: float = None,
-    f_min_100_value: float = None,
-    drop_duplicates: bool = True,
-    merge: bool = True,
-    ignore_ids_ffp: Path = None,
-):
-    """
-    Loads all labels, single row per record
-
-    Parameters
-    ----------
-    label_dir: str
-        Directory that contains the label files
-    glob_filter: str, optional
-        Glob filter that allows filtering which files to use
-        (in the specified label_ffp)
-    drop_na: bool, optional
-        If true, drops samples with invalid/bad scores or f_fmin
-
-    Returns
-    -------
-    dataframe
-    """
-    print("Loading label files")
-
-    # Load and combine
-    label_files = glob.glob(os.path.join(label_dir, glob_filter))
-    label_files.sort()
-    dfs = [pd.read_csv(cur_file, index_col=0) for cur_file in label_files]
-    df = pd.concat(dfs)
-
-    # Rename
-    df = df.rename(
-        columns={
-            "Record_ID": "record_id",
-            "Source_ID": "source_id",
-            "Site_ID": "station",
-            "Man_Score_X": "score_X",
-            "Man_Score_Y": "score_Y",
-            "Man_Score_Z": "score_Z",
-            "Min_Freq_X": "f_min_X",
-            "Min_Freq_Y": "f_min_Y",
-            "Min_Freq_Z": "f_min_Z",
-        }
-    )
-    df.index.name = "record_id"
-
-    # Apply the f_min max value limit
-    if f_min_100_value is not None:
-        df.loc[
-            (df.f_min_X > f_min_100_value) & (df.f_min_X <= 100), "f_min_X"
-        ] = f_min_100_value
-        df.loc[
-            (df.f_min_Y > f_min_100_value) & (df.f_min_Y <= 100), "f_min_Y"
-        ] = f_min_100_value
-        df.loc[
-            (df.f_min_Z > f_min_100_value) & (df.f_min_Z <= 100), "f_min_Z"
-        ] = f_min_100_value
-
-    # Drop invalid
-    # NaN labels
-    if drop_na:
-        na_mask = (
-            df.score_X.isna()
-            | df.f_min_X.isna()
-            | df.score_Y.isna()
-            | df.f_min_Y.isna()
-            | df.score_Z.isna()
-            | df.f_min_Z.isna()
-        )
-        df = df.loc[~na_mask]
-        print(f"Dropped {np.count_nonzero(na_mask)} records with a nan label")
-
-    # Bad p-wave pick
-    if drop_f_min_101:
-        f_min_101_mask = (
-            (df.f_min_X >= 100.0) | (df.f_min_Y >= 100.0) | (df.f_min_Z >= 100.0)
-        )
-        print(f"Dropped {np.count_nonzero(f_min_101_mask)} bad p-wave pick records")
-        df = df.loc[~f_min_101_mask]
-
-    # Malfunctioned records
-    malf_mask = (df.score_X == 2.0) | (df.score_Y == 2.0) | (df.score_Z == 2.0)
-    if malf_score_value is not None:
-        df.loc[malf_mask, ["score_X", "score_Y", "score_Z"]] = malf_score_value
-        df["malf"] = malf_mask
-        print(
-            f"Set {np.count_nonzero(malf_mask)} malfunctioned records score to {malf_score_value}"
-        )
-    else:
-        print(f"Dropped {np.count_nonzero(malf_mask)} malfunctioned records")
-        df = df.loc[~malf_mask]
-
-    # Multi-eq records
-    multi_eq_mask = (df.score_X == 3.0) | (df.score_Y == 3.0) | (df.score_Z == 3.0)
-    if multi_eq_score_value is not None:
-        df.loc[multi_eq_mask, ["score_X", "score_Y", "score_Z"]] = multi_eq_score_value
-        df["multi_eq"] = multi_eq_mask
-        print(
-            f"Set {np.count_nonzero(multi_eq_mask)} multiple earthquake records score to {multi_eq_score_value}"
-        )
-    else:
-        print(f"Dropped {np.count_nonzero(multi_eq_mask)} multiple earthquake records")
-        df = df.loc[~multi_eq_mask]
-
-    # Drop duplicates
-    if drop_duplicates:
-        dup_mask = df.index.duplicated(keep="last")
-        df = df.loc[~dup_mask]
-        print(f"Dropped {np.count_nonzero(dup_mask)} duplicates")
-
-    if ignore_ids_ffp is not None:
-        with open(ignore_ids_ffp, "r") as f:
-            ignore_ids = np.asarray([line.strip() for line in f.readlines()], dtype=str)
-
-        ignore_mask = np.isin(df.index.values.astype(str), ignore_ids)
-        df = df.loc[~ignore_mask]
-        print(f"Dropped {np.count_nonzero(ignore_mask)} records from the ignore ids file")
-
-    if merge:
-        return df
-    else:
-        label_dfs = [
-            df.loc[:, ["score_X", "f_min_X", "malf", "multi_eq"]],
-            df.loc[:, ["score_Y", "f_min_Y", "malf", "multi_eq"]],
-            df.loc[:, ["score_Z", "f_min_Z", "malf", "multi_eq"]],
-        ]
-        return [
-            cur_df.rename(
-                columns={f"score_{cur_comp}": "score", f"f_min_{cur_comp}": "f_min"}
-            )
-            for cur_comp, cur_df in zip(const.COMPONENTS, label_dfs)
-        ]
-
-
-def get_sample_id(record_id: Union[str, np.ndarray], component: [str, np.ndarray]):
-    """Creates the sample id, which has the format
-    "{record_id}_{component}", where the component is
-    either X, Y or Z
-
-    Parameters
-    ----------
-    record_id: str
-    component: str
-
-    Returns
-    -------
-    sample_id: str
-    """
-    if isinstance(record_id, str) and isinstance(component, str):
-        return f"{record_id}_{component}"
-    else:
-        return np.char.add(np.char.add(record_id, "_"), component)
-
-
-def score_weighting(
-    train_df: pd.DataFrame,
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    ids_train: np.ndarray,
-):
-    """Weighs the records based on their score,
-    score in:
-        [0.0, 1.0]      => 1.0
-        [0.25, 0.75]    => 0.75
-        [0.5]           => 0.5
-
-    Parameters
-    ----------
-    train_df: Dataframe
-    X_train: numpy array of floats
-    y_train: numpy array of floats
-    ids_train: numpy array of strings
-
-    Returns
-    -------
-    numpy array of floats
-        The sample weights for each record in X_train (and y_train obviously)
-    """
-    scores = train_df.loc[ids_train, "score"].values
-
-    weights = np.full(X_train.shape[0], np.nan, dtype=float)
-    weights[np.isin(scores, [0.0, 1.0])] = 1.0
-    weights[np.isin(scores, [0.25, 0.75])] = 0.75
-    weights[scores == 0.5] = 0.5
-
-    assert np.all(~np.isnan(weights))
-
-    return weights
-
-
-def get_full_feature_config(feature_config: Dict) -> Tuple[List[str], Dict]:
-    """Generates the full feature config, i.e. for all 3 components
-
-    Parameters
-    ----------
-    feature_config: dictionary
-        The general feature config, i.e. not component specific, this will
-        be extended for all 3 components
-
-    Returns
-    -------
-    feature_names: list of strings
-        The feature names
-    feature_config: dictionary
-        The component based feature config (i.e. 3x as many entries
-        as original feature config)
-
-    """
-    feature_config_X = {f"{key}_X": val for key, val in feature_config.items()}
-    feature_config_Y = {f"{key}_Y": val for key, val in feature_config.items()}
-    feature_config_Z = {f"{key}_Z": val for key, val in feature_config.items()}
-    feature_config = {**feature_config_X, **{**feature_config_Y, **feature_config_Z}}
-    feature_names = [key for key in feature_config.keys() if not "*" in key]
-
-    return feature_names, feature_config
-
-
-def get_feature_details(
-    feature_config: Dict, snr_freq_values: np.ndarray
-) -> Tuple[Iterable[str], Dict, List[str]]:
-    """Retrieves the feature details required for training of a
-    record-component multi-output model
-
-    Parameters
-    ----------
-    feature_config: dictionary
-        The general feature config, i.e. not component specific, this will
-        be extended for all 3 components
-    snr_freq_values: numpy array of floats
-        The SNR frequencies to use in for the SNR series input
-
-    Returns
-    -------
-    feature_names: list of strings
-        The feature names
-    feature_config: dictionary
-        The component based feature config (i.e. 3x as many entries
-        as original feature config)
-    snr_feature_keys: list of strings
-        The SNR series keys into the feature dataframe
-    """
-    feature_names, feature_config = get_full_feature_config(feature_config)
-    snr_feature_keys = [f"snr_value_{freq:.3f}" for freq in snr_freq_values]
-
-    return feature_names, feature_config, snr_feature_keys
-
-
-def load_record_ts_data(
-    record_ts_data_dir: Path, record_dt: float = None, dt: float = None
-):
-    """Loads the time series data for a single record,
-    that was extracted using the extract_time_series.py script
-    """
-    record_id = record_ts_data_dir.name
-    if record_ts_data_dir.is_dir():
-        acc_ffp = record_ts_data_dir / f"{record_id}_acc.npy"
-        ft_ffp_signal = record_ts_data_dir / f"{record_id}_smooth_ft_signal.npy"
-        ft_freq_signal = record_ts_data_dir / f"{record_id}_ft_freq_signal.npy"
-        snr_ffp = record_ts_data_dir / f"{record_id}_snr.npy"
-
-        acc_ts = np.load(acc_ffp)
-        acc_ts = detrend(acc_ts).astype(np.float32)
-
-        # Down/Up sample if required
-        if record_dt is not None and dt is not None and not np.isclose(record_dt, dt):
-            t = np.arange(acc_ts.shape[0]) * record_dt
-            t_new = np.arange(acc_ts.shape[0]) * dt
-            acc_new = np.full((t_new.shape[0], 3), np.nan)
-
-            acc_new[:, 0] = np.interp(t_new, t, acc_ts[:, 0])
-            acc_new[:, 1] = np.interp(t_new, t, acc_ts[:, 1])
-            acc_new[:, 2] = np.interp(t_new, t, acc_ts[:, 2])
-
-            acc_ts = acc_new
-
-        ft_ts_signal = np.load(ft_ffp_signal)
-        ft_freq_signal = np.load(ft_freq_signal)
-
-        snr_ts = np.load(snr_ffp)
-
-        return record_id, acc_ts, ft_ts_signal, ft_freq_signal, snr_ts
-
-    return record_id, None, None, None, None
-
-
-def load_ts_data(
-    record_ids: Iterable[str],
-    ts_data_dir: Union[Path, str],
-    meta_df: pd.DataFrame,
-    dt: float = None,
-    n_procs: int = 3,
-) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
-    """
-    Loads the timeseries data for the specified records
-
-    Parameters
-    ----------
-    record_ids: iterable of strings
-        Record ids for which to load the ts data
-    ts_data_dir: sting or path
-        Root timeseries data directory (as generated by
-        the extract_time_series.py script)
-    meta_df: dataframe
-        The meta data,required for the dt of each record
-    dt: float
-        The target dt for all records afer loading
-
-    Returns
-    -------
-    record_ids: list of strings
-    acc_ts: list of numpy arrays
-    snr: list of numpy arrays
-    ft_freq: list of numpy arrays
-    """
-    ts_data_dir = ts_data_dir if isinstance(ts_data_dir, Path) else Path(ts_data_dir)
-
-    with mp.Pool(n_procs) as p:
-        results = p.starmap(
-            load_record_ts_data,
-            [
-                (ts_data_dir / cur_record_id, meta_df.loc[cur_record_id, "acc_dt"], dt)
-                for cur_record_id in record_ids
-            ],
-        )
-
-    acc_ts = [result[1] for result in results if result[1] is not None]
-    snr = [result[4] for result in results if result[1] is not None]
-    record_ids = np.asarray([result[0] for result in results if result[1] is not None])
-    ft_freq = [result[3] for result in results if result[1] is not None]
-
-    return record_ids, acc_ts, snr, ft_freq
 
 
 def run_phase_net(
@@ -477,68 +138,6 @@ def run_phase_net(
         return p_wave_ix, s_wave_ix, probs[0, :, 1], probs[0, :, 2]
 
     return p_wave_ix, s_wave_ix
-
-
-def get_p_wave_ix(
-    acc_X: np.ndarray,
-    acc_Y: np.ndarray,
-    acc_Z: np.ndarray,
-    dt: float,
-    t: np.ndarray = None,
-) -> Tuple[int, Union[None, int]]:
-    """Performs the p-wave"""
-
-    def p_wave_test(p_wave: float, acc_t_threshold: float):
-        """Tests if a specific p-wave pick is 'good', based on
-        the picked position exceeding the specified time in the record"""
-        return p_wave >= acc_t_threshold
-
-    def get_ix(pick, cur_sample_rate) -> int:
-        return int(np.floor(np.multiply(pick, cur_sample_rate)))
-
-    t = t if t is not None else np.arange(acc_X.shape[0]) * dt
-    sample_rate = 1.0 / dt
-
-    # PhaseNet
-    p_wave_ix, s_wave_ix = run_phase_net(
-        np.stack((acc_X, acc_Y, acc_Z), axis=1)[np.newaxis, ...], dt, t=t
-    )
-    if p_wave_test(p_wave_ix * dt, 3):
-        return p_wave_ix, s_wave_ix
-
-    # Obspy picker 2
-    cur_p_pick, _ = pk_baer(
-        reltrc=acc_Z,
-        samp_int=sample_rate,
-        tdownmax=20,
-        tupevent=60,
-        thr1=7.0,
-        thr2=12.0,
-        preset_len=100,
-        p_dur=100,
-    )
-    p_pick = cur_p_pick * dt
-    if p_wave_test(p_pick, 3):
-        return get_ix(p_pick, sample_rate), s_wave_ix
-
-    # If all algorithms fail, pick p-wave at 5% record duration, but not less than 3s in.
-    p_pick = np.max([3, 0.05 * t[-1]])
-    return get_ix(p_pick, sample_rate), s_wave_ix
-
-
-def to_path(input: Union[str, List[str], List[Path]] = None):
-    """Converts a string or list of string to
-    Path object/s if required
-    """
-    if isinstance(input, str):
-        return Path(input)
-    elif isinstance(input, List):
-        return [
-            Path(cur_input) if isinstance(cur_input, str) else cur_input
-            for cur_input in input
-        ]
-
-    return input
 
 
 def qqqfff_to_binary(
@@ -588,3 +187,121 @@ def qqqfff_to_binary(
 
     result_df = pd.Series(index=est_df.index, data=usable_mask)
     return result_df
+
+
+def load_yaml(ffp: Union[Path, str]):
+    """Loads data from a yaml file"""
+    with open(ffp, "r") as f:
+        return yaml.safe_load(f)
+
+
+def load_picke(ffp: Union[Path, str]):
+    """Loads the pickle file"""
+    with open(ffp, "rb") as f:
+        return pickle.load(f)
+
+
+def save_print_data(output_dir: Path, wandb_save: bool = True, **kwargs):
+    """Save and if specified prints the given data
+    To print, set the value to a tuple, with the 2nd entry a
+    boolean that indicates whether to print or not,
+    i.e. hyperparams=(hyperparams_dict, True) will save and print
+    the hyperparameter dictionary
+    """
+    for key, value in kwargs.items():
+        if isinstance(value, tuple) and value[1] is True:
+            _print(key, value[0])
+            _save(output_dir, key, value[0], wandb_save)
+        else:
+            _save(output_dir, key, value, wandb_save)
+
+
+def _print(key: str, data: Union[pd.DataFrame, pd.Series, dict]):
+    print(f"{key}:")
+    if isinstance(data, pd.DataFrame) or isinstance(data, pd.Series):
+        print(data)
+    elif isinstance(data, dict):
+        print_dict(data)
+
+
+def _save(
+    output_dir: Path,
+    key: str,
+    data: Union[pd.DataFrame, pd.Series, dict],
+    wandb_save: bool,
+):
+    if isinstance(data, pd.DataFrame) or isinstance(data, pd.Series):
+        out_ffp = output_dir / f"{key}.csv"
+        data.to_csv(out_ffp)
+    elif isinstance(data, dict):
+        out_ffp = output_dir / f"{key}.json"
+        write_to_json(data, out_ffp)
+    elif isinstance(data, list):
+        out_ffp = output_dir / f"{key}.txt"
+        write_to_txt(data, out_ffp)
+    elif isinstance(data, np.ndarray):
+        out_ffp = output_dir / f"{key}.npy"
+        write_np_array(data, out_ffp)
+    elif isinstance(data, tf.keras.Model):
+        out_ffp = output_dir / f"{key}.png"
+        tf.keras.utils.plot_model(
+            data,
+            to_file=str(out_ffp),
+            show_shapes=True,
+            show_dtype=True,
+            show_layer_names=True,
+            expand_nested=True,
+        )
+    else:
+        raise NotImplementedError()
+
+    if wandb_save:
+        wandb.save(str(out_ffp))
+
+
+def write_to_txt(data: Sequence[Any], ffp: Path, clobber: bool = False):
+    """Writes each entry in the list on a newline in a text file"""
+    if ffp.is_dir() or (not clobber and ffp.exists()):
+        raise FileExistsError(f"File {ffp} already exists, failed to save the data!")
+
+    with open(ffp, "w") as f:
+        f.writelines([f"{cur_line}\n" for cur_line in data])
+
+
+def write_to_json(data: Dict, ffp: Path, clobber: bool = False):
+    """Writes the data to the specified file path in the json format"""
+    if ffp.is_dir() or (not clobber and ffp.exists()):
+        raise FileExistsError(f"File {ffp} already exists, failed to save the data!")
+
+    with open(ffp, "w") as f:
+        json.dump(data, f, cls=GenericObjJSONEncoder, indent=4)
+
+
+class GenericObjJSONEncoder(json.JSONEncoder):
+    def default(self, obj: Any) -> Any:
+        try:
+            return json.JSONEncoder.default(self, obj)
+        except TypeError as ex:
+            return str(obj)
+
+
+def print_dict(data_dict: Dict):
+    """Pretty prints a dictionary"""
+    print(json.dumps(data_dict, cls=GenericObjJSONEncoder, sort_keys=False, indent=4))
+
+
+def write_np_array(array: np.ndarray, ffp: Path, clobber: bool = False):
+    """Saves the array in the numpy binary format .npy"""
+    if ffp.is_dir() or (not clobber and ffp.exists()):
+        raise FileExistsError(f"File {ffp} already exists, failed to save the data!")
+
+    np.save(str(ffp), array)
+
+
+def write_pickle(obj: Any, ffp: Path, clobber: bool = False):
+    """Saves the object as a pickle file"""
+    if ffp.is_dir() or (not clobber and ffp.exists()):
+        raise FileExistsError(f"File {ffp} already exists, failed to save the data!")
+
+    with open(ffp, "wb") as f:
+        pickle.dump(obj, f)

@@ -1,1 +1,0 @@
-COMPONENTS = ["X", "Y", "Z"]

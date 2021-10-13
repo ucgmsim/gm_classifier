@@ -9,4 +9,3 @@ from . import utils
 from . import plots
 from . import data
 from . import eval
-from .RecordCompModel import RecordCompModel

@@ -133,7 +133,6 @@ class Record:
                 np.count_nonzero(np.multiply(cur_acc[0:-2], cur_acc[1:-1]) < 0)
             )
 
-
     @classmethod
     def load_v1a(cls, v1a_ffp: str):
         record_id = os.path.basename(v1a_ffp).split(".")[0]
@@ -154,7 +153,6 @@ class Record:
                 record_id,
                 time_delay=gf.comp_up.time_delay,
             )
-
 
         # Check that dt values are matching
         if not np.isclose(gf.comp_1st.delta_t, gf.comp_up.delta_t) or not np.isclose(
@@ -318,12 +316,12 @@ def get_record_ids_filter(record_list_ffp: str) -> np.ndarray:
 def process_record(
     record_ffp: str, konno_matrices: Union[str, Dict[int, np.ndarray]]
 ) -> Union[Tuple[None, None], Tuple[Dict[str, Any], Dict[str, Any]]]:
-    """Extracts the features from a GeoNet record file
+    """Extracts the features for the given record
 
     Parameters
     ----------
     record_ffp: string
-        Path to the V1A record file
+        Path to the record file
     konno_matrices: string or dictionary
         Either a path to a directory containing the Konno matrices files
         or a dictionary of the Konno matrices in memory
@@ -331,7 +329,7 @@ def process_record(
     Returns
     -------
     features: dictionary
-        Contains all 20 features (quality metrics)
+        Feature dictionary
     add_data: dictionary
         Additional data
     """
