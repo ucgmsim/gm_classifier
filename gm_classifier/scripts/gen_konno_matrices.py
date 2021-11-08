@@ -11,7 +11,16 @@ def main(output_dir):
     # Generate the Konno matrices
     dt = 0.005
 
-    ft_lens = [2048, 4096, 8192, 16384, 32768, 65536]
+    ko_matrix_sizes = (
+        gmc.records.KO_MATRIX_SIZES
+        if os.environ.get("KO_MATRIX_SIZES") is None
+        else [
+            int(cur_size.strip())
+            for cur_size in os.environ.get("KO_MATRIX_SIZES").split(",")
+        ]
+    )
+    ft_lens = np.asarray(ko_matrix_sizes) * 2
+
     for ft_len in ft_lens:
         print(f"Computing konno {int(ft_len / 2)}")
         start_time = time.time()

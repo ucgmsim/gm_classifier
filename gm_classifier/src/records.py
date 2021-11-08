@@ -21,6 +21,8 @@ EVENT_YEARS = [str(ix) for ix in range(1950, 2050, 1)]
 
 G = 9.80665
 
+KO_MATRIX_SIZES = [1024, 2048, 4096, 8192, 16384, 32768]
+
 
 class RecordErrorType(Enum):
     # Record total length is less than 5 seconds
@@ -465,18 +467,26 @@ def process_records(
         )
 
     # Load the Konno matrices into memory
+    ko_matrix_sizes = (
+        KO_MATRIX_SIZES
+        if os.environ.get("KO_MATRIX_SIZES") is None
+        else [
+            int(cur_size.strip())
+            for cur_size in os.environ.get("KO_MATRIX_SIZES").split(",")
+        ]
+    )
     if ko_matrices_dir is not None and not low_mem_usage:
         print(f"Loading Konno matrices into memory")
         konno_matrices = {
             matrix_id: np.load(os.path.join(ko_matrices_dir, f"konno_{matrix_id}.npy"))
-            for matrix_id in [1024, 2048, 4096, 8192, 16384, 32768]
+            for matrix_id in ko_matrix_sizes
         }
     # Calculate the matrices and load into memory
     elif not low_mem_usage and ko_matrices_dir is None:
         print(f"Computing and loading Konno matrices into memory")
         konno_matrices = {
             matrix_id: features.get_konno_matrix(matrix_id * 2, dt=0.005)
-            for matrix_id in [1024, 2048, 4096, 8192, 16384, 32768]
+            for matrix_id in ko_matrix_sizes
         }
     # Load them on the fly for each record
     elif low_mem_usage and ko_matrices_dir is not None:
@@ -535,7 +545,7 @@ def process_records(
     for ix, record_ffp in enumerate(record_ffps):
         record_name = os.path.basename(record_ffp)
         try:
-            print(f"Processing record {record_name}, {ix + 1}/{record_ffps.size}")
+            print(f"Processing record {record_name}, {ix + 1}/{len(record_ffps)}")
             cur_features, cur_add_data = process_record(
                 record_ffp, konno_matrices=konno_matrices
             )
