@@ -1,62 +1,42 @@
-# GM record classifier
+## Ground Motion Classifier 
 
-Note: Still in development
+### Description
 
-The GMC returns 6 predictions for each record:
-- A quality Score for each component, generally between 0 - 1  
-- A f-min value for each component, between 0.1 - 10 Hz
+This repository contains the code needed to use the GM quality estimation model from the paper "A deep-learning-based model for quality assessment of earthquake-induced ground motion records". Additionally it also contains the labels used to train the model, and a script to re-train it if desired.
 
-There is no logic restricting the model to the output ranges so at times they might exceed
-the "limits" (have only encountered this for the score, not f-min, but that doesn't mean it isn't possible). 
+The model estimates the record quality and minimum usable frequency of each component with
 
-The results should be used as input for a mapping function that returns a binary classification
-for each record, i.e. either usable or not\
-This allows task specific classification instead of enforcing certain thresholds via the model.\
-A simple mapping function `qqqfff_to_binary` can found in the utils source file.
+- a quality score between 0-1 and
+- and minimum usable frequency between 0.1-10 Hz
 
-### Setup
-Its recommended to create a new virtual environment see https://docs.python.org/3/library/venv.html  
+This means that for a 3-component record 6 outputs are produced, which can then be easily mapped to a binary classification via a user defined mapping function, making the outputs useful for a wide range of applications.
 
-Clone using
-```
-git clone git@github.com:ucgmsim/gm_classifier.git
-``` 
+For the full details see the paper.
 
-Install using
-```shell script
-pip install -e ./gm_classifier
-```
-All requirements should be install automatically
 
-\
-PhaseNet dependency:\
-Clone using
-```shell script
-git clone git@github.com:claudio525/PhaseNet.git
-```   
 
-Install using
-```shell script
-pip install -e ./PhaseNet
-``` 
+### Installation
 
-### Making predictions
+Requires python 3.8 or 3.9, should work with newer versions as well, but has not been tested
 
-There are two different ways to get predictions:\
-A) Run feature extraction separately from the prediction. This is the recommended way 
-when the number of records is large.\
-B) Perform feature extraction & prediction together. Not implemented currently.   
+- Clone the repository 
+  `git clone git@github.com:ucgmsim/gm_classifier.git`
+- Install requirements
+  `pip install -r requirements.txt`
 
-#### Approach A:
 
-Run feature extraction using the script `extract_features.py`, which has the following 
-arguments:
-```
-usage: extract_features.py [-h] [--output_prefix OUTPUT_PREFIX] [--event_list_ffp EVENT_LIST_FFP]
-                           [--record_list_ffp RECORD_LIST_FFP] [--ko_matrices_dir KO_MATRICES_DIR]
-                           [--low_memory]
-                           output_dir record_dir {V1A,mseed}
 
+### Usage
+
+Getting estimation is a two step process, 1) the features are extracted from the acceleration time-series and 2) features are passed into the model to estimate quality and minimum usable frequency
+
+
+
+#### Feature extraction
+
+Feature extraction is done using the `extract_features.py` script, which takes the following arguments
+
+```shell
 positional arguments:
   output_dir            Path to the output directory
   record_dir            Root directory for the records, will search for V1A or mseed records recursively
@@ -67,11 +47,6 @@ optional arguments:
   -h, --help            show this help message and exit
   --output_prefix OUTPUT_PREFIX
                         Prefix for the output files
-  --event_list_ffp EVENT_LIST_FFP
-                        Path to file that lists all events to use (one per line). Note: in order to be
-                        able to use event filtering, the path from the record_dir has to include a
-                        folder with the event id as its name. Formats of event ids: just a number or
-                        XXXXpYYYYYY (where XXXX is a valid year)
   --record_list_ffp RECORD_LIST_FFP
                         Path to file that lists all records to use (one per line)
   --ko_matrices_dir KO_MATRICES_DIR
@@ -80,56 +55,77 @@ optional arguments:
   --low_memory          If specified will prioritise low memory usage over performance. Requires
                         --ko_matrices_dir to be specified.
 ```
-Most of the arguments are optional, however it is recommended to generate the konno matrices 
-manually first and pass in the directory.
 
-And if the computer has < 16GB of RAM the `low_memory` option should be used.
+The `--record_list_ffp` options was added to allow compute features for a subset of records found in the `record_dir` folder (and sub-folders), where the `record_id` is the name of the record file without the extension, e.g. for `20170102_131402_DREZ_10_EH.mseed` the `record_id` is `20170102_131402_DREZ_10_EH`  
 
-To generate the konno matrices use script `gen_konno_matrices.py`, which just requires an output
-directory argument.
+  
 
-Example call for `extract_features.py`:
-```shell script
-python extract_features.py --ko_matrices_dir /home/claudy/dev/work/data/gm_classifier/konno_matrices /home/claudy/dev/work/tmp/gmc_record_test/features /home/claudy/dev/work/tmp/gmc_record_test/2003
-```
-Note I: The feature extraction is quite slow, so if the number of records is large it can easily take multiple hours.\
-Note II: Its probably a good idea to pipe the output into a log file, in case some records fail. 
-This can be done by adding `> log.txt` to the call above, however this will no longer print the output. To get around this
-I suggest to add `|& tee log.txt` to the end of the call instead, which will still periodically print stdout to the terminal (and write to the log file).  
+The `--ko_matrices_dir` option allows specifying of the directory that contains the pre-computed Konno-Ohmachi matrices, for more details see below. It is recommended to pre-compute these.
+The `--low_memory` option can only be used when the Konno-Ohmachi matrices directory has been specified, and reduces the total memory usage at the cost of performance. If your machine has 16GB  or more RAM then this is not required (unless larger Konno-Ohmachi matrice sizes are specified manually, as per below)
 
----
-Once feature extraction is complete prediction can be done using the `predict.py` script:
-```
-usage: predict.py [-h] [--model_dir MODEL_DIR] input_dir output_ffp
 
+
+##### Konno-Ohmachi matrices
+
+Feature computation uses Konno-Ohmachi matrices for smoothing of the Fourier amplitude spectra, and it is recommended to pre-compute (but not required, in which case this is done on the fly). This can be done using the `gen_konno_matrices.py` script, which just takes an output directory as input.
+
+By default Konno-Ohmachi matrices of the following sizes `[1024, 2048, 4096, 8192, 16384, 32768]` are computed, supporting records with duration of up to ~327s at dt=0.005. If this is not sufficient, then the Konno-Ohmachi matrice sizes can be overwritten with the `KO_MATRIX_SIZES` environment variable, e.g.  `export KO_MATRIX_SIZES=1024,2048,4096,8192,16384,32768,65536,131072`
+If the environment variable is set for generation of the matrices, then it also has to be set when running the feature extraction, otherwise the `extract_features.py` script will use the default sizes.
+
+Note: The larger Konno-Ohmachi matrices require significantly more computation time and memory
+
+
+
+#### Quality & minimum usable frequency estimation
+
+Once the features have been computed, the `predict.py` script, which takes the following arguments
+
+```shell
 positional arguments:
-  input_dir             Input data directory, can either contain a feature csv file for each component
-                        as generated by 'extract_features.py' or geonet V1A files
-  output_ffp            Path for the output csv file
+  features_dir          Path of directory that contains the feature files
+  output_ffp            File path for output csv
 
 optional arguments:
   -h, --help            show this help message and exit
   --model_dir MODEL_DIR
-                        Path to the base model directory
-```
-Where the model directory defaults to the model included in the package
-
-Example call:
-```shell script
-python predict.py /home/claudy/dev/work/tmp/gmc_record_test/features /home/claudy/dev/work/tmp/gmc_record_test/results.csv
+                        Path of directory that contains the GMC model, defaults to the model included in
+                        the repository
 ```
 
-#### Approach B:
-Not yet implemented 
+The resulting comma-separated value file has the following format, with each row corresponding to a record component
 
-### Other
-- If a compatible GPU is available tensorflow will attempt to use it, however 
-unless might cause issues if the GPU memory is not large enough, and since prediction
-performance is fast anyways I recommend disabling it using:
-```shell script
-export CUDA_VISIBLE_DEVICES=-1
 ```
- 
+record_id,score_mean,score_std,fmin_mean,fmin_std,multi_mean,multi_std,record,component
+20180708_234345_CECS_20_X,0.986889,0.0178299,0.274238,0.0974789,0.004214,0.00834436,20180708_234345_CECS_20,X
+20180708_234347_MOLS_20_X,0.996289,0.00881992,0.222371,0.0942545,0.000526558,0.00106552,20180708_234347_MOLS_20,X
+20180708_234403_BWRS_20_X,0.365711,0.130317,0.468655,0.195347,0.0271395,0.0221378,20180708_234403_BWRS_20,X
+20180708_234400_SEDS_20_X,0.69397,0.283386,0.396147,0.118394,0.292748,0.303592,20180708_234400_SEDS_20,X
+20180708_234402_MATS_20_X,0.946903,0.0473075,0.486201,0.135772,0.00190778,0.0041504,20180708_234402_MATS_20,X
+```
 
-   
+
+
+#### Usage Example
+
+```shell
+# Update Konno matrices sizes (optional, not needed in most cases)
+export KO_MATRIX_SIZES=1024,2048,4096,8192,16384,32768,65536,131072
+
+# Generate Konno matrices
+python gen_konno_matrices.py /path/to/konno-matrices-directory 							
+
+# Extract features
+python extract_features.py /path/to/feature-output-directory /path/to/record-root-directorey mseed --ko_matrices_dir /path/to/konno-matrices-directory
+
+# Get quality & mimium usable frequency estimations
+python predict.py /path/to/feature-output-directory /path/to/output-csv-file
+```
+
+
+
+
+
+
+
+
 

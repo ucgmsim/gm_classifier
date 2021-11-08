@@ -168,16 +168,6 @@ if __name__ == "__main__":
         default="features",
     )
     parser.add_argument(
-        "--event_list_ffp",
-        type=str,
-        help="Path to file that lists all events to use (one per line). "
-        "Note: in order to be able to use event filtering, the path from the "
-        "record_dir has to include a folder with the event id as its name. "
-        "Formats of event ids: just a number or "
-        "XXXXpYYYYYY (where XXXX is a valid year)",
-        default=None,
-    )
-    parser.add_argument(
         "--record_list_ffp",
         type=str,
         help="Path to file that lists all records to use (one per line)",
