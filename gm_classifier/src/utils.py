@@ -6,7 +6,6 @@ import datetime
 from pathlib import Path
 from typing import Union, Any, Dict, Sequence
 
-import wandb
 import yaml
 import pandas as pd
 import numpy as np
@@ -256,6 +255,7 @@ def _save(
         raise NotImplementedError()
 
     if wandb_save:
+        import wandb
         wandb.save(str(out_ffp))
 
 

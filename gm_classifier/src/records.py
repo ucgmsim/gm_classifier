@@ -1,3 +1,4 @@
+import sys
 import traceback
 import os
 import math
@@ -37,6 +38,9 @@ class RecordErrorType(Enum):
     # Components are missing
     ComponentsMissing = 6
 
+    # No response information (MSEED only)
+    MissinResponseInfo = 7
+
 
 class RecordFormat(Enum):
     V1A = "V1A"
@@ -44,10 +48,11 @@ class RecordFormat(Enum):
 
 
 class RecordError(Exception):
-    def __init__(self, message: str, error_type: RecordErrorType):
+    def __init__(self, message: str, error_type: RecordErrorType, **kwargs):
         super(Exception, self).__init__(message)
 
         self.error_type = error_type
+        self.kwargs = kwargs
 
 
 class Record:
@@ -203,10 +208,21 @@ class Record:
 
         st = read(mseed_ffp)
         # Converts it to acceleration in m/s^2
-        if st[0].stats.channel[1] == "N":  # Checks whether data is strong motion
-            st_acc = st.copy().remove_sensitivity(inventory=inventory)
-        else:
-            st_acc = st.copy().remove_sensitivity(inventory=inventory).differentiate()
+        try:
+            if st[0].stats.channel[1] == "N":  # Checks whether data is strong motion
+                st_acc = st.copy().remove_sensitivity(inventory=inventory)
+            else:
+                st_acc = (
+                    st.copy().remove_sensitivity(inventory=inventory).differentiate()
+                )
+        except ValueError as ex:
+            if ex.args[0] == "No matching response information found.":
+                raise RecordError(
+                    f"Record {record_id} - No matching response information found",
+                    RecordErrorType.MissinResponseInfo,
+                )
+            else:
+                raise ex
 
         # Gets and converts the acceleration data to units g and
         # singles out the vertical component (order of the horizontal
@@ -541,7 +557,7 @@ def process_records(
         except Exception as ex:
             console.print(f"[red]Failed due to the error: [/]")
             traceback.print_exc()
-            failed_records["other"].append(record_name)
+            failed_records["other"].append((record_name, ex, sys.exc_info()[2]))
             cur_features, cur_add_data = None, None
 
         if cur_features is not None:
@@ -582,70 +598,6 @@ def process_records(
         )
 
     return feature_df_1, feature_df_2, feature_df_v, failed_records
-
-
-def get_records_error_log(failed_records: Dict[Any, Dict[Any, List]]):
-    feature_erros = failed_records[features.FeatureError]
-    record_erros = failed_records[RecordError]
-    output = ""
-    if len(record_erros[RecordErrorType.Duration]) > 0:
-        output += "\n" + (
-            "The following records failed processing due to "
-            "the record length < 5 seconds:\n {}".format(
-                "\n".join(record_erros[RecordErrorType.TotalTime])
-            )
-        )
-    if len(record_erros[RecordErrorType.CompsNotMatching]) > 0:
-        output += "\n" + (
-            "The following records failed processing due to the "
-            "acceleration timeseries of the components having"
-            "different length:\n{}".format(
-                "\n".join(record_erros[RecordErrorType.CompsNotMatching])
-            )
-        )
-    if len(record_erros[RecordErrorType.NQuakePoints]) > 0:
-        output += "\n" + (
-            "The following records failed processing due to the "
-            "time delay adjusted timeseries having less than "
-            "10 datapoints:\n{}".format(
-                "\n".join(record_erros[RecordErrorType.NQuakePoints])
-            )
-        )
-    if len(failed_records["empty_file"]) > 0:
-        output += "\n" + (
-            "The following records failed processing due to the "
-            "geoNet file not containing any data:\n{}".format(
-                "\n".join(failed_records["empty_file"])
-            )
-        )
-    if len(failed_records["other"]):
-        output += "\n" + (
-            "The following records failed processing due to "
-            "an unknown exception:\n{}".format("\n".join(failed_records["other"]))
-        )
-    if len(feature_erros[features.FeatureErrorType.PGA_zero]) > 0:
-        output += "\n" + (
-            "The following records failed processing due to "
-            "one PGA being zero for one (or more) of the components:\n{}".format(
-                "\n".join(feature_erros[features.FeatureErrorType.PGA_zero])
-            )
-        )
-    if len(feature_erros[features.FeatureErrorType.early_p_pick]) > 0:
-        output += "\n" + (
-            "The following records failed processing as the p-wave pick is < 2.5 from the"
-            " start of the record, preventing accurate feature generation:\n{}".format(
-                "\n".join(feature_erros[features.FeatureErrorType.early_p_pick])
-            )
-        )
-    if len(feature_erros[features.FeatureErrorType.late_p_pick]) > 0:
-        output += "\n" + (
-            "The following records failed processing as the p-wave pick is very late in the record"
-            ", preventing accurate feature generation as the resulting signal duration is too short:\n{}".format(
-                "\n".join(feature_erros[features.FeatureErrorType.late_p_pick])
-            )
-        )
-
-    return output
 
 
 def filter_record_files(

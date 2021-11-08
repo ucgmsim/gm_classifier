@@ -2,7 +2,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, Tuple, Union, Callable, Any, Iterable, Type, Sequence
 
-import wandb
+
 import pandas as pd
 import numpy as np
 import tensorflow as tf
@@ -110,6 +110,8 @@ def fit(
     dictionary:
         The training history
     """
+    import wandb
+
     # Unroll training & validation data
     X_train, y_train, ids_train = training_data
     X_val, y_val, ids_val = val_data if val_data is not None else (None, None, None)

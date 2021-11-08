@@ -29,12 +29,17 @@ class FeatureErrorType(Enum):
     early_p_pick = 2
     late_p_pick = 3
 
+    missing_ko_matrix = 4
+
 
 class FeatureError(Exception):
-    def __init__(self, message: Union[str, None], error_type: FeatureErrorType):
+    def __init__(
+        self, message: Union[str, None], error_type: FeatureErrorType, **kwargs
+    ):
         super(Exception, self).__init__(message)
 
         self.error_type = error_type
+        self.kwargs = kwargs
 
 
 SNR_FREQ_BINS = [
@@ -182,17 +187,24 @@ def get_freq_ix(ft_freq: np.ndarray, lower: float, upper: float) -> (int, int):
 def load_konno_matrix(
     ko_matrices: Union[str, Dict[int, np.ndarray]], ft_freq: np.ndarray
 ):
-    if isinstance(ko_matrices, dict):
-        smooth_matrix = ko_matrices[ft_freq.size - 1]
-    elif isinstance(ko_matrices, str) and os.path.isdir(ko_matrices):
-        matrix_name = KONNO_MATRIX_FILENAME_TEMPLATE.format(ft_freq.size - 1)
-        print(f"Loading Konno matrix {matrix_name}")
-        smooth_matrix = np.load(os.path.join(ko_matrices, matrix_name))
-    else:
-        raise ValueError(
-            "The ko_matrices parameter has to either be a "
-            "dictionary with the Konno matrices or a directory "
-            "path that contains the Konno matrices files."
+    try:
+        if isinstance(ko_matrices, dict):
+            smooth_matrix = ko_matrices[ft_freq.size - 1]
+        elif isinstance(ko_matrices, str) and os.path.isdir(ko_matrices):
+            matrix_name = KONNO_MATRIX_FILENAME_TEMPLATE.format(ft_freq.size - 1)
+            print(f"Loading Konno matrix {matrix_name}")
+            smooth_matrix = np.load(os.path.join(ko_matrices, matrix_name))
+        else:
+            raise ValueError(
+                "The ko_matrices parameter has to either be a "
+                "dictionary with the Konno matrices or a directory "
+                "path that contains the Konno matrices files."
+            )
+    except KeyError as ex:
+        raise FeatureError(
+            f"No Konno matrix of size {ex.args[0]} available",
+            FeatureErrorType.missing_ko_matrix,
+            key=ex.args[0],
         )
 
     return smooth_matrix
@@ -556,7 +568,7 @@ def get_features(
             "preventing accurate feature generation. "
             "This most likely means that the p-wave "
             "pick is bad and/or that it is a malfunctioned or very short record",
-            FeatureErrorType.late_p_pick
+            FeatureErrorType.late_p_pick,
         )
 
     if p_wave_ix * record.dt < 2.5:

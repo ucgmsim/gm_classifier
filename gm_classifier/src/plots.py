@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import Dict, List, Tuple, Union, Sequence
 
-import wandb
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -330,6 +329,7 @@ def plot_confusion_matrix(
     fig.savefig(output_dir / f"{out_name}.png")
 
     if wandb_save:
+        import wandb
         wandb.log({out_name: fig})
         wandb.save(str(f"{out_name}.png"))
 
@@ -436,6 +436,7 @@ def plot_fmin_true_vs_est(
     fig.savefig(out_ffp)
 
     if wandb_save:
+        import wandb
         wandb.log({f"fmin_true_vs_est_{title}": fig})
         wandb.save(str(out_ffp))
 
@@ -490,5 +491,6 @@ def plot_score_true_vs_est(
     fig.savefig(out_ffp)
 
     if wandb_save:
+        import wandb
         wandb.log({f"score_true_vs_est_{title}": fig})
         wandb.save(str(out_ffp))

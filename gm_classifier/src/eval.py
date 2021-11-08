@@ -1,6 +1,5 @@
-from typing import Union, Sequence
+from typing import Sequence
 
-import wandb
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -148,6 +147,7 @@ def print_model_eval(
             console.print(output)
 
     if wandb_save:
+        import wandb
         wandb.run.summary[f"final_{prefix}_total_loss_mean"] = total_loss_mean
         wandb.run.summary[f"final_{prefix}_total_loss_std"] = total_loss_std
 
@@ -197,6 +197,7 @@ def run_binary_output_eval(
     ]
 
     if wandb_save:
+        import wandb
         wandb.run.summary[f"final_{prefix}_{out_name}_recall_mean"] = recall_mean
         wandb.run.summary[f"final_{prefix}_{out_name}_recall_std"] = recall_std
 
