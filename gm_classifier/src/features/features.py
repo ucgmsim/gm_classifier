@@ -74,7 +74,7 @@ FourierData = namedtuple(
 
 def get_konno_matrix(ft_len, dt: float = 0.005):
     """Computes the Konno matrix"""
-    ft_freq = np.arange(0, ft_len / 2 + 1) * (1.0 / (ft_len * dt))
+    ft_freq = (np.arange(0, ft_len / 2 + 1) * (1.0 / (ft_len * dt))).astype(np.float32)
     return calculate_smoothing_matrix(ft_freq, bandwidth=30, normalize=True)
 
 

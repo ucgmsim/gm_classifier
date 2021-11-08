@@ -91,7 +91,6 @@ def flatline_detector(arr):
 		Relative length of interior amplitudes in the record which are
 		saturated/clipped (0-1); float
 	"""
-
     record_amp = np.abs(arr.max() - arr.min()) / 2
     strong_idx = np.where(np.abs(arr) > 0.1 * record_amp)
     strong_arr = arr[strong_idx[0].min() : strong_idx[0].max()]
