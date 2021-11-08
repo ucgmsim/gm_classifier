@@ -488,7 +488,7 @@ def process_records(
             "then the --ko_matrices_dir has to be specified"
         )
 
-    print(f"Starting processing of {record_ffps.size} record files")
+    print(f"Starting processing of {len(record_ffps)} record files")
 
     feature_df_1, feature_df_2 = None, None
     feature_df_v = None
@@ -520,7 +520,7 @@ def process_records(
         # Filter, as to not process already processed records
         record_ids = [get_record_id(record_ffp) for record_ffp in record_ffps]
         record_ffps = record_ffps[~np.isin(record_ids, feature_df_1.index.values)]
-    elif not output_dir.is_dir():
+    elif output_dir is not None and not output_dir.is_dir():
         output_dir.mkdir()
 
     feature_rows_1, feature_rows_2 = [], []
