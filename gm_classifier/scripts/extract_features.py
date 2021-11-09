@@ -11,7 +11,6 @@ def main(
     record_dir: str,
     record_format: str,
     output_prefix: str = "features",
-    event_list_ffp: str = None,
     record_list_ffp: str = None,
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
@@ -26,7 +25,6 @@ def main(
         if record_format == "V1A"
         else gmc.records.RecordFormat.MiniSeed,
         record_dir=record_dir,
-        event_list_ffp=event_list_ffp,
         record_list_ffp=record_list_ffp,
         ko_matrices_dir=ko_matrices_dir,
         low_mem_usage=low_mem_usage,
@@ -195,7 +193,6 @@ if __name__ == "__main__":
         args.record_dir,
         args.record_format,
         output_prefix=args.output_prefix,
-        event_list_ffp=args.event_list_ffp,
         record_list_ffp=args.record_list_ffp,
         ko_matrices_dir=args.ko_matrices_dir,
         low_mem_usage=args.low_memory,
