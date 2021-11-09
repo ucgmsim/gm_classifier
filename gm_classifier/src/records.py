@@ -459,6 +459,7 @@ def process_records(
             ),
             dtype=str,
         )
+    record_ffps = np.asarray(record_ffps)
 
     # Record files filtering
     if event_list_ffp is not None or record_list_ffp is not None:

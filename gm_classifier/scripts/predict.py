@@ -95,7 +95,7 @@ if __name__ == "__main__":
         type=Path,
         help="Path of directory that contains the GMC model, "
              "defaults to the model included in the repository",
-        default=Path(__file__).parent / "model",
+        default=Path(__file__).parent.parent / "model",
     )
 
     args = parser.parse_args()

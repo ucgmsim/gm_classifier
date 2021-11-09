@@ -95,6 +95,10 @@ def flatline_detector(arr):
     strong_idx = np.where(np.abs(arr) > 0.1 * record_amp)
     strong_arr = arr[strong_idx[0].min() : strong_idx[0].max()]
 
+    # Single large spike, will be picked up by spike-detector
+    if len(strong_arr) == 0:
+        return 0.0
+
     diff_arr = np.abs(np.diff(strong_arr))
     min_diff = diff_arr[np.nonzero(diff_arr)].min()
     mod_diff_arr = np.where(diff_arr <= 10 * min_diff, 0, 1)
