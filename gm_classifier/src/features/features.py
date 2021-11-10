@@ -255,8 +255,8 @@ def comp_fourier_data(
     smooth_signal_matrix = load_konno_matrix(ko_matrices, ft_freq_signal)
 
     # Smooth ft with konno ohmachi matrix
-    smooth_ft_signal = np.dot(np.abs(ft_signal), smooth_signal_matrix)
-    smooth_ft_pe = np.dot(np.abs(ft_pe), smooth_signal_matrix)
+    smooth_ft_signal = np.dot(np.abs(ft_signal).astype(np.float32), smooth_signal_matrix).astype(np.float64)
+    smooth_ft_pe = np.dot(np.abs(ft_pe).astype(np.float32), smooth_signal_matrix).astype(np.float64)
 
     # Calculate SNR
     snr = smooth_ft_signal / smooth_ft_pe
