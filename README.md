@@ -19,8 +19,11 @@ For the full details see the paper.
 
 Requires python 3.8 or 3.9, should work with newer versions as well, but has not been tested
 
-- Clone the repository 
-  `git clone git@github.com:ucgmsim/gm_classifier.git`
+- Clone & install the `gm_classifier` repository 
+  ```
+  git clone git@github.com:ucgmsim/gm_classifier.git
+  pip install -e ./gm_classifier
+  ```
 - Install requirements
   `pip install -r requirements.txt`
 
