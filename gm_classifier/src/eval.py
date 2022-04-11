@@ -138,7 +138,7 @@ def print_model_eval(
         )
 
     console.print(
-        f"\n[bold]{prefix} - Fmin MSE[/]:\n\t{fmin_metric_mean:.4f} +/- {fmin_metric_std:.4f}"
+        f"\n[bold]{prefix} - Fmin Metric[/]:\n\t{fmin_metric_mean:.4f} +/- {fmin_metric_std:.4f}"
     )
 
     if y_multi is not None:

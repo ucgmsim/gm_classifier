@@ -11,7 +11,9 @@ snr_n_filters_3: 10
 snr_kernel_size_3: 10
 
 snr_pool_size: 2
-snr_cnn_dropout: 0.2
+#snr_cnn_dropout: 0.2
+snr_cnn_dropout: null
+snr_l2_reg: 0.0025
 
 snr_cnn_layer_config:
   activation: "elu"
@@ -21,6 +23,8 @@ snr_cnn_layer_config:
 snr_n_lstm_layers: 2
 snr_n_lstm_units: 32
 snr_n_final_lstm_units: 16
+#snr_lstm_l2_reg: 0.005
+snr_lstm_l2_reg: null
 
 # Scalar
 scalar_input_dropout: null
@@ -36,7 +40,9 @@ out_n_dense_layers: 1
 out_n_dense_units: 16
 
 # General
-dense_dropout: 0.1
+#dense_dropout: 0.1
+dense_dropout: null
+dense_l2_reg: 0.0025
 dense_hidden_layer_fn: "selu_mc_dropout"
 
 # Training hyperparameters

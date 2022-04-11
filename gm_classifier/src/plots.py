@@ -87,7 +87,8 @@ def plot_record_full(
                 snr_arrays.append(ft_data.smooth_ft_signal / ft_data.smooth_ft_pe)
 
     # Create the plot
-    fig = plt.figure(figsize=(16, 10))
+    fig = plt.figure(figsize=(16, 10), dpi=500)
+    linewidth=0.5
 
     wave_form_ax, snr_ax = None, None
     for ix, (cur_channel, cur_acc, cur_freq, cur_snr, c) in enumerate(
@@ -100,9 +101,9 @@ def plot_record_full(
         )
     ):
         wave_form_ax = fig.add_subplot(4, 2, (ix * 2) + 1, sharex=wave_form_ax)
-        wave_form_ax.plot(t, cur_acc, label=cur_channel, c=c)
-        wave_form_ax.axvline(t[p_wave_ix], c="k", linewidth=1)
-        wave_form_ax.axvline(t[s_wave_ix], c="k", linewidth=1)
+        wave_form_ax.plot(t, cur_acc, label=cur_channel, c=c, linewidth=linewidth)
+        wave_form_ax.axvline(t[p_wave_ix], c="k", linewidth=0.5)
+        wave_form_ax.axvline(t[s_wave_ix], c="k", linewidth=0.5)
         wave_form_ax.legend()
 
         if ix == 2:
@@ -112,22 +113,25 @@ def plot_record_full(
             continue
 
         snr_ax = fig.add_subplot(4, 2, (ix + 1) * 2, sharex=snr_ax)
-        snr_ax.plot(cur_freq, cur_snr, c=c)
-        snr_ax.axhline(2.0, c="k", linestyle="--", linewidth=1)
-        snr_ax.set_xlim(0.0, 10.0)
-        snr_ax.set_ylim(0.0, 20.0)
-        snr_ax.set_xscale("log")
+        snr_ax.plot(cur_freq, cur_snr, c=c, linewidth=linewidth)
+        snr_ax.axhline(2.0, c="k", linestyle="--", linewidth=0.5)
 
-        snr_ax.grid(b=True, which="major", linestyle="-", alpha=0.75)
-        snr_ax.grid(b=True, which="minor", linestyle="--", alpha=0.5)
+        snr_ax.set_yscale("log")
+        snr_ax.set_ylim(1.0, 20.0)
+
+        snr_ax.set_xscale("log")
+        snr_ax.set_xlim(0.01, 10.0)
+
+        snr_ax.grid(b=True, which="major", linestyle="-", alpha=0.75, linewidth=0.5)
+        snr_ax.grid(b=True, which="minor", linestyle="--", alpha=0.5, linewidth=0.5)
 
         if ix == 2:
             snr_ax.set_xlabel("ln(freq)")
 
     t_prob = np.arange(p_prob_series.size) * (1.0 / 100.0)
     prob_ax = fig.add_subplot(4, 2, 7, sharex=wave_form_ax)
-    prob_ax.plot(t_prob, p_prob_series, label="p-wave prob")
-    prob_ax.plot(t_prob, s_prob_series, label="s-wave prob")
+    prob_ax.plot(t_prob, p_prob_series, label="p-wave prob", linewidth=linewidth)
+    prob_ax.plot(t_prob, s_prob_series, label="s-wave prob", linewidth=linewidth)
     prob_ax.legend()
 
     if results_df is not None:
@@ -174,9 +178,9 @@ def plot_record_full(
                 + "\n\n".join(
                     [
                         f"{cur_comp[1]} - "
-                        f"Score: {cur_label_row.loc[f'Man_Score{cur_comp}']:.2f} "
-                        f"Fmin: {cur_label_row.loc[f'Min_Freq{cur_comp}']:.2f} "
-                        for cur_comp in ["_X", "_Y", "_Z"]
+                        f"Score: {cur_label_row.loc[f'score{cur_comp}']:.2f} "
+                        f"Fmin: {cur_label_row.loc[f'fmin{cur_comp}']:.2f} "
+                        for cur_comp in ["_x", "_y", "_z"]
                     ]
                 ),
                 horizontalalignment="left",
@@ -214,7 +218,7 @@ def plot_loss(
 
     epochs = np.arange(len(history["loss"]))
     ax.plot(
-        epochs, history["loss"], "k-", label=f"Training - {np.min(history['loss'])}"
+        epochs, history["loss"], "k-", label=f"Training - {np.min(history['loss']):.2f}"
     )
     if "val_loss" in history.keys():
         ax.plot(
@@ -329,9 +333,7 @@ def plot_confusion_matrix(
     fig.savefig(output_dir / f"{out_name}.png")
 
     if wandb_save:
-        import wandb
-        wandb.log({out_name: fig})
-        wandb.save(str(f"{out_name}.png"))
+        log_to_wandb(fig, out_name, str(f"{out_name}.png"))
 
     plt.close()
 
@@ -407,6 +409,7 @@ def plot_fmin_true_vs_est(
     title: str = None,
     wandb_save: bool = True,
     zoom: bool = False,
+    log: bool = False,
 ):
     y = label_df.fmin
 
@@ -415,18 +418,24 @@ def plot_fmin_true_vs_est(
         y_est.values, y.values, c=label_df.score, s=4.0, cmap="coolwarm", marker=".",
     )
 
-    ax.plot([0.1, 10.0], [0.1, 10.0], "k--")
+    ax.plot([0.01, 10.0], [0.01, 10.0], "k--")
 
     if zoom:
-        ax.set_xlim((0.0, 2.0))
-        ax.set_ylim((0.0, 2.0))
+        ax.set_xlim((0.009, 1.0))
+        ax.set_ylim((0.009, 1.0))
         title = f"{title}_zoomed"
 
     if title is not None:
         ax.set_title(title)
+
+    if log:
+        ax.loglog()
+        title = f"{title}_log"
+
     ax.set_xlabel("Estimated")
     ax.set_ylabel("True")
     ax.grid(True, alpha=0.5, linestyle="--")
+
     cbar = fig.colorbar(scatter)
     cbar.set_label("Quality score (True)")
 
@@ -436,10 +445,7 @@ def plot_fmin_true_vs_est(
     fig.savefig(out_ffp)
 
     if wandb_save:
-        import wandb
-        wandb.log({f"fmin_true_vs_est_{title}": fig})
-        wandb.save(str(out_ffp))
-
+        log_to_wandb(fig, f"fmin_true_vs_est_{title}", str(out_ffp))
 
 def plot_score_true_vs_est(
     label_df: pd.DataFrame,
@@ -491,6 +497,13 @@ def plot_score_true_vs_est(
     fig.savefig(out_ffp)
 
     if wandb_save:
+        log_to_wandb(fig, f"score_true_vs_est_{title}", str(out_ffp))
+
+
+def log_to_wandb(fig: plt.Figure, key: str, ffp: str):
+    try:
         import wandb
-        wandb.log({f"score_true_vs_est_{title}": fig})
-        wandb.save(str(out_ffp))
+        wandb.log({key: fig})
+        wandb.save(ffp)
+    except Exception as ex:
+        console.print(f"Failed to save plot to wandb due to the error:\n{ex}")

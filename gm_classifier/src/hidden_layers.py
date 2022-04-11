@@ -45,9 +45,10 @@ def relu_dropout(input: layers.Layer, n_units: int, dropout: float = 0.2):
     return x
 
 
-def selu_dropout(input: layers.Layer, n_units: int, dropout: float = 0.2):
+def selu_dropout(input: layers.Layer, n_units: int, dropout: float = 0.2, l2_reg: float = None):
+    l2_reg = keras.regularizers.l2(l2_reg) if l2_reg is not None else None
     x = layers.Dense(
-        units=n_units, activation="selu", kernel_initializer="lecun_normal"
+        units=n_units, activation="selu", kernel_initializer="lecun_normal", kernel_regularizer=l2_reg,
     )(input)
     if dropout is not None:
         x = layers.AlphaDropout(dropout)(x)
@@ -55,9 +56,10 @@ def selu_dropout(input: layers.Layer, n_units: int, dropout: float = 0.2):
     return x
 
 
-def selu_mc_dropout(input: layers.Layer, n_units: int, dropout: float = 0.05):
+def selu_mc_dropout(input: layers.Layer, n_units: int, dropout: float = 0.05, l2_reg: float = None):
+    l2_reg = keras.regularizers.l2(l2_reg) if l2_reg is not None else None
     x = layers.Dense(
-        units=n_units, activation="selu", kernel_initializer="lecun_normal"
+        units=n_units, activation="selu", kernel_initializer="lecun_normal", kernel_regularizer=l2_reg
     )(input)
     if dropout is not None:
         x = MCAlphaDropout(dropout)(x)
@@ -71,8 +73,10 @@ def cnn1_mc_dropout_pool(
     cnn_config: Dict,
     dropout: float = 0.1,
     pool_size: int = 2,
+    l2_reg: float = None
 ):
-    x = layers.Conv1D(filters, kernel_size, **cnn_config)(input)
+    l2_reg = keras.regularizers.l2(l2_reg) if l2_reg is not None else None
+    x = layers.Conv1D(filters, kernel_size, kernel_regularizer=l2_reg, **cnn_config)(input)
     if dropout is not None:
         x = MCSpatialDropout1D(rate=dropout)(x)
     if pool_size is not None:
@@ -81,9 +85,13 @@ def cnn1_mc_dropout_pool(
     return x
 
 
-def bi_lstm(input: layers.Layer, n_units: int, **lstm_config):
+def bi_lstm(input: layers.Layer, n_units: int,
+            l2_reg: float = None,
+            **lstm_config):
+    l2_reg = keras.regularizers.l2(l2_reg) if l2_reg is not None else None
+
     x = keras.layers.Bidirectional(
-        layer=keras.layers.LSTM(units=n_units, **lstm_config)
+        layer=keras.layers.LSTM(units=n_units, kernel_regularizer=l2_reg, **lstm_config)
     )(input)
 
     return x

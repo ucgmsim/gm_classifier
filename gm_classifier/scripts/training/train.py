@@ -26,7 +26,7 @@ from gm_classifier.src.console import console
 # --------------- Config ------------------
 
 label_ffp = Path(
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels/relabel_0903/labels.csv"
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels/relabel_20220310_MikeFmin/label.csv"
 )
 
 features_dir = Path(
@@ -104,15 +104,27 @@ gmc_model = gmc.model.build_model(
     multi_out=True,
 )
 
+# Save a plot of the model
+keras.utils.plot_model(
+    gmc_model,
+    output_dir / "model.png",
+    expand_nested=True,
+    show_dtype=True,
+    show_shapes=True,
+)
+
 # Setting to 0.0, results in nan values, so set to very small value
 weight_lookup = {1.0: 1.0, 0.75: 0.75, 0.5: 0.1, 0.25: 1e-8, 0.0: 1e-8}
-fmin_loss = gmc.training.FMinLoss(weight_lookup, base_loss_fn=gmc.training.create_huber(1.0))
+# fmin_loss = gmc.training.FMinLoss(weight_lookup, base_loss_fn=gmc.training.create_huber(1.0))
+fmin_loss = gmc.training.FMinLoss(weight_lookup, base_loss_fn=gmc.training.fmin_log_loss)
 score_loss = gmc.training.create_huber(0.5)
+
 
 def fmin_loss_metric_fn(y, y_est):
     return fmin_loss.call(y, y_est)
 
-loss_weights = [2.0, 0.1, 0.1]
+
+loss_weights = [2.0, 0.05, 0.1]
 gmc_model.compile(
     optimizer=hyperparams["optimizer"],
     loss={
@@ -175,10 +187,12 @@ history = gmc_model.fit(
     ),
     callbacks=[
         keras.callbacks.EarlyStopping(
+            # min_delta=0.005, patience=50, verbose=1, restore_best_weights=True
             min_delta=0.005, patience=100, verbose=1, restore_best_weights=True
         ),
         keras.callbacks.ReduceLROnPlateau(
-            factor=0.5, patience=50, verbose=1, min_lr=1e-6, min_delta=5e-3
+            factor=0.5, patience=20, verbose=1, min_lr=1e-6, min_delta=5e-3
+            # factor=0.5, patience=50, verbose=1, min_lr=1e-6, min_delta=5e-3
         ),
         WandbCallback(),
     ],
@@ -307,4 +321,11 @@ gmc.plots.plot_fmin_true_vs_est(
 )
 gmc.plots.plot_fmin_true_vs_est(
     label_df.loc[val_ids], y_fmin_est_val, output_dir, title="validation", zoom=True
+)
+
+gmc.plots.plot_fmin_true_vs_est(
+    label_df.loc[train_ids], y_fmin_est_train, output_dir, title="training", zoom=True, log=True
+)
+gmc.plots.plot_fmin_true_vs_est(
+    label_df.loc[val_ids], y_fmin_est_val, output_dir, title="validation", zoom=True, log=True
 )

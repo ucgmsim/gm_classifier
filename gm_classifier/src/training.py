@@ -13,6 +13,9 @@ import tensorflow.keras as keras
 def squared_error(y_true, y_pred):
     return tf.square(y_true - y_pred)
 
+@tf.function
+def fmin_log_loss(y_true, y_pred):
+    return tf.math.abs(tf.math.log(y_true) - tf.math.log(y_pred))
 
 class FMinLoss(keras.losses.Loss):
     def __init__(
@@ -173,3 +176,4 @@ def create_huber(threshold: float = 1.0):
         )
 
     return tf.function(huber_fn)
+
