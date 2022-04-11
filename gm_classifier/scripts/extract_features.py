@@ -121,12 +121,12 @@ def log_failed_records(
                     )
                 )
             )
-    if len(feature_errors[gmc.features.FeatureErrorType.late_p_pick]) > 0:
-        with open(os.path.join(output_dir, "late_p_pick.txt"), "w") as f:
+    if len(feature_errors[gmc.features.FeatureErrorType.short_signal_duration]) > 0:
+        with open(os.path.join(output_dir, "short_signal_duration.txt"), "w") as f:
             f.write(
-                "The following records failed processing as the p-wave pick is very late in the record"
-                ", preventing accurate feature generation as the resulting signal duration is too short:\n{}".format(
-                    "\n".join(feature_errors[gmc.features.FeatureErrorType.late_p_pick])
+                "The following records failed processing as the signal duration is less than 10.24s"
+                ", preventing accurate feature generation:\n{}".format(
+                    "\n".join(feature_errors[gmc.features.FeatureErrorType.short_signal_duration])
                 )
             )
     if len(feature_errors[gmc.features.FeatureErrorType.missing_ko_matrix]) > 0:

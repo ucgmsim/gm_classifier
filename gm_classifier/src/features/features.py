@@ -23,11 +23,14 @@ class FeatureErrorType(Enum):
     # PGA is zero
     PGA_zero = 1
 
-    # P-wave pick is to early or late in the record,
+    # P-wave pick is to early,
     # which means no decent pre-event noise,
     # breaking most features used
     early_p_pick = 2
-    late_p_pick = 3
+
+    # Signal duration is too short for
+    # accurate FAS -> SNR, hence breaking features
+    short_signal_duration = 3
 
     missing_ko_matrix = 4
 
@@ -562,18 +565,17 @@ def get_features(
         return_prob_series=True,
     )
 
-    if record.size - p_wave_ix < 2048:
+    if (record.size - p_wave_ix) * record.dt <= 10.24:
         raise FeatureError(
-            "P-wave pick is very late in the record, "
-            "preventing accurate feature generation. "
-            "This most likely means that the p-wave "
-            "pick is bad and/or that it is a malfunctioned or very short record",
-            FeatureErrorType.late_p_pick,
+            "Signal duration is less than 10.24 seconds,"
+            "preventing accurate feature generation",
+            FeatureErrorType.short_signal_duration,
         )
 
     if p_wave_ix * record.dt < 2.5:
         raise FeatureError(
-            "P-wave pick is < 2.5s, preventing accurate feature generation",
+            "P-wave pick is less than 2.5s from start of record,"
+            "preventing accurate feature generation",
             FeatureErrorType.early_p_pick,
         )
 
