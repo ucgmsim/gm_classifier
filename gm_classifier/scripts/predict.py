@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow.keras as keras
+import os
 
 # Grow the GPU memory usage as needed
 gpus = tf.config.experimental.list_physical_devices("GPU")
@@ -77,7 +78,15 @@ def main(features_dir: Path, model_dir: Path, output_ffp: Path, n_preds: int = 2
     result_df["component"] = np.stack(
         np.char.rsplit(feature_df.index.values.astype(str), "_", 1)
     )[:, -1]
+    # Additions by JH, add station and event_id columns and also make the output path
+    # directory if it does not exist.
+    result_df["station"] = np.stack((feature_df.station.astype(str)))
+    result_df["event_id"] = np.stack((feature_df.event_id.astype(str)))
 
+    # Make directory, if missing
+    if not os.path.exists(os.path.dirname(output_ffp)):
+        os.makedirs(os.path.dirname(output_ffp))
+        
     result_df.to_csv(output_ffp, index_label="record_id")
 
 
