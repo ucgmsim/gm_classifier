@@ -13,21 +13,23 @@ This means that for a 3-component record 6 outputs are produced, which can then 
 
 For the full details see the paper.
 
-
-
 ### Installation
 
 Requires python 3.8 or 3.9, should work with newer versions as well, but has not been tested
 
+- Create new environment
 - Clone & install the `gm_classifier` repository 
   ```
   git clone git@github.com:ucgmsim/gm_classifier.git
   pip install -e ./gm_classifier
   ```
-- Install requirements
-  `pip install -r requirements.txt`
-
-
+- Install dependencies
+  - `pip install -r ./requirements.txt`
+  - phasenet
+    - Note: This is a frozen in time fork (with some minor modifications) of the PhaseNet authors code (https://github.com/AI4EPS/PhaseNet) 
+    - Clone `git clone https://github.com/claudio525/PhaseNet`
+    - Install with `pip install -e ./phase_net`
+  
 
 ### Usage
 
@@ -59,10 +61,10 @@ optional arguments:
                         --ko_matrices_dir to be specified.
 ```
 
-The `--record_list_ffp` options was added to allow compute features for a subset of records found in the `record_dir` folder (and sub-folders), where the `record_id` is the name of the record file without the extension, e.g. for `20170102_131402_DREZ_10_EH.mseed` the `record_id` is `20170102_131402_DREZ_10_EH`  
+Note: If using a computer that supports tensorflow on GPU, this needs to be disabled for feature extraction using `export CUDA_VISIBLE_DEVICES=""` as PhaseNet does not run successfully on GPU (at least in our testing)
 
+The `--record_list_ffp` options was added to allow compute features for a subset of records found in the `record_dir` folder (and sub-folders), where the `record_id` is the name of the record file without the extension, e.g. for `20170102_131402_DREZ_10_EH.mseed` the `record_id` is `20170102_131402_DREZ_10_EH`
   
-
 The `--ko_matrices_dir` option allows specifying of the directory that contains the pre-computed Konno-Ohmachi matrices, for more details see below. It is recommended to pre-compute these.
 The `--low_memory` option can only be used when the Konno-Ohmachi matrices directory has been specified, and reduces the total memory usage at the cost of performance. If your machine has 16GB  or more RAM then this is not required (unless larger Konno-Ohmachi matrice sizes are specified manually, as per below)
 

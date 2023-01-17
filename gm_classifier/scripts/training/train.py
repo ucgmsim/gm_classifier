@@ -26,13 +26,13 @@ from gm_classifier.src.console import console
 # --------------- Config ------------------
 
 label_ffp = Path(
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels/relabel_20220310_MikeFmin/label.csv"
+    "path/to/labels_file"
 )
 
 features_dir = Path(
-    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210906"
+    "path/to/features/dir"
 )
-base_output_dir = Path("/home/claudy/dev/work/data/gm_classifier/results/test")
+base_output_dir = Path("output_dir")
 
 tags = [f"features_{str(features_dir.stem)}"]
 
