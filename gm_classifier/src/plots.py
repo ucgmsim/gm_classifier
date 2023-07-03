@@ -6,9 +6,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 
-from . import features
-from .records import Record, get_record_id, RecordError
+from .records import Record, RecordError, get_record_id
 from .console import console
+from . import data
 
 
 def plot_record_simple(record: Record):
@@ -54,41 +54,19 @@ def plot_record_full(
         )
         return
 
-    # Create the time vector
-    t = np.arange(record.size) * record.dt
-    p_wave_ix, s_wave_ix, p_prob_series, s_prob_series = features.run_phase_net(
-        np.stack((record.acc_1, record.acc_2, record.acc_v), axis=1)[np.newaxis, ...],
-        record.dt,
+    (
+        freq_arrays,
+        snr_arrays,
         t,
-        return_prob_series=True,
-    )
-
-    freq_arrays, snr_arrays = [], []
-    if p_wave_ix == 0:
-        console.print(
-            f"[orange1]\n{record.id}: P-wave ix == 0, SNR can therefore not be calculated[/]"
-        )
-        freq_arrays = snr_arrays = [None, None, None]
-    else:
-        for cur_acc in record.acc_arrays:
-            # Compute the fourier transform
-            try:
-                ft_data = features.comp_fourier_data(
-                    np.copy(cur_acc), t, record.dt, p_wave_ix, ko_matrices
-                )
-            except KeyError as ex:
-                console.print(
-                    f"[red]\nRecord {record.id} - No konno matrix found for size {ex.args[0]}. Skipping![/]"
-                )
-                freq_arrays.append(None)
-                snr_arrays.append(None)
-            else:
-                freq_arrays.append(ft_data.ft_freq_signal)
-                snr_arrays.append(ft_data.smooth_ft_signal / ft_data.smooth_ft_pe)
+        p_wave_ix,
+        s_wave_ix,
+        p_prob_series,
+        s_prob_series,
+    ) = data.compute_record_snr(record, ko_matrices)
 
     # Create the plot
     fig = plt.figure(figsize=(16, 10), dpi=500)
-    linewidth=0.5
+    linewidth = 0.5
 
     wave_form_ax, snr_ax = None, None
     for ix, (cur_channel, cur_acc, cur_freq, cur_snr, c) in enumerate(
@@ -415,7 +393,12 @@ def plot_fmin_true_vs_est(
 
     fig, ax = plt.subplots(figsize=(16, 10))
     scatter = ax.scatter(
-        y_est.values, y.values, c=label_df.score, s=4.0, cmap="coolwarm", marker=".",
+        y_est.values,
+        y.values,
+        c=label_df.score,
+        s=4.0,
+        cmap="coolwarm",
+        marker=".",
     )
 
     ax.plot([0.01, 10.0], [0.01, 10.0], "k--")
@@ -447,6 +430,7 @@ def plot_fmin_true_vs_est(
     if wandb_save:
         log_to_wandb(fig, f"fmin_true_vs_est_{title}", str(out_ffp))
 
+
 def plot_score_true_vs_est(
     label_df: pd.DataFrame,
     y_est: pd.Series,
@@ -464,7 +448,12 @@ def plot_score_true_vs_est(
 
     fig, ax = plt.subplots(figsize=(16, 10), dpi=200)
     ax.scatter(
-        y_est.values, y.values + noise.values, label="Normal", c="b", s=4.0, marker=".",
+        y_est.values,
+        y.values + noise.values,
+        label="Normal",
+        c="b",
+        s=4.0,
+        marker=".",
     )
     ax.scatter(
         y_est.loc[multi_eq_ids].values,
@@ -503,6 +492,7 @@ def plot_score_true_vs_est(
 def log_to_wandb(fig: plt.Figure, key: str, ffp: str):
     try:
         import wandb
+
         wandb.log({key: fig})
         wandb.save(ffp)
     except Exception as ex:

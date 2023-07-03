@@ -1,10 +1,14 @@
-from typing import Sequence
+from typing import Sequence, Dict
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from . import utils
+from .console import console
+from .records import Record, RecordError, get_record_id
+from . import features
+
 
 
 def load_dataset(
@@ -47,3 +51,38 @@ def load_dataset(
 
     assert np.all(feature_df.index == label_df.index)
     return feature_df, label_df
+
+def compute_record_snr(record: Record, ko_matrices: Dict):
+    # Create the time vector
+    t = np.arange(record.size) * record.dt
+    p_wave_ix, s_wave_ix, p_prob_series, s_prob_series = features.run_phase_net(
+        np.stack((record.acc_1, record.acc_2, record.acc_v), axis=1)[np.newaxis, ...],
+        record.dt,
+        t,
+        return_prob_series=True,
+    )
+
+    freq_arrays, snr_arrays = [], []
+    if p_wave_ix == 0:
+        console.print(
+            f"[orange1]\n{record.id}: P-wave ix == 0, SNR can therefore not be calculated[/]"
+        )
+        freq_arrays = snr_arrays = [None, None, None]
+    else:
+        for cur_acc in record.acc_arrays:
+            # Compute the fourier transform
+            try:
+                ft_data = features.comp_fourier_data(
+                    np.copy(cur_acc), t, record.dt, p_wave_ix, ko_matrices
+                )
+            except KeyError as ex:
+                console.print(
+                    f"[red]\nRecord {record.id} - No konno matrix found for size {ex.args[0]}. Skipping![/]"
+                )
+                freq_arrays.append(None)
+                snr_arrays.append(None)
+            else:
+                freq_arrays.append(ft_data.ft_freq_signal)
+                snr_arrays.append(ft_data.smooth_ft_signal / ft_data.smooth_ft_pe)
+
+    return freq_arrays, snr_arrays, t, p_wave_ix, s_wave_ix, p_prob_series, s_prob_series
