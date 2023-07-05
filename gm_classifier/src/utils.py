@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 
-import phase_net as ph
+
 
 
 def create_run_id() -> str:
@@ -107,6 +107,7 @@ def run_phase_net(
     return_prob_series: bool = False,
 ):
     """Uses PhaseNet to get the p- & s-wave pick"""
+    import phase_net as ph
     # Only supports a single record
     assert input_data.shape[0] == 1
 
