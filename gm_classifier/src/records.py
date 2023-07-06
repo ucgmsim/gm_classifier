@@ -47,6 +47,7 @@ class RecordErrorType(Enum):
 class RecordFormat(Enum):
     V1A = "V1A"
     MiniSeed = "mseed"
+    CSV = "csv"
 
 
 class RecordError(Exception):
@@ -191,6 +192,25 @@ class Record:
         )
 
     @classmethod
+    def load_csv(cls, csv_ffp: str):
+        # Get dt
+        with open(csv_ffp, "r") as f:
+            dt = float(f.readline().strip())
+
+        # Read the acceleration time-series
+        df = pd.read_csv(
+            csv_ffp, skiprows=1, header=None, names=["acc_1", "acc_2", "acc_v"]
+        )
+
+        return cls(
+            df["acc_1"].to_numpy(),
+            df["acc_2"].to_numpy(),
+            df["acc_v"].to_numpy(),
+            dt,
+            os.path.basename(csv_ffp).split(".")[0],
+        )
+
+    @classmethod
     def load_mseed(cls, mseed_ffp: str, inventory: Inventory = None):
         record_id = os.path.basename(mseed_ffp).split(".")[0]
 
@@ -256,15 +276,22 @@ class Record:
                 RecordErrorType.ComponentsMissing,
             )
 
-        return cls(acc_data.get(1), acc_data.get(2), acc_data.get("z"), dt, record_id,)
+        return cls(
+            acc_data.get(1),
+            acc_data.get(2),
+            acc_data.get("z"),
+            dt,
+            record_id,
+        )
 
     @classmethod
     def load(cls, ffp: str):
         if os.path.basename(ffp).split(".")[-1].lower() == "v1a":
             return cls.load_v1a(ffp)
         elif os.path.basename(ffp).split(".")[-1].lower() == "mseed":
-
             return cls.load_mseed(ffp, cls.inventory)
+        elif os.path.basename(ffp).split(".")[-1].lower() == "csv":
+            return cls.load_csv(ffp)
 
         else:
             raise ValueError(
@@ -354,7 +381,10 @@ def process_record(
     record = Record.load(record_ffp)
     record.record_preprocesing()
 
-    input_data, add_data = features.get_features(record, ko_matrices=konno_matrices,)
+    input_data, add_data = features.get_features(
+        record,
+        ko_matrices=konno_matrices,
+    )
 
     input_data["record_id"] = get_record_id(record_ffp)
     input_data["event_id"] = get_event_id(record_ffp)
@@ -511,7 +541,11 @@ def process_records(
         and all(
             [
                 ffp.is_file()
-                for ffp in [output_comp_1_ffp, output_comp_2_ffp, output_comp_v_ffp,]
+                for ffp in [
+                    output_comp_1_ffp,
+                    output_comp_2_ffp,
+                    output_comp_v_ffp,
+                ]
             ]
         )
     ):

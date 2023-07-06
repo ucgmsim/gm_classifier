@@ -21,9 +21,7 @@ def main(
         feature_df_v,
         failed_records,
     ) = gmc.records.process_records(
-        gmc.records.RecordFormat.V1A
-        if record_format == "V1A"
-        else gmc.records.RecordFormat.MiniSeed,
+        gmc.records.RecordFormat(record_format),
         record_dir=record_dir,
         record_list_ffp=record_list_ffp,
         ko_matrices_dir=ko_matrices_dir,
@@ -156,8 +154,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "record_format",
         type=str,
-        choices=["V1A", "mseed"],
-        help="Format of the records, either V1A or mseed",
+        choices=["V1A", "mseed", "csv"],
+        help="Format of the records, either V1A, csv or mseed",
     )
     parser.add_argument(
         "--output_prefix",
