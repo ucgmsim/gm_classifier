@@ -65,8 +65,14 @@ def plot_record_full(
     ) = data.compute_record_snr(record, ko_matrices)
 
     # Create the plot
-    fig = plt.figure(figsize=(16, 10), dpi=500)
-    linewidth = 0.5
+    fig = plt.figure(figsize=(16, 10))
+    linewidth = 1.0
+
+    snr_max = (
+        max([cur_snr.max() for cur_snr in snr_arrays])
+        if snr_arrays[0] is not None
+        else None
+    )
 
     wave_form_ax, snr_ax = None, None
     for ix, (cur_channel, cur_acc, cur_freq, cur_snr, c) in enumerate(
@@ -82,6 +88,8 @@ def plot_record_full(
         wave_form_ax.plot(t, cur_acc, label=cur_channel, c=c, linewidth=linewidth)
         wave_form_ax.axvline(t[p_wave_ix], c="k", linewidth=0.5)
         wave_form_ax.axvline(t[s_wave_ix], c="k", linewidth=0.5)
+
+        wave_form_ax.set_xlim(t.min(), t.max())
         wave_form_ax.legend()
 
         if ix == 2:
@@ -95,13 +103,13 @@ def plot_record_full(
         snr_ax.axhline(2.0, c="k", linestyle="--", linewidth=0.5)
 
         snr_ax.set_yscale("log")
-        snr_ax.set_ylim(1.0, 20.0)
+        snr_ax.set_ylim(0.1, snr_max + 0.1 * snr_max)
 
         snr_ax.set_xscale("log")
         snr_ax.set_xlim(0.01, 10.0)
 
-        snr_ax.grid(b=True, which="major", linestyle="-", alpha=0.75, linewidth=0.5)
-        snr_ax.grid(b=True, which="minor", linestyle="--", alpha=0.5, linewidth=0.5)
+        snr_ax.grid(which="major", linestyle="-", alpha=0.75, linewidth=0.5)
+        snr_ax.grid(which="minor", linestyle="--", alpha=0.5, linewidth=0.5)
 
         if ix == 2:
             snr_ax.set_xlabel("ln(freq)")
@@ -160,7 +168,9 @@ def plot_record_full(
                         f"Fmin: {cur_label_row.loc[f'fmin{cur_comp}']:.2f} "
                         for cur_comp in ["_x", "_y", "_z"]
                     ]
-                ),
+                )
+                + f"\n\nMulti: {cur_label_row.multi}, Malf: {cur_label_row.malf}"
+                + f"\n\nGood drop: {cur_label_row.good_drop}, Multi drop: {cur_label_row.multi_drop}, Other Drop: {cur_label_row.other_drop}",
                 horizontalalignment="left",
                 verticalalignment="top",
                 transform=ax_text.transAxes,
@@ -177,8 +187,6 @@ def plot_record_full(
 
     fig.savefig(output_dir / f"{record.id}.png")
     plt.close(fig)
-
-    return
 
 
 def plot_loss(

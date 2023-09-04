@@ -21,7 +21,7 @@ EVENT_YEARS = [str(ix) for ix in range(1950, 2050, 1)]
 
 G = 9.80665
 
-KO_MATRIX_SIZES = [1024, 2048, 4096, 8192, 16384, 32768]
+KO_MATRIX_SIZES = [512, 1024, 2048, 4096, 8192, 16384, 32768]
 
 
 class RecordErrorType(Enum):
