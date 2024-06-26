@@ -216,43 +216,47 @@ def get_combined_prediction(
     multi_output: bool = False,
     malf_output: bool = False,
 ):
-    score_preds, fmin_preds = [], []
-    multi_preds, malf_preds = [], []
-    for ix in range(n_preds):
-        cur_pred = model.predict({"scalar": X_scalar, "snr": X_snr})
+    # score_preds, fmin_preds = [], []
+    # multi_preds, malf_preds = [], []
+    # for ix in range(n_preds):
+    cur_pred = model.predict({"scalar": X_scalar, "snr": X_snr})
 
-        score_preds.append(cur_pred[0].ravel())
-        fmin_preds.append(cur_pred[1][:, 1])
+    # print(cur_pred)
+    # print('----------------------------')
+    # print(cur_pred[1])
 
-        if multi_output:
-            multi_preds.append(cur_pred[2].ravel())
-        if malf_output:
-            malf_preds.append(cur_pred[3].ravel())
+    score_preds = cur_pred[0].ravel()
+    fmin_preds = cur_pred[1][:, 1]
 
-    score_preds = np.stack(score_preds, axis=1)
-    fmin_preds = np.stack(fmin_preds, axis=1)
+    if multi_output:
+        multi_preds = cur_pred[2].ravel()
+    if malf_output:
+        malf_preds = cur_pred[3].ravel()
+
+    # score_preds = np.stack(score_preds, axis=1)
+    # fmin_preds = np.stack(fmin_preds, axis=1)
 
     results = [
-        pd.Series(data=score_preds.mean(axis=1), index=index, name="score_mean"),
-        pd.Series(data=score_preds.std(axis=1), index=index, name="score_std"),
-        pd.Series(data=fmin_preds.mean(axis=1), index=index, name="fmin_mean"),
-        pd.Series(data=fmin_preds.std(axis=1), index=index, name="fmin_std"),
+        pd.Series(data=score_preds, index=index, name="score_mean"),
+        # pd.Series(data=score_preds.std(axis=1), index=index, name="score_std"),
+        pd.Series(data=fmin_preds, index=index, name="fmin_mean"),
+        # pd.Series(data=fmin_preds.std(axis=1), index=index, name="fmin_std"),
     ]
 
     if multi_output:
-        multi_preds = np.stack(multi_preds, axis=1)
+        # multi_preds = np.stack(multi_preds, axis=1)
 
         results.append(
-            pd.Series(data=multi_preds.mean(axis=1), index=index, name="multi_mean")
+            pd.Series(data=multi_preds, index=index, name="multi_mean")
         )
-        results.append(
-            pd.Series(data=multi_preds.std(axis=1), index=index, name="multi_std")
-        )
+        # results.append(
+        #     pd.Series(data=multi_preds, index=index, name="multi_std")
+        # )
 
     if malf_output:
-        malf_preds = np.stack(malf_preds, axis=1)
+        # malf_preds = np.stack(malf_preds, axis=1)
 
-        results.append(pd.Series(data=malf_preds.mean(axis=1), index=index))
-        results.append(pd.Series(data=malf_preds.std(axis=1), index=index))
+        results.append(pd.Series(data=malf_preds, index=index))
+        # results.append(pd.Series(data=malf_preds.std(axis=1), index=index))
 
     return results

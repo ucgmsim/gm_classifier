@@ -26,13 +26,13 @@ from gm_classifier.src.console import console
 # --------------- Config ------------------
 
 label_ffp = Path(
-    "path/to/labels_file"
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/labels/relabel_20231027_RobinFmin2/labels.csv"
 )
 
 features_dir = Path(
-    "path/to/features/dir"
+    "/home/claudy/dev/work/data/gm_classifier/records/training_data/features/210906"
 )
-base_output_dir = Path("output_dir")
+base_output_dir = Path("/home/claudy/dev/work/tmp/gmc")
 
 tags = [f"features_{str(features_dir.stem)}"]
 
@@ -257,11 +257,11 @@ gmc.plots.plot_loss(
 
 (
     y_score_est_train,
-    y_score_est_train_std,
+    # y_score_est_train_std,
     y_fmin_est_train,
-    y_fmin_est_train_std,
+    # y_fmin_est_train_std,
     y_multi_est_train,
-    y_multi_est_train_std,
+    # y_multi_est_train_std,
 ) = gmc.eval.get_combined_prediction(
     gmc_model,
     X_scalar_train,
@@ -273,11 +273,11 @@ gmc.plots.plot_loss(
 
 (
     y_score_est_val,
-    y_score_est_val_std,
+    # y_score_est_val_std,
     y_fmin_est_val,
-    y_fmin_est_val_std,
+    # y_fmin_est_val_std,
     y_multi_est_val,
-    y_multi_est_val_std,
+    # y_multi_est_val_std,
 ) = gmc.eval.get_combined_prediction(
     gmc_model,
     X_scalar_val,

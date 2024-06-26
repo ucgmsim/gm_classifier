@@ -232,11 +232,27 @@ class Record:
         # Converts it to acceleration in m/s^2
         try:
             if st[0].stats.channel[1] == "N":  # Checks whether data is strong motion
-                st_acc = st.copy().remove_sensitivity(inventory=inventory)
+                if st[0].stats.station == 'CPLB':
+                    st_acc = st.copy()
+                    for tr in st_acc:
+                        tr.data = tr.data / 10**6 * G
+                else:
+                    st_acc = st.copy().remove_sensitivity(inventory=inventory)
             else:
-                st_acc = (
-                    st.copy().remove_sensitivity(inventory=inventory).differentiate()
-                )
+                if st[0].stats.station == 'CPLB':
+                    st_acc = st.copy().differentiate()
+                    for tr in st_acc:
+                        tr.data = tr.data / 10**6 * G
+                else:
+                    st_acc = (
+                        st.copy().remove_sensitivity(inventory=inventory).differentiate()
+                    )
+            # if st[0].stats.channel[1] == "N":  # Checks whether data is strong motion
+            #     st_acc = st.copy().remove_sensitivity(inventory=inventory)
+            # else:
+            #     st_acc = (
+            #         st.copy().remove_sensitivity(inventory=inventory).differentiate()
+            #     )
         except ValueError as ex:
             if ex.args[0] == "No matching response information found.":
                 raise RecordError(

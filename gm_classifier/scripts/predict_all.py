@@ -59,11 +59,11 @@ def main(features_dir: Path, model_dir: Path, output_ffp: Path, n_preds: int = 2
         console.print("Running predictions")
         (
             y_score_est,
-            y_score_est_std,
+            # y_score_est_std,
             y_fmin_est,
-            y_fmin_est_std,
+            # y_fmin_est_std,
             y_multi_est,
-            y_multi_est_std,
+            # y_multi_est_std,
         ) = gmc.eval.get_combined_prediction(
             gmc_model,
             X_scalar,
@@ -76,11 +76,11 @@ def main(features_dir: Path, model_dir: Path, output_ffp: Path, n_preds: int = 2
         result_df = pd.concat(
             [
                 y_score_est,
-                y_score_est_std,
+                # y_score_est_std,
                 y_fmin_est,
-                y_fmin_est_std,
+                # y_fmin_est_std,
                 y_multi_est,
-                y_multi_est_std,
+                # y_multi_est_std,
             ],
             axis=1,
         )
