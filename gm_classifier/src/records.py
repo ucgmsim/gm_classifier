@@ -509,7 +509,7 @@ def process_records(
     if ko_matrices_dir is not None and not low_mem_usage:
         print(f"Loading Konno matrices into memory")
         konno_matrices = {
-            matrix_id: np.load(os.path.join(ko_matrices_dir, f"konno_{matrix_id}.npy"))
+            matrix_id: np.load(os.path.join(ko_matrices_dir, f"KO_{matrix_id}.npy"))
             for matrix_id in ko_matrix_sizes
         }
     # Calculate the matrices and load into memory

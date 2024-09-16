@@ -55,7 +55,7 @@ SNR_FREQ_BINS = [
 ]
 
 
-KONNO_MATRIX_FILENAME_TEMPLATE = "konno_{}.npy"
+KONNO_MATRIX_FILENAME_TEMPLATE = "KO_{}.npy"
 
 FourierData = namedtuple(
     "FourierFeatures",
