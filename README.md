@@ -1,5 +1,7 @@
 ## Ground Motion Classifier 
 
+**04/09/2023 - Update:** Some of the minimum usable frequency predictions from the original were identified to incorrect. The model training data has been corrected and an updated model is available on the `updated_model` branch. Once further testing of this is complete the `main` branch will be updated with this model as well. Quality predictions are not affected.
+
 ### Description
 
 This repository contains the code needed to use the GM quality estimation model from the paper "A deep-learning-based model for quality assessment of earthquake-induced ground motion records". Additionally it also contains the labels used to train the model, and a script to re-train it if desired.
