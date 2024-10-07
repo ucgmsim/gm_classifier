@@ -27,7 +27,7 @@ def main(output_dir):
         cur_konno = gmc.features.features.get_konno_matrix(ft_len, dt=dt)
         print(f"Took {time.time() - start_time}\n")
 
-        np.save(os.path.join(output_dir, f"konno_{int(ft_len / 2)}.npy"), cur_konno)
+        np.save(os.path.join(output_dir, f"KO_{int(ft_len / 2)}.npy"), cur_konno)
 
 
 if __name__ == "__main__":

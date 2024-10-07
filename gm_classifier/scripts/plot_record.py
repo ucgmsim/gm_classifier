@@ -15,7 +15,7 @@ def main(
 ):
     # Load the konno matrices
     konno_matrices = {
-        matrix_id: np.load(str(ko_matrices_dir / f"konno_{matrix_id}.npy"))
+        matrix_id: np.load(str(ko_matrices_dir / f"KO_{matrix_id}.npy"))
         for matrix_id in [1024, 2048, 4096, 8192, 16384, 32768]
     }
 
