@@ -403,6 +403,7 @@ def process_records(
     low_mem_usage: bool = False,
     output_dir: str = None,
     output_prefix: str = "features",
+    num_to_save: int = 1000,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
     """Processes a set of record files, allows filtering of which
     records to process
@@ -433,6 +434,8 @@ def process_records(
         Output directory, features are regularly saved to this location
     output_prefix: string, optional
         Prefix for the output files
+    num_to_save: int, optional
+        Number of records to process before saving the features to disk
 
     Returns
     -------
@@ -450,11 +453,11 @@ def process_records(
 
     if output_dir is not None:
         output_dir = Path(output_dir)
-        output_comp_1_ffp = output_dir / f"{output_prefix}_comp_X.csv"
-        output_comp_2_ffp = output_dir / f"{output_prefix}_comp_Y.csv"
-        output_comp_v_ffp = output_dir / f"{output_prefix}_comp_Z.csv"
+        output_comp_1_ffp = output_dir / f"{output_prefix}_comp_X.parquet"
+        output_comp_2_ffp = output_dir / f"{output_prefix}_comp_Y.parquet"
+        output_comp_v_ffp = output_dir / f"{output_prefix}_comp_Z.parquet"
     else:
-        print(f"No output directory, results are not saved and only returned")
+        print("No output directory, results are not saved and only returned")
 
     def write(
         write_data: List[Tuple[pd.DataFrame, List, str]],
@@ -475,14 +478,14 @@ def process_records(
                 if cur_feature_df is not None
                 else new_feature_df
             )
-            cur_feature_df.to_csv(cur_output_ffp, index_label="record_id")
+            cur_feature_df.to_parquet(cur_output_ffp)
 
             results.append(cur_feature_df)
 
         return results
 
     if record_ffps is None:
-        print(f"Searching for record files")
+        print("Searching for record files")
         record_ffps = np.asarray(
             glob.glob(
                 os.path.join(record_dir, f"**/*.{record_format.value}"), recursive=True
@@ -507,21 +510,21 @@ def process_records(
         ]
     )
     if ko_matrices_dir is not None and not low_mem_usage:
-        print(f"Loading Konno matrices into memory")
+        print("Loading Konno matrices into memory")
         konno_matrices = {
             matrix_id: np.load(os.path.join(ko_matrices_dir, f"KO_{matrix_id}.npy"))
             for matrix_id in ko_matrix_sizes
         }
     # Calculate the matrices and load into memory
     elif not low_mem_usage and ko_matrices_dir is None:
-        print(f"Computing and loading Konno matrices into memory")
+        print("Computing and loading Konno matrices into memory")
         konno_matrices = {
             matrix_id: features.get_konno_matrix(matrix_id * 2, dt=0.005)
             for matrix_id in ko_matrix_sizes
         }
     # Load them on the fly for each record
     elif low_mem_usage and ko_matrices_dir is not None:
-        print(f"Loading Konno matrices as required")
+        print("Loading Konno matrices as required")
         konno_matrices = ko_matrices_dir
     else:
         raise ValueError(
@@ -553,9 +556,9 @@ def process_records(
             "Output directory and files already exist, existing results will be used "
             "(and already processed records will be ignored)"
         )
-        feature_df_1 = pd.read_csv(output_comp_1_ffp, index_col="record_id")
-        feature_df_2 = pd.read_csv(output_comp_2_ffp, index_col="record_id")
-        feature_df_v = pd.read_csv(output_comp_v_ffp, index_col="record_id")
+        feature_df_1 = pd.read_parquet(output_comp_1_ffp)
+        feature_df_2 = pd.read_parquet(output_comp_2_ffp)
+        feature_df_v = pd.read_parquet(output_comp_v_ffp)
 
         # Ensure all the existing results are consistent
         assert np.all(
@@ -611,7 +614,7 @@ def process_records(
             feature_rows_v.append(cur_features["v"])
         if (
             output_dir is not None
-            and ix % 100 == 0
+            and ix % num_to_save == 0
             and ix > 0
             and len(feature_rows_1) > 0
         ):

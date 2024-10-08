@@ -72,6 +72,24 @@ def log_failed_records(
                     "\n".join(record_errors[gmc.records.RecordErrorType.NQuakePoints])
                 )
             )
+    if len(record_errors[gmc.records.RecordErrorType.DtNotMatching]) > 0:
+        with open(os.path.join(output_dir, "dt.txt"), "w") as f:
+            f.write(
+                "The following records failed processing due to the "
+                "acceleration timeseries of the components having "
+                "different dt:\n{}".format(
+                    "\n".join(record_errors[gmc.records.RecordErrorType.DtNotMatching])
+                )
+            )
+    if len(record_errors[gmc.records.RecordErrorType.ComponentsMissing]) > 0:
+        with open(os.path.join(output_dir, "missing_components.txt"), "w") as f:
+            f.write(
+                "The following records failed processing due to missing components:\n{}".format(
+                    "\n".join(
+                        record_errors[gmc.records.RecordErrorType.ComponentsMissing]
+                    )
+                )
+            )
     if len(record_errors[gmc.records.RecordErrorType.MissinResponseInfo]) > 0:
         with open(os.path.join(output_dir, "missing_response.txt"), "w") as f:
             f.write(
