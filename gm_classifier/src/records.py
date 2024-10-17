@@ -482,7 +482,7 @@ def process_records(
             if to_parquet:
                 cur_feature_df.to_parquet(cur_output_ffp)
             else:
-                cur_feature_df.to_csv(cur_output_ffp)
+                cur_feature_df.to_csv(cur_output_ffp, index_label="record_id")
 
             results.append(cur_feature_df)
 
