@@ -22,7 +22,7 @@ def create_run_id() -> str:
 
 def load_features_from_dir(
     feature_dir: Union[str, Path],
-    glob_filter: str = "*comp*.parquet",
+    glob_filter: str = "*comp*.csv",
     concat: bool = True,
     drop_duplicates: bool = True,
     drop_nan: bool = True,
@@ -63,7 +63,7 @@ def load_features_from_dir(
         print(f"Processing file {os.path.basename(cur_ffp)}")
         cur_comp = os.path.basename(cur_ffp).split(".")[0].split("_")[-1]
 
-        cur_df = pd.read_parquet(cur_ffp)
+        cur_df = pd.read_csv(cur_ffp)
 
         if drop_duplicates:
             # drop_duplicates ignores the index, so have to make

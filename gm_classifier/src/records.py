@@ -453,9 +453,9 @@ def process_records(
 
     if output_dir is not None:
         output_dir = Path(output_dir)
-        output_comp_1_ffp = output_dir / f"{output_prefix}_comp_X.parquet"
-        output_comp_2_ffp = output_dir / f"{output_prefix}_comp_Y.parquet"
-        output_comp_v_ffp = output_dir / f"{output_prefix}_comp_Z.parquet"
+        output_comp_1_ffp = output_dir / f"{output_prefix}_comp_X.csv"
+        output_comp_2_ffp = output_dir / f"{output_prefix}_comp_Y.csv"
+        output_comp_v_ffp = output_dir / f"{output_prefix}_comp_Z.csv"
     else:
         print("No output directory, results are not saved and only returned")
 
@@ -478,7 +478,7 @@ def process_records(
                 if cur_feature_df is not None
                 else new_feature_df
             )
-            cur_feature_df.to_parquet(cur_output_ffp)
+            cur_feature_df.to_csv(cur_output_ffp)
 
             results.append(cur_feature_df)
 
@@ -556,9 +556,9 @@ def process_records(
             "Output directory and files already exist, existing results will be used "
             "(and already processed records will be ignored)"
         )
-        feature_df_1 = pd.read_parquet(output_comp_1_ffp)
-        feature_df_2 = pd.read_parquet(output_comp_2_ffp)
-        feature_df_v = pd.read_parquet(output_comp_v_ffp)
+        feature_df_1 = pd.read_csv(output_comp_1_ffp)
+        feature_df_2 = pd.read_csv(output_comp_2_ffp)
+        feature_df_v = pd.read_csv(output_comp_v_ffp)
 
         # Ensure all the existing results are consistent
         assert np.all(
