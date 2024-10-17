@@ -453,9 +453,9 @@ def process_records(
 
     if output_dir is not None:
         output_dir = Path(output_dir)
-        output_comp_1_ffp = output_dir / f"{output_prefix}_comp_X.csv"
-        output_comp_2_ffp = output_dir / f"{output_prefix}_comp_Y.csv"
-        output_comp_v_ffp = output_dir / f"{output_prefix}_comp_Z.csv"
+        output_comp_1_ffp = output_dir / f"{output_prefix}_comp_X.parquet"
+        output_comp_2_ffp = output_dir / f"{output_prefix}_comp_Y.parquet"
+        output_comp_v_ffp = output_dir / f"{output_prefix}_comp_Z.parquet"
     else:
         print("No output directory, results are not saved and only returned")
 
@@ -464,6 +464,7 @@ def process_records(
         record_ids: List[str],
         event_ids: List[str],
         stations: List[str],
+        to_parquet=False,
     ):
         print("Writing results..")
         results = []
@@ -478,7 +479,10 @@ def process_records(
                 if cur_feature_df is not None
                 else new_feature_df
             )
-            cur_feature_df.to_csv(cur_output_ffp)
+            if to_parquet:
+                cur_feature_df.to_parquet(cur_output_ffp)
+            else:
+                cur_feature_df.to_csv(cur_output_ffp)
 
             results.append(cur_feature_df)
 
@@ -556,9 +560,9 @@ def process_records(
             "Output directory and files already exist, existing results will be used "
             "(and already processed records will be ignored)"
         )
-        feature_df_1 = pd.read_csv(output_comp_1_ffp)
-        feature_df_2 = pd.read_csv(output_comp_2_ffp)
-        feature_df_v = pd.read_csv(output_comp_v_ffp)
+        feature_df_1 = pd.read_parquet(output_comp_1_ffp)
+        feature_df_2 = pd.read_parquet(output_comp_2_ffp)
+        feature_df_v = pd.read_parquet(output_comp_v_ffp)
 
         # Ensure all the existing results are consistent
         assert np.all(
@@ -634,16 +638,23 @@ def process_records(
 
     # Save
     if output_dir is not None:
+        output_comp_1_csv_ffp = output_dir / f"{output_prefix}_comp_X.csv"
+        output_comp_2_csv_ffp = output_dir / f"{output_prefix}_comp_Y.csv"
+        output_comp_v_csv_ffp = output_dir / f"{output_prefix}_comp_Z.csv"
         feature_df_1, feature_df_2, feature_df_v = write(
             [
-                (feature_df_1, feature_rows_1, output_comp_1_ffp),
-                (feature_df_2, feature_rows_2, output_comp_2_ffp),
-                (feature_df_v, feature_rows_v, output_comp_v_ffp),
+                (feature_df_1, feature_rows_1, output_comp_1_csv_ffp),
+                (feature_df_2, feature_rows_2, output_comp_2_csv_ffp),
+                (feature_df_v, feature_rows_v, output_comp_v_csv_ffp),
             ],
             record_ids,
             event_ids,
             stations,
         )
+        # Remove the parquet files
+        for ffp in [output_comp_1_ffp, output_comp_2_ffp, output_comp_v_ffp]:
+            if ffp.is_file():
+                ffp.unlink()
 
     return feature_df_1, feature_df_2, feature_df_v, failed_records
 
