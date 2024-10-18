@@ -68,7 +68,7 @@ def load_features_from_dir(
         if drop_duplicates:
             # drop_duplicates ignores the index, so have to make
             # it a column..
-            cur_df["record_id"] = cur_df.index
+            cur_df.index = cur_df["record_id"]
             cur_df.drop_duplicates(inplace=True)
             cur_df.drop(columns=["record_id"], inplace=True)
             print("Dropped duplicated rows, with same values (& index)")
