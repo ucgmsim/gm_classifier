@@ -246,6 +246,9 @@ class Record:
             else:
                 raise ex
 
+        # To save the horizontal channel identifiers
+        horiz_channels = []
+
         # Gets and converts the acceleration data to units g and
         # singles out the vertical component (order of the horizontal
         # ones does not matter)
@@ -262,7 +265,9 @@ class Record:
             if "Z" in cur_trace.stats["channel"]:
                 acc_data["z"] = cur_trace.data / G
             else:
-                acc_data[ix + 1] = cur_trace.data / G
+                cur_trace_channel_id = cur_trace.stats["channel"][-1]
+                horiz_channels.append(cur_trace_channel_id)
+                acc_data[cur_trace_channel_id] = cur_trace.data / G
 
         if len(acc_data) == 1 and "z" in acc_data:
             console.print(
@@ -270,6 +275,7 @@ class Record:
                 f"using vertical (as all three are required for p-wave arrival estimation)[/]"
             )
             acc_data[1] = acc_data[2] = acc_data["z"]
+            horiz_channels = [1, 2]
         elif len(acc_data) < 3:
             raise RecordError(
                 f"Record {record_id} - Missing components",
@@ -277,8 +283,8 @@ class Record:
             )
 
         return cls(
-            acc_data.get(1),
-            acc_data.get(2),
+            acc_data.get(horiz_channels[0]),
+            acc_data.get(horiz_channels[1]),
             acc_data.get("z"),
             dt,
             record_id,
