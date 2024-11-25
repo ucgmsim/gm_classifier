@@ -246,6 +246,9 @@ class Record:
             else:
                 raise ex
 
+        # To save the horizontal channel identifiers
+        horiz_channels = []
+
         # Gets and converts the acceleration data to units g and
         # singles out the vertical component (order of the horizontal
         # ones does not matter)
@@ -262,7 +265,9 @@ class Record:
             if "Z" in cur_trace.stats["channel"]:
                 acc_data["z"] = cur_trace.data / G
             else:
-                acc_data[ix + 1] = cur_trace.data / G
+                cur_trace_channel_id = cur_trace.stats["channel"][-1]
+                horiz_channels.append(cur_trace_channel_id)
+                acc_data[cur_trace_channel_id] = cur_trace.data / G
 
         if len(acc_data) == 1 and "z" in acc_data:
             console.print(
@@ -270,6 +275,7 @@ class Record:
                 f"using vertical (as all three are required for p-wave arrival estimation)[/]"
             )
             acc_data[1] = acc_data[2] = acc_data["z"]
+            horiz_channels = [1, 2]
         elif len(acc_data) < 3:
             raise RecordError(
                 f"Record {record_id} - Missing components",
@@ -277,8 +283,8 @@ class Record:
             )
 
         return cls(
-            acc_data.get(1),
-            acc_data.get(2),
+            acc_data.get(horiz_channels[0]),
+            acc_data.get(horiz_channels[1]),
             acc_data.get("z"),
             dt,
             record_id,
@@ -464,6 +470,7 @@ def process_records(
         record_ids: List[str],
         event_ids: List[str],
         stations: List[str],
+        to_parquet=False,
     ):
         print("Writing results..")
         results = []
@@ -478,7 +485,10 @@ def process_records(
                 if cur_feature_df is not None
                 else new_feature_df
             )
-            cur_feature_df.to_parquet(cur_output_ffp)
+            if to_parquet:
+                cur_feature_df.to_parquet(cur_output_ffp)
+            else:
+                cur_feature_df.to_csv(cur_output_ffp, index_label="record_id")
 
             results.append(cur_feature_df)
 
@@ -634,16 +644,23 @@ def process_records(
 
     # Save
     if output_dir is not None:
+        output_comp_1_csv_ffp = output_dir / f"{output_prefix}_comp_X.csv"
+        output_comp_2_csv_ffp = output_dir / f"{output_prefix}_comp_Y.csv"
+        output_comp_v_csv_ffp = output_dir / f"{output_prefix}_comp_Z.csv"
         feature_df_1, feature_df_2, feature_df_v = write(
             [
-                (feature_df_1, feature_rows_1, output_comp_1_ffp),
-                (feature_df_2, feature_rows_2, output_comp_2_ffp),
-                (feature_df_v, feature_rows_v, output_comp_v_ffp),
+                (feature_df_1, feature_rows_1, output_comp_1_csv_ffp),
+                (feature_df_2, feature_rows_2, output_comp_2_csv_ffp),
+                (feature_df_v, feature_rows_v, output_comp_v_csv_ffp),
             ],
             record_ids,
             event_ids,
             stations,
         )
+        # Remove the parquet files
+        for ffp in [output_comp_1_ffp, output_comp_2_ffp, output_comp_v_ffp]:
+            if ffp.is_file():
+                ffp.unlink()
 
     return feature_df_1, feature_df_2, feature_df_v, failed_records
 
