@@ -1,5 +1,6 @@
 import os
 import argparse
+import pandas as pd
 import traceback
 from typing import Dict, Any, List, Union
 
@@ -14,6 +15,7 @@ def main(
     record_list_ffp: str = None,
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
+    phase_arrival_table: pd.DataFrame = None,
 ):
     (
         feature_df_1,
@@ -28,6 +30,7 @@ def main(
         low_mem_usage=low_mem_usage,
         output_dir=output_dir,
         output_prefix=output_prefix,
+        phase_arrival_table=phase_arrival_table,
     )
 
     log_failed_records(output_dir, failed_records)
@@ -201,6 +204,12 @@ if __name__ == "__main__":
         "Requires --ko_matrices_dir to be specified. ",
         default=False,
     )
+    parser.add_argument(
+        "--phase_arrival_table",
+        type=str,
+        help="Path to the phase arrival table to use for the feature extraction",
+        default=None,
+    )
 
     args = parser.parse_args()
 
@@ -212,4 +221,5 @@ if __name__ == "__main__":
         record_list_ffp=args.record_list_ffp,
         ko_matrices_dir=args.ko_matrices_dir,
         low_mem_usage=args.low_memory,
+        phase_arrival_table=None if args.phase_arrival_table is None else pd.read_csv(args.phase_arrival_table),
     )
