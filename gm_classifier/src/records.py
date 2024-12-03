@@ -365,7 +365,9 @@ def get_record_ids_filter(record_list_ffp: str) -> np.ndarray:
 
 
 def process_record(
-    record_ffp: str, konno_matrices: Union[str, Dict[int, np.ndarray]]
+    record_ffp: str,
+    konno_matrices: Union[str, Dict[int, np.ndarray]],
+    phase_arrival_table: pd.DataFrame = None,
 ) -> Union[Tuple[None, None], Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Extracts the features for the given record
 
@@ -376,6 +378,8 @@ def process_record(
     konno_matrices: string or dictionary
         Either a path to a directory containing the Konno matrices files
         or a dictionary of the Konno matrices in memory
+    phase_arrival_table: pandas dataframe, optional
+        The phase arrival table to use for the feature extraction
 
     Returns
     -------
@@ -387,9 +391,18 @@ def process_record(
     record = Record.load(record_ffp)
     record.record_preprocesing()
 
+    phase_row = (
+        None
+        if phase_arrival_table is None
+        else phase_arrival_table.loc[
+            phase_arrival_table["record_id"] == Path(record_ffp).stem
+        ]
+    )
+
     input_data, add_data = features.get_features(
         record,
         ko_matrices=konno_matrices,
+        phase_row=phase_row,
     )
 
     input_data["record_id"] = get_record_id(record_ffp)
@@ -410,6 +423,7 @@ def process_records(
     output_dir: str = None,
     output_prefix: str = "features",
     num_to_save: int = 1000,
+    phase_arrival_table: pd.DataFrame = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
     """Processes a set of record files, allows filtering of which
     records to process
@@ -442,6 +456,8 @@ def process_records(
         Prefix for the output files
     num_to_save: int, optional
         Number of records to process before saving the features to disk
+    phase_arrival_table: pandas dataframe, optional
+        The phase arrival table to use for the feature extraction
 
     Returns
     -------
@@ -595,7 +611,9 @@ def process_records(
         try:
             print(f"Processing record {record_name}, {ix + 1}/{len(record_ffps)}")
             cur_features, cur_add_data = process_record(
-                record_ffp, konno_matrices=konno_matrices
+                record_ffp,
+                konno_matrices=konno_matrices,
+                phase_arrival_table=phase_arrival_table,
             )
             record_ids.append(cur_features["record_id"])
             event_ids.append(cur_features["event_id"])
