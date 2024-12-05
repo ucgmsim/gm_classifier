@@ -43,6 +43,9 @@ class RecordErrorType(Enum):
     # No response information (MSEED only)
     MissinResponseInfo = 7
 
+    # Record length less than 5 seconds
+    TotalTime = 8
+
 
 class RecordFormat(Enum):
     V1A = "V1A"
