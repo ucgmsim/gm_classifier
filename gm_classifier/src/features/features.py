@@ -564,8 +564,8 @@ def get_features(
         p_wave_ix, s_wave_ix, = phase_row["p_wave_ix"].values[0], phase_row["s_wave_ix"].values[0]
         with h5py.File(prob_series_ffp, 'r') as f:
             try:
-                p_prob_series = f[record.id]["p_prob_series"][:]
-                s_prob_series = f[record.id]["s_prob_series"][:]
+                p_prob_series = f[str(record.id)]["p_prob_series"][:]
+                s_prob_series = f[str(record.id)]["s_prob_series"][:]
                 return p_prob_series, s_prob_series
             except KeyError:
                 raise KeyError(f"Record ID {record.id} not found in the file.")
