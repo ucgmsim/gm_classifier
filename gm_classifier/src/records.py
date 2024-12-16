@@ -412,7 +412,7 @@ def process_record(
         prob_series_ffp=prob_series_ffp,
     )
 
-    input_data["record_id"] = get_record_id(record_ffp)
+    input_data["record_id"] = record.id
     input_data["event_id"] = get_event_id(record_ffp)
     input_data["station"] = get_station(record_ffp)
 
