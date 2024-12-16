@@ -371,6 +371,7 @@ def process_record(
     record_ffp: str,
     konno_matrices: Union[str, Dict[int, np.ndarray]],
     phase_arrival_table: pd.DataFrame = None,
+    prob_series_ffp: str = None,
 ) -> Union[Tuple[None, None], Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Extracts the features for the given record
 
@@ -383,6 +384,8 @@ def process_record(
         or a dictionary of the Konno matrices in memory
     phase_arrival_table: pandas dataframe, optional
         The phase arrival table to use for the feature extraction
+    prob_series_ffp: string, optional
+        Path to the prob_series.h5 file to use for the feature extraction
 
     Returns
     -------
@@ -406,6 +409,7 @@ def process_record(
         record,
         ko_matrices=konno_matrices,
         phase_row=phase_row,
+        prob_series_ffp=prob_series_ffp,
     )
 
     input_data["record_id"] = get_record_id(record_ffp)
@@ -427,6 +431,7 @@ def process_records(
     output_prefix: str = "features",
     num_to_save: int = 1000,
     phase_arrival_table: pd.DataFrame = None,
+    prob_series_ffp: str = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
     """Processes a set of record files, allows filtering of which
     records to process
@@ -461,6 +466,8 @@ def process_records(
         Number of records to process before saving the features to disk
     phase_arrival_table: pandas dataframe, optional
         The phase arrival table to use for the feature extraction
+    prob_series_ffp: string, optional
+        Path to the prob_series.h5 file to use for the feature extraction
 
     Returns
     -------
@@ -617,6 +624,7 @@ def process_records(
                 record_ffp,
                 konno_matrices=konno_matrices,
                 phase_arrival_table=phase_arrival_table,
+                prob_series_ffp=prob_series_ffp,
             )
             record_ids.append(cur_features["record_id"])
             event_ids.append(cur_features["event_id"])

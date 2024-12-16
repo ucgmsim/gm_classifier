@@ -16,6 +16,7 @@ def main(
     ko_matrices_dir: str = None,
     low_mem_usage: bool = False,
     phase_arrival_table: pd.DataFrame = None,
+    prob_series_ffp: str = None,
 ):
     (
         feature_df_1,
@@ -31,6 +32,7 @@ def main(
         output_dir=output_dir,
         output_prefix=output_prefix,
         phase_arrival_table=phase_arrival_table,
+        prob_series_ffp=prob_series_ffp,
     )
 
     log_failed_records(output_dir, failed_records)
@@ -210,6 +212,12 @@ if __name__ == "__main__":
         help="Path to the phase arrival table to use for the feature extraction",
         default=None,
     )
+    parser.add_argument(
+        "--prob_series",
+        type=str,
+        help="Path to the prob_series.h5 file to use for the feature extraction",
+        default=None,
+    )
 
     args = parser.parse_args()
 
@@ -222,4 +230,5 @@ if __name__ == "__main__":
         ko_matrices_dir=args.ko_matrices_dir,
         low_mem_usage=args.low_memory,
         phase_arrival_table=None if args.phase_arrival_table is None else pd.read_csv(args.phase_arrival_table),
+        prob_series_ffp=args.prob_series,
     )
