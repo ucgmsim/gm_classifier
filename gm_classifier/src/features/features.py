@@ -566,7 +566,6 @@ def get_features(
             try:
                 p_prob_series = f[record.id]["p_prob_series"][:]
                 s_prob_series = f[record.id]["s_prob_series"][:]
-                return p_prob_series, s_prob_series
             except KeyError:
                 raise KeyError(f"Record ID {record.id} not found in the file.")
     else:
