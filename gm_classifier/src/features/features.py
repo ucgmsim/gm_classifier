@@ -4,6 +4,8 @@ from Xavier Bellagamba (https://github.com/xavierbellagamba/GroundMotionRecordCl
 """
 import os
 import math
+import h5py
+import pandas as pd
 from enum import Enum
 from typing import Tuple, Dict, Union, Any
 from collections import namedtuple
@@ -553,17 +555,26 @@ def compute_channel_features(
 
 
 def get_features(
-    record: Record, ko_matrices: Dict[int, np.ndarray] = None,
+    record: Record, ko_matrices: Dict[int, np.ndarray] = None, phase_row: pd.Series = None, prob_series_ffp: str = None
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # Create the time vector
     t = np.arange(record.size) * record.dt
 
-    p_wave_ix, s_wave_ix, p_prob_series, s_prob_series = run_phase_net(
-        np.stack((record.acc_1, record.acc_2, record.acc_v), axis=1)[np.newaxis, ...],
-        record.dt,
-        t,
-        return_prob_series=True,
-    )
+    if phase_row is not None and not phase_row.empty:
+        p_wave_ix, s_wave_ix, = phase_row["p_wave_ix"].values[0], phase_row["s_wave_ix"].values[0]
+        with h5py.File(prob_series_ffp, 'r') as f:
+            try:
+                p_prob_series = f[record.id]["p_prob_series"][:]
+                s_prob_series = f[record.id]["s_prob_series"][:]
+            except KeyError:
+                raise KeyError(f"Record ID {record.id} not found in the file.")
+    else:
+        p_wave_ix, s_wave_ix, p_prob_series, s_prob_series = run_phase_net(
+            np.stack((record.acc_1, record.acc_2, record.acc_v), axis=1)[np.newaxis, ...],
+            record.dt,
+            t,
+            return_prob_series=True,
+        )
 
     if (record.size - p_wave_ix) * record.dt <= 10.24:
         raise FeatureError(
