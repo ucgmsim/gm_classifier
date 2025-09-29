@@ -25,6 +25,7 @@ def main(output_dir):
         print(f"Computing konno {int(ft_len / 2)}")
         start_time = time.time()
         cur_konno = gmc.features.features.get_konno_matrix(ft_len, dt=dt)
+        cur_konno = np.asfortranarray(cur_konno)
         print(f"Took {time.time() - start_time}\n")
 
         np.save(os.path.join(output_dir, f"KO_{int(ft_len / 2)}.npy"), cur_konno)
