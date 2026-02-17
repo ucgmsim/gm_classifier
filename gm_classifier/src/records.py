@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import scipy.signal as signal
 from obspy.clients.fdsn import Client as FDSN_Client
-from obspy import read, Inventory, read_events
+from obspy import read, Inventory, read_events, read_inventory
 
 from .geoNet_file import GeoNet_File, EmptyFile
 from .console import console
@@ -214,21 +214,32 @@ class Record:
         )
 
     @classmethod
-    def load_mseed(cls, mseed_ffp: str, inventory: Inventory = None):
+    def load_mseed(cls, mseed_ffp: str, inventory: Inventory = None, xml_dir: str = None):
         record_id = os.path.basename(mseed_ffp).split(".")[0]
 
         if inventory is None:
             if cls.inventory is None:
-                console.print(
-                    "Loading the station inventory (this may take a few seconds)"
-                )
-                client_NZ = FDSN_Client("GEONET")
-                inventory_NZ = client_NZ.get_stations(level="response")
-                client_IU = FDSN_Client("IRIS")
-                inventory_IU = client_IU.get_stations(
-                    network="IU", station="SNZO", level="response"
-                )
-                cls.inventory = inventory_NZ + inventory_IU
+                if xml_dir is not None:
+                    console.print(
+                        "Loading the station inventory from the provided xml directory"
+                    )
+                    # Get the station from the record name
+                    station = get_station(mseed_ffp)
+                    # Load the inventory information
+                    inventory_file = xml_dir / f"{station}.xml"
+                    if inventory_file.is_file():
+                        cls.inventory = read_inventory(inventory_file)
+                else:
+                    console.print(
+                        "Loading the station inventory (this may take a few seconds)"
+                    )
+                    client_NZ = FDSN_Client("GEONET")
+                    inventory_NZ = client_NZ.get_stations(level="response")
+                    client_IU = FDSN_Client("IRIS")
+                    inventory_IU = client_IU.get_stations(
+                        network="IU", station="SNZO", level="response"
+                    )
+                    cls.inventory = inventory_NZ + inventory_IU
             inventory = cls.inventory
 
         st = read(mseed_ffp)
@@ -294,11 +305,11 @@ class Record:
         )
 
     @classmethod
-    def load(cls, ffp: str):
+    def load(cls, ffp: str, xml_dir: str = None):
         if os.path.basename(ffp).split(".")[-1].lower() == "v1a":
             return cls.load_v1a(ffp)
         elif os.path.basename(ffp).split(".")[-1].lower() == "mseed":
-            return cls.load_mseed(ffp, cls.inventory)
+            return cls.load_mseed(ffp, cls.inventory, xml_dir)
         elif os.path.basename(ffp).split(".")[-1].lower() == "csv":
             return cls.load_csv(ffp)
 
@@ -343,7 +354,9 @@ def get_station(record_ffp: str) -> Union[str, None]:
     split_fname = filename.split("_")
     if len(split_fname) == 3:
         return str(split_fname[-1].split(".")[0])
-    elif len(split_fname) in [2, 4]:
+    elif len(split_fname) == 4:
+        return str(split_fname[-3])
+    elif len(split_fname) ==2:
         return str(split_fname[-2])
     elif len(split_fname) == 5:
         return str(split_fname[-3])
@@ -372,6 +385,7 @@ def process_record(
     konno_matrices: Union[str, Dict[int, np.ndarray]],
     phase_arrival_table: pd.DataFrame = None,
     prob_series_ffp: str = None,
+    xml_dir: str = None,
 ) -> Union[Tuple[None, None], Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Extracts the features for the given record
 
@@ -386,6 +400,8 @@ def process_record(
         The phase arrival table to use for the feature extraction
     prob_series_ffp: string, optional
         Path to the prob_series.h5 file to use for the feature extraction
+    xml_dir: string, optional
+        Path to the directory containing the station xml files for inventory information
 
     Returns
     -------
@@ -394,7 +410,7 @@ def process_record(
     add_data: dictionary
         Additional data
     """
-    record = Record.load(record_ffp)
+    record = Record.load(record_ffp, xml_dir)
     record.record_preprocesing()
 
     phase_row = (
@@ -432,6 +448,7 @@ def process_records(
     num_to_save: int = 1000,
     phase_arrival_table: pd.DataFrame = None,
     prob_series_ffp: str = None,
+    xml_dir: str = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
     """Processes a set of record files, allows filtering of which
     records to process
@@ -468,6 +485,8 @@ def process_records(
         The phase arrival table to use for the feature extraction
     prob_series_ffp: string, optional
         Path to the prob_series.h5 file to use for the feature extraction
+    xml_dir: string, optional
+        Path to the directory containing the station xml files for inventory information
 
     Returns
     -------
@@ -625,6 +644,7 @@ def process_records(
                 konno_matrices=konno_matrices,
                 phase_arrival_table=phase_arrival_table,
                 prob_series_ffp=prob_series_ffp,
+                xml_dir=xml_dir,
             )
             record_ids.append(cur_features["record_id"])
             event_ids.append(cur_features["event_id"])
