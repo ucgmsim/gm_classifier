@@ -240,5 +240,5 @@ if __name__ == "__main__":
         low_mem_usage=args.low_memory,
         phase_arrival_table=None if args.phase_arrival_table is None else pd.read_csv(args.phase_arrival_table),
         prob_series_ffp=args.prob_series,
-        xml_dir=xml_dir,
+        xml_dir=args.xml_dir,
     )
