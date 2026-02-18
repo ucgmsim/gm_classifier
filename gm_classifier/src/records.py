@@ -226,7 +226,7 @@ class Record:
                     # Get the station from the record name
                     station = get_station(mseed_ffp)
                     # Load the inventory information
-                    inventory_file = xml_dir / f"{station}.xml"
+                    inventory_file = Path(xml_dir) / f"{station}.xml"
                     if inventory_file.is_file():
                         cls.inventory = read_inventory(inventory_file)
                 else:
