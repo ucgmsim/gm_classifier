@@ -217,29 +217,28 @@ class Record:
     def load_mseed(cls, mseed_ffp: str, inventory: Inventory = None, xml_dir: str = None):
         record_id = os.path.basename(mseed_ffp).split(".")[0]
 
-        if inventory is None:
+        if xml_dir is not None:
+            console.print(
+                "Attempting to load the station inventory from the provided xml directory"
+            )
+            # Get the station from the record name
+            station = get_station(mseed_ffp)
+            # Load the inventory information
+            inventory_file = Path(xml_dir) / f"{station}.xml"
+            if inventory_file.is_file():
+                inventory = read_inventory(inventory_file)
+        elif inventory is None:
             if cls.inventory is None:
-                if xml_dir is not None:
-                    console.print(
-                        "Loading the station inventory from the provided xml directory"
-                    )
-                    # Get the station from the record name
-                    station = get_station(mseed_ffp)
-                    # Load the inventory information
-                    inventory_file = Path(xml_dir) / f"{station}.xml"
-                    if inventory_file.is_file():
-                        cls.inventory = read_inventory(inventory_file)
-                else:
-                    console.print(
-                        "Loading the station inventory (this may take a few seconds)"
-                    )
-                    client_NZ = FDSN_Client("GEONET")
-                    inventory_NZ = client_NZ.get_stations(level="response")
-                    client_IU = FDSN_Client("IRIS")
-                    inventory_IU = client_IU.get_stations(
-                        network="IU", station="SNZO", level="response"
-                    )
-                    cls.inventory = inventory_NZ + inventory_IU
+                console.print(
+                    "Loading the station inventory (this may take a few seconds)"
+                )
+                client_NZ = FDSN_Client("GEONET")
+                inventory_NZ = client_NZ.get_stations(level="response")
+                client_IU = FDSN_Client("IRIS")
+                inventory_IU = client_IU.get_stations(
+                    network="IU", station="SNZO", level="response"
+                )
+                cls.inventory = inventory_NZ + inventory_IU
             inventory = cls.inventory
 
         st = read(mseed_ffp)
