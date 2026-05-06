@@ -562,7 +562,7 @@ def get_features(
 
     if phase_row is not None and not phase_row.empty:
         p_wave_ix, s_wave_ix, = phase_row["p_wave_ix"].values[0], phase_row["s_wave_ix"].values[0]
-        with h5py.File(prob_series_ffp, 'r') as f:
+        with h5py.File(prob_series_ffp, 'r', swmr=True) as f:
             try:
                 p_prob_series = f[record.id]["p_prob_series"][:]
                 s_prob_series = f[record.id]["s_prob_series"][:]
