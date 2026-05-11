@@ -385,6 +385,7 @@ def process_record(
     phase_arrival_table: pd.DataFrame = None,
     prob_series_ffp: str = None,
     xml_dir: str = None,
+    output_dir: str = None
 ) -> Union[Tuple[None, None], Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Extracts the features for the given record
 
@@ -425,6 +426,7 @@ def process_record(
         ko_matrices=konno_matrices,
         phase_row=phase_row,
         prob_series_ffp=prob_series_ffp,
+        output_dir=output_dir,
     )
 
     input_data["record_id"] = get_record_id(record_ffp)
@@ -644,6 +646,7 @@ def process_records(
                 phase_arrival_table=phase_arrival_table,
                 prob_series_ffp=prob_series_ffp,
                 xml_dir=xml_dir,
+                output_dir=output_dir,
             )
             record_ids.append(cur_features["record_id"])
             event_ids.append(cur_features["event_id"])
