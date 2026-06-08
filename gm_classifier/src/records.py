@@ -318,7 +318,7 @@ class Record:
             else:
                 # Now we must use remove sensitivity instead
                 st_acc = st.remove_sensitivity(inventory=inventory)
-        except ValueError as ex:
+        except Exception as ex:
             if ex.args[0] == "No matching response information found.":
                 raise RecordError(
                     f"Record {record_id} - No matching response information found",
