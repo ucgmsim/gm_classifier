@@ -90,6 +90,9 @@ class RecordErrorType(Enum):
     # Record length less than 5 seconds
     TotalTime = 8
 
+    # Remove sensitivity issue
+    RemoveSensitivity = 9
+
 
 class RecordFormat(Enum):
     V1A = "V1A"
@@ -314,10 +317,7 @@ class Record:
                     )
             else:
                 # Now we must use remove sensitivity instead
-                if channel[:2] in ["HN", "BN"]:
-                    st_acc = st.remove_sensitivity(inventory=inventory)
-                else:
-                    st_acc = st.remove_sensitivity(inventory=inventory).differentiate()
+                st_acc = st.remove_sensitivity(inventory=inventory)
         except ValueError as ex:
             if ex.args[0] == "No matching response information found.":
                 raise RecordError(
@@ -326,6 +326,16 @@ class Record:
                 )
             else:
                 raise ex
+
+        if channel[:2] not in ["HN", "BN"]:
+            try:
+                # differentiate data i.e., m/s to m/s^2
+                st_acc.differentiate()
+            except ValueError:
+                raise RecordError(
+                    f"Record {record_id} - Issue while differentiating",
+                    RecordErrorType.RemoveSensitivity,
+                )
 
         # To save the horizontal channel identifiers
         horiz_channels = []
