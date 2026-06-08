@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 import scipy.signal as signal
 from obspy.clients.fdsn import Client as FDSN_Client
-from obspy import read, Inventory, read_events, read_inventory
+from obspy.core.inventory.response import Response
+from obspy import read, Inventory, read_events, read_inventory, UTCDateTime
 
 from .geoNet_file import GeoNet_File, EmptyFile
 from .console import console
@@ -22,6 +23,49 @@ EVENT_YEARS = [str(ix) for ix in range(1950, 2050, 1)]
 G = 9.80665
 
 KO_MATRIX_SIZES = [512, 1024, 2048, 4096, 8192, 16384, 32768]
+
+
+def check_sensitivity(
+    resp: Response,
+    threshold: float = 10.0,
+) -> tuple[bool, float]:
+    """
+    Returns True if full response removal is safe,
+    False if sensitivity mismatch suggests using remove_sensitivity().
+
+    Parameters
+    ----------
+    resp: Response
+        The response object to check the sensitivity of
+    threshold : float, optional
+        The percentage difference threshold to determine if the sensitivity mismatch is acceptable, by default 10.0
+
+    Returns
+    -------
+    bool
+        True if the percentage difference is less than or equal to the threshold, False otherwise
+    float
+        The percentage difference between the total sensitivity and the stage sensitivity
+
+    Reference
+    ----------
+        USGS gmprocess instrument-response helper:
+        https://ghsc.code-pages.usgs.gov/esi/groundmotion-processing/_modules/gmprocess/waveform_processing/instrument_response.html
+    """
+    stages = resp.response_stages
+
+    # Total sensitivity
+    total = resp.instrument_sensitivity.value
+
+    # Stage sensitivity (product of stage gains)
+    stage = 1.0
+    for s in stages:
+        stage *= s.stage_gain
+
+    # Percent difference
+    pct_diff = 200.0 * abs(total - stage) / (total + stage)
+
+    return pct_diff <= threshold, pct_diff
 
 
 class RecordErrorType(Enum):
@@ -244,12 +288,36 @@ class Record:
         st = read(mseed_ffp)
         # Converts it to acceleration in m/s^2
         try:
-            if st[0].stats.channel[1] == "N":  # Checks whether data is strong motion
-                st_acc = st.copy().remove_sensitivity(inventory=inventory)
+            # Apply the correct sensitivity removal based on the check_sensitivity function
+            t = UTCDateTime(st[0].stats.starttime)
+            resp = inventory.get_response(st[0].id, t)
+            ok, diff = check_sensitivity(resp)
+            paz = resp.get_paz()
+            has_paz = not (len(paz.poles) == 0 and len(paz.zeros) == 0)
+            channel = st[0].stats.channel
+
+            # Checks that the response has poles and zeros and that the sensitivity mismatch is acceptable before applying the full remove_response method.
+            if has_paz and ok:
+                if channel[:2] in ["HN", "BN"]:
+                    st_acc = st.remove_response(inventory=inventory, output="ACC")
+                else:
+                    # We have a broadband record so need to apply some pre-filters
+                    f_nyq = 0.5 / st[0].stats.delta
+                    f3 = 0.9 * f_nyq
+                    pre_filt = (0.01, 0.05, f3, f_nyq)
+                    st_acc = st.remove_response(
+                        inventory=inventory,
+                        output="VEL",
+                        pre_filt=pre_filt,
+                        zero_mean=True,
+                        taper=True,
+                    )
             else:
-                st_acc = (
-                    st.copy().remove_sensitivity(inventory=inventory).differentiate()
-                )
+                # Now we must use remove sensitivity instead
+                if channel[:2] in ["HN", "BN"]:
+                    st_acc = st.remove_sensitivity(inventory=inventory)
+                else:
+                    st_acc = st.remove_sensitivity(inventory=inventory).differentiate()
         except ValueError as ex:
             if ex.args[0] == "No matching response information found.":
                 raise RecordError(
