@@ -567,7 +567,7 @@ def get_features(
                 p_prob_series = f[record.id]["p_prob_series"][:]
                 s_prob_series = f[record.id]["s_prob_series"][:]
             except KeyError:
-                # raise KeyError(f"Record ID {record.id} not found in the file.")
+                # Record is in the phase arrival table but not the prob series file, so run PhaseNet for it here
                 print(f"Record ID {record.id} not found in the file. Re-running PhaseNet for this record.")
                 p_wave_ix, s_wave_ix, p_prob_series, s_prob_series = run_phase_net(
                     np.stack((record.acc_1, record.acc_2, record.acc_v), axis=1)[
@@ -577,18 +577,13 @@ def get_features(
                     t,
                     return_prob_series=True,
                 )
-                # Now save the results for the prob series for future use
-                prob_series_ffp_extra = output_dir + f"/prob_series_extra.h5"
-                # Do a check if it exists, if not create it and save the prob series, if it does exist save the prob series to the existing file
-                if not os.path.exists(prob_series_ffp_extra):
-                    # Create the file and save the prob series
-                    with h5py.File(prob_series_ffp_extra, 'w') as f:
-                        grp = f.require_group(record.id)
-                        grp.create_dataset("p_prob_series", data=p_prob_series)
-                        grp.create_dataset("s_prob_series", data=s_prob_series)
-                else:
-                    with h5py.File(prob_series_ffp_extra, 'a') as f:
-                        grp = f.require_group(record.id)
+                # Save the prob series for future use ("a" creates the file if it does not exist)
+                if output_dir is not None:
+                    with h5py.File(os.path.join(output_dir, "prob_series_extra.h5"), "a") as extra_f:
+                        # Replace any result from an earlier run
+                        if record.id in extra_f:
+                            del extra_f[record.id]
+                        grp = extra_f.create_group(record.id)
                         grp.create_dataset("p_prob_series", data=p_prob_series)
                         grp.create_dataset("s_prob_series", data=s_prob_series)
     else:

@@ -35,7 +35,7 @@ def check_sensitivity(
 
     Parameters
     ----------
-    resp: Response
+    resp : Response
         The response object to check the sensitivity of
     threshold : float, optional
         The percentage difference threshold to determine if the sensitivity mismatch is acceptable, by default 10.0
@@ -47,7 +47,7 @@ def check_sensitivity(
     float
         The percentage difference between the total sensitivity and the stage sensitivity
 
-    Reference
+    References
     ----------
         USGS gmprocess instrument-response helper:
         https://ghsc.code-pages.usgs.gov/esi/groundmotion-processing/_modules/gmprocess/waveform_processing/instrument_response.html
@@ -90,8 +90,11 @@ class RecordErrorType(Enum):
     # Record length less than 5 seconds
     TotalTime = 8
 
-    # Remove sensitivity issue
+    # Failed to remove the response / sensitivity
     RemoveSensitivity = 9
+
+    # Failed to differentiate velocity to acceleration
+    Differentiate = 10
 
 
 class RecordFormat(Enum):
@@ -263,17 +266,22 @@ class Record:
     @classmethod
     def load_mseed(cls, mseed_ffp: str, inventory: Inventory = None, xml_dir: str = None):
         record_id = os.path.basename(mseed_ffp).split(".")[0]
+        st = read(mseed_ffp)
 
         if xml_dir is not None:
             console.print(
                 "Attempting to load the station inventory from the provided xml directory"
             )
-            # Get the station from the record name
-            station = get_station(mseed_ffp)
-            # Load the inventory information
-            inventory_file = Path(xml_dir) / f"{station}.xml"
-            if inventory_file.is_file():
-                inventory = read_inventory(inventory_file)
+            # Load the NET.STA.xml inventory saved by NZGMDB, using the network and station from the record
+            inventory_file = (
+                Path(xml_dir) / f"{st[0].stats.network}.{st[0].stats.station}.xml"
+            )
+            if not inventory_file.is_file():
+                raise RecordError(
+                    f"Record {record_id} - No station xml found at {inventory_file}",
+                    RecordErrorType.MissinResponseInfo,
+                )
+            inventory = read_inventory(inventory_file)
         elif inventory is None:
             if cls.inventory is None:
                 console.print(
@@ -288,7 +296,6 @@ class Record:
                 cls.inventory = inventory_NZ + inventory_IU
             inventory = cls.inventory
 
-        st = read(mseed_ffp)
         # Converts it to acceleration in m/s^2
         try:
             # Apply the correct sensitivity removal based on the check_sensitivity function
@@ -319,13 +326,15 @@ class Record:
                 # Now we must use remove sensitivity instead
                 st_acc = st.remove_sensitivity(inventory=inventory)
         except Exception as ex:
-            if ex.args[0] == "No matching response information found.":
+            if ex.args and ex.args[0] == "No matching response information found.":
                 raise RecordError(
                     f"Record {record_id} - No matching response information found",
                     RecordErrorType.MissinResponseInfo,
                 )
-            else:
-                raise ex
+            raise RecordError(
+                f"Record {record_id} - Failed to remove the response: {ex}",
+                RecordErrorType.RemoveSensitivity,
+            )
 
         if channel[:2] not in ["HN", "BN"]:
             try:
@@ -334,7 +343,7 @@ class Record:
             except ValueError:
                 raise RecordError(
                     f"Record {record_id} - Issue while differentiating",
-                    RecordErrorType.RemoveSensitivity,
+                    RecordErrorType.Differentiate,
                 )
 
         # To save the horizontal channel identifiers
@@ -479,7 +488,9 @@ def process_record(
     prob_series_ffp: string, optional
         Path to the prob_series.h5 file to use for the feature extraction
     xml_dir: string, optional
-        Path to the directory containing the station xml files for inventory information
+        Path to the directory containing the NZGMDB NET.STA.xml station files for inventory information
+    output_dir: string, optional
+        Output directory, used to save PhaseNet probability series for records missing from prob_series_ffp
 
     Returns
     -------

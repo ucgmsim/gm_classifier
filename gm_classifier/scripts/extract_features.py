@@ -106,6 +106,22 @@ def log_failed_records(
                     )
                 )
             )
+    if len(record_errors[gmc.records.RecordErrorType.RemoveSensitivity]) > 0:
+        with open(os.path.join(output_dir, "remove_sensitivity.txt"), "w") as f:
+            f.write(
+                "The following records failed due to an issue removing the response:\n{}".format(
+                    "\n".join(
+                        record_errors[gmc.records.RecordErrorType.RemoveSensitivity]
+                    )
+                )
+            )
+    if len(record_errors[gmc.records.RecordErrorType.Differentiate]) > 0:
+        with open(os.path.join(output_dir, "differentiate.txt"), "w") as f:
+            f.write(
+                "The following records failed due to an issue differentiating to acceleration:\n{}".format(
+                    "\n".join(record_errors[gmc.records.RecordErrorType.Differentiate])
+                )
+            )
     if len(failed_records["empty_file"]) > 0:
         with open(os.path.join(output_dir, "empty.txt"), "w") as f:
             f.write(
@@ -223,8 +239,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--xml_dir",
         type=str,
-        help="Path to the directory containing the station xml files. "
-        "Required if the records are in mseed format and for reducing FDSN calls that require station information",
+        help="Path to the directory of NZGMDB NET.STA.xml station files. "
+        "Used for mseed records instead of fetching the full GeoNet inventory from FDSN",
         default=None,
     )
 
