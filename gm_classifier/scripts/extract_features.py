@@ -17,6 +17,7 @@ def main(
     low_mem_usage: bool = False,
     phase_arrival_table: pd.DataFrame = None,
     prob_series_ffp: str = None,
+    xml_dir: str = None,
 ):
     (
         feature_df_1,
@@ -33,6 +34,7 @@ def main(
         output_prefix=output_prefix,
         phase_arrival_table=phase_arrival_table,
         prob_series_ffp=prob_series_ffp,
+        xml_dir=xml_dir,
     )
 
     log_failed_records(output_dir, failed_records)
@@ -102,6 +104,22 @@ def log_failed_records(
                     "\n".join(
                         record_errors[gmc.records.RecordErrorType.MissinResponseInfo]
                     )
+                )
+            )
+    if len(record_errors[gmc.records.RecordErrorType.RemoveSensitivity]) > 0:
+        with open(os.path.join(output_dir, "remove_sensitivity.txt"), "w") as f:
+            f.write(
+                "The following records failed due to an issue removing the response:\n{}".format(
+                    "\n".join(
+                        record_errors[gmc.records.RecordErrorType.RemoveSensitivity]
+                    )
+                )
+            )
+    if len(record_errors[gmc.records.RecordErrorType.Differentiate]) > 0:
+        with open(os.path.join(output_dir, "differentiate.txt"), "w") as f:
+            f.write(
+                "The following records failed due to an issue differentiating to acceleration:\n{}".format(
+                    "\n".join(record_errors[gmc.records.RecordErrorType.Differentiate])
                 )
             )
     if len(failed_records["empty_file"]) > 0:
@@ -218,6 +236,13 @@ if __name__ == "__main__":
         help="Path to the prob_series.h5 file to use for the feature extraction",
         default=None,
     )
+    parser.add_argument(
+        "--xml_dir",
+        type=str,
+        help="Path to the directory of NZGMDB NET.STA.xml station files. "
+        "Used for mseed records instead of fetching the full GeoNet inventory from FDSN",
+        default=None,
+    )
 
     args = parser.parse_args()
 
@@ -231,4 +256,5 @@ if __name__ == "__main__":
         low_mem_usage=args.low_memory,
         phase_arrival_table=None if args.phase_arrival_table is None else pd.read_csv(args.phase_arrival_table),
         prob_series_ffp=args.prob_series,
+        xml_dir=args.xml_dir,
     )

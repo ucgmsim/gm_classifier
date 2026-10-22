@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 import scipy.signal as signal
 from obspy.clients.fdsn import Client as FDSN_Client
-from obspy import read, Inventory, read_events
+from obspy.core.inventory.response import Response
+from obspy import read, Inventory, read_events, read_inventory, UTCDateTime
 
 from .geoNet_file import GeoNet_File, EmptyFile
 from .console import console
@@ -22,6 +23,49 @@ EVENT_YEARS = [str(ix) for ix in range(1950, 2050, 1)]
 G = 9.80665
 
 KO_MATRIX_SIZES = [512, 1024, 2048, 4096, 8192, 16384, 32768]
+
+
+def check_sensitivity(
+    resp: Response,
+    threshold: float = 10.0,
+) -> tuple[bool, float]:
+    """
+    Returns True if full response removal is safe,
+    False if sensitivity mismatch suggests using remove_sensitivity().
+
+    Parameters
+    ----------
+    resp : Response
+        The response object to check the sensitivity of
+    threshold : float, optional
+        The percentage difference threshold to determine if the sensitivity mismatch is acceptable, by default 10.0
+
+    Returns
+    -------
+    bool
+        True if the percentage difference is less than or equal to the threshold, False otherwise
+    float
+        The percentage difference between the total sensitivity and the stage sensitivity
+
+    References
+    ----------
+        USGS gmprocess instrument-response helper:
+        https://ghsc.code-pages.usgs.gov/esi/groundmotion-processing/_modules/gmprocess/waveform_processing/instrument_response.html
+    """
+    stages = resp.response_stages
+
+    # Total sensitivity
+    total = resp.instrument_sensitivity.value
+
+    # Stage sensitivity (product of stage gains)
+    stage = 1.0
+    for s in stages:
+        stage *= s.stage_gain
+
+    # Percent difference
+    pct_diff = 200.0 * abs(total - stage) / (total + stage)
+
+    return pct_diff <= threshold, pct_diff
 
 
 class RecordErrorType(Enum):
@@ -45,6 +89,12 @@ class RecordErrorType(Enum):
 
     # Record length less than 5 seconds
     TotalTime = 8
+
+    # Failed to remove the response / sensitivity
+    RemoveSensitivity = 9
+
+    # Failed to differentiate velocity to acceleration
+    Differentiate = 10
 
 
 class RecordFormat(Enum):
@@ -214,10 +264,25 @@ class Record:
         )
 
     @classmethod
-    def load_mseed(cls, mseed_ffp: str, inventory: Inventory = None):
+    def load_mseed(cls, mseed_ffp: str, inventory: Inventory = None, xml_dir: str = None):
         record_id = os.path.basename(mseed_ffp).split(".")[0]
+        st = read(mseed_ffp)
 
-        if inventory is None:
+        if xml_dir is not None:
+            console.print(
+                "Attempting to load the station inventory from the provided xml directory"
+            )
+            # Load the NET.STA.xml inventory saved by NZGMDB, using the network and station from the record
+            inventory_file = (
+                Path(xml_dir) / f"{st[0].stats.network}.{st[0].stats.station}.xml"
+            )
+            if not inventory_file.is_file():
+                raise RecordError(
+                    f"Record {record_id} - No station xml found at {inventory_file}",
+                    RecordErrorType.MissinResponseInfo,
+                )
+            inventory = read_inventory(inventory_file)
+        elif inventory is None:
             if cls.inventory is None:
                 console.print(
                     "Loading the station inventory (this may take a few seconds)"
@@ -231,23 +296,55 @@ class Record:
                 cls.inventory = inventory_NZ + inventory_IU
             inventory = cls.inventory
 
-        st = read(mseed_ffp)
         # Converts it to acceleration in m/s^2
         try:
-            if st[0].stats.channel[1] == "N":  # Checks whether data is strong motion
-                st_acc = st.copy().remove_sensitivity(inventory=inventory)
+            # Apply the correct sensitivity removal based on the check_sensitivity function
+            t = UTCDateTime(st[0].stats.starttime)
+            resp = inventory.get_response(st[0].id, t)
+            ok, diff = check_sensitivity(resp)
+            paz = resp.get_paz()
+            has_paz = not (len(paz.poles) == 0 and len(paz.zeros) == 0)
+            channel = st[0].stats.channel
+
+            # Checks that the response has poles and zeros and that the sensitivity mismatch is acceptable before applying the full remove_response method.
+            if has_paz and ok:
+                if channel[:2] in ["HN", "BN"]:
+                    st_acc = st.remove_response(inventory=inventory, output="ACC")
+                else:
+                    # We have a broadband record so need to apply some pre-filters
+                    f_nyq = 0.5 / st[0].stats.delta
+                    f3 = 0.9 * f_nyq
+                    pre_filt = (0.01, 0.05, f3, f_nyq)
+                    st_acc = st.remove_response(
+                        inventory=inventory,
+                        output="VEL",
+                        pre_filt=pre_filt,
+                        zero_mean=True,
+                        taper=True,
+                    )
             else:
-                st_acc = (
-                    st.copy().remove_sensitivity(inventory=inventory).differentiate()
-                )
-        except ValueError as ex:
-            if ex.args[0] == "No matching response information found.":
+                # Now we must use remove sensitivity instead
+                st_acc = st.remove_sensitivity(inventory=inventory)
+        except Exception as ex:
+            if ex.args and ex.args[0] == "No matching response information found.":
                 raise RecordError(
                     f"Record {record_id} - No matching response information found",
                     RecordErrorType.MissinResponseInfo,
                 )
-            else:
-                raise ex
+            raise RecordError(
+                f"Record {record_id} - Failed to remove the response: {ex}",
+                RecordErrorType.RemoveSensitivity,
+            )
+
+        if channel[:2] not in ["HN", "BN"]:
+            try:
+                # differentiate data i.e., m/s to m/s^2
+                st_acc.differentiate()
+            except ValueError:
+                raise RecordError(
+                    f"Record {record_id} - Issue while differentiating",
+                    RecordErrorType.Differentiate,
+                )
 
         # To save the horizontal channel identifiers
         horiz_channels = []
@@ -294,11 +391,11 @@ class Record:
         )
 
     @classmethod
-    def load(cls, ffp: str):
+    def load(cls, ffp: str, xml_dir: str = None):
         if os.path.basename(ffp).split(".")[-1].lower() == "v1a":
             return cls.load_v1a(ffp)
         elif os.path.basename(ffp).split(".")[-1].lower() == "mseed":
-            return cls.load_mseed(ffp, cls.inventory)
+            return cls.load_mseed(ffp, cls.inventory, xml_dir)
         elif os.path.basename(ffp).split(".")[-1].lower() == "csv":
             return cls.load_csv(ffp)
 
@@ -343,7 +440,9 @@ def get_station(record_ffp: str) -> Union[str, None]:
     split_fname = filename.split("_")
     if len(split_fname) == 3:
         return str(split_fname[-1].split(".")[0])
-    elif len(split_fname) in [2, 4]:
+    elif len(split_fname) == 4:
+        return str(split_fname[-3])
+    elif len(split_fname) ==2:
         return str(split_fname[-2])
     elif len(split_fname) == 5:
         return str(split_fname[-3])
@@ -372,6 +471,8 @@ def process_record(
     konno_matrices: Union[str, Dict[int, np.ndarray]],
     phase_arrival_table: pd.DataFrame = None,
     prob_series_ffp: str = None,
+    xml_dir: str = None,
+    output_dir: str = None
 ) -> Union[Tuple[None, None], Tuple[Dict[str, Any], Dict[str, Any]]]:
     """Extracts the features for the given record
 
@@ -386,6 +487,10 @@ def process_record(
         The phase arrival table to use for the feature extraction
     prob_series_ffp: string, optional
         Path to the prob_series.h5 file to use for the feature extraction
+    xml_dir: string, optional
+        Path to the directory containing the NZGMDB NET.STA.xml station files for inventory information
+    output_dir: string, optional
+        Output directory, used to save PhaseNet probability series for records missing from prob_series_ffp
 
     Returns
     -------
@@ -394,7 +499,7 @@ def process_record(
     add_data: dictionary
         Additional data
     """
-    record = Record.load(record_ffp)
+    record = Record.load(record_ffp, xml_dir)
     record.record_preprocesing()
 
     phase_row = (
@@ -410,6 +515,7 @@ def process_record(
         ko_matrices=konno_matrices,
         phase_row=phase_row,
         prob_series_ffp=prob_series_ffp,
+        output_dir=output_dir,
     )
 
     input_data["record_id"] = get_record_id(record_ffp)
@@ -432,6 +538,7 @@ def process_records(
     num_to_save: int = 1000,
     phase_arrival_table: pd.DataFrame = None,
     prob_series_ffp: str = None,
+    xml_dir: str = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
     """Processes a set of record files, allows filtering of which
     records to process
@@ -468,6 +575,8 @@ def process_records(
         The phase arrival table to use for the feature extraction
     prob_series_ffp: string, optional
         Path to the prob_series.h5 file to use for the feature extraction
+    xml_dir: string, optional
+        Path to the directory containing the station xml files for inventory information
 
     Returns
     -------
@@ -625,6 +734,8 @@ def process_records(
                 konno_matrices=konno_matrices,
                 phase_arrival_table=phase_arrival_table,
                 prob_series_ffp=prob_series_ffp,
+                xml_dir=xml_dir,
+                output_dir=output_dir,
             )
             record_ids.append(cur_features["record_id"])
             event_ids.append(cur_features["event_id"])

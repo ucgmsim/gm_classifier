@@ -555,7 +555,7 @@ def compute_channel_features(
 
 
 def get_features(
-    record: Record, ko_matrices: Dict[int, np.ndarray] = None, phase_row: pd.Series = None, prob_series_ffp: str = None
+    record: Record, ko_matrices: Dict[int, np.ndarray] = None, phase_row: pd.Series = None, prob_series_ffp: str = None, output_dir: str = None
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # Create the time vector
     t = np.arange(record.size) * record.dt
@@ -567,7 +567,16 @@ def get_features(
                 p_prob_series = f[record.id]["p_prob_series"][:]
                 s_prob_series = f[record.id]["s_prob_series"][:]
             except KeyError:
-                raise KeyError(f"Record ID {record.id} not found in the file.")
+                # Record is in the phase arrival table but not the prob series file, so run PhaseNet for it here
+                print(f"Record ID {record.id} not found in the file. Re-running PhaseNet for this record.")
+                p_wave_ix, s_wave_ix, p_prob_series, s_prob_series = run_phase_net(
+                    np.stack((record.acc_1, record.acc_2, record.acc_v), axis=1)[
+                        np.newaxis, ...
+                    ],
+                    record.dt,
+                    t,
+                    return_prob_series=True,
+                )
     else:
         p_wave_ix, s_wave_ix, p_prob_series, s_prob_series = run_phase_net(
             np.stack((record.acc_1, record.acc_2, record.acc_v), axis=1)[np.newaxis, ...],
